@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Exercises</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+
+    <!-- Global status: lives outside every view so it's never hidden by a
+         section that happens to be hidden right now. -->
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <!-- =================== PATTERNS (home) VIEW =================== -->
+    <section id="patterns-view">
+      <div class="page-header">
+        <a href="./app.html" class="icon-link" aria-label="Back">←</a>
+        <h1>Exercises</h1>
+        <button id="new-pattern-btn" class="icon-btn" type="button" aria-label="New movement pattern">+</button>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button id="tab-patterns" class="tab active" type="button" role="tab" aria-selected="true">Patterns</button>
+        <button id="tab-deleted" class="tab" type="button" role="tab" aria-selected="false">Recently deleted</button>
+      </div>
+
+      <p id="loading" class="muted">Loading…</p>
+
+      <div id="patterns-tab">
+        <p id="empty-patterns" class="muted" hidden style="margin-bottom:12px;">
+          No movement patterns yet — tap + to create one, e.g. "Horizontal Press".
+        </p>
+        <ul id="pattern-list" class="list" hidden></ul>
+      </div>
+
+      <div id="deleted-tab" hidden>
+        <p class="section-label">Movement patterns</p>
+        <ul id="deleted-pattern-list" class="list" hidden></ul>
+        <p id="empty-deleted-patterns" class="muted" hidden>None.</p>
+
+        <p class="section-label">Exercises</p>
+        <ul id="deleted-exercise-list" class="list" hidden></ul>
+        <p id="empty-deleted-exercises" class="muted" hidden>None.</p>
+      </div>
+    </section>
+
+    <!-- =================== PATTERN DETAIL (inside a box) =================== -->
+    <section id="pattern-detail-view" hidden>
+      <div class="page-header">
+        <button id="detail-back" class="icon-link" type="button" aria-label="Back to patterns">←</button>
+        <h1 id="detail-title">Pattern name</h1>
+        <button id="detail-edit-btn" class="icon-link" type="button" style="width:auto;padding:0 12px;font-size:14px;">Edit</button>
+      </div>
+
+      <button id="add-exercise-btn" type="button" style="margin-bottom:16px;">+ Add exercise</button>
+
+      <ul id="pattern-exercise-list" class="list" hidden></ul>
+      <p id="empty-pattern-exercises" class="empty-state" hidden>No exercises here yet.</p>
+    </section>
+
+    <!-- =================== PATTERN FORM (create / rename / delete) =================== -->
+    <section id="pattern-form-view" hidden>
+      <div class="page-header">
+        <button id="pattern-form-back" class="icon-link" type="button" aria-label="Cancel">←</button>
+        <h1 id="pattern-form-title">New movement pattern</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <form id="pattern-form" novalidate>
+        <div class="field">
+          <label for="pattern-name">Name</label>
+          <input id="pattern-name" type="text" autocomplete="off" autocapitalize="words"
+                 placeholder="e.g. Horizontal Press" required>
+        </div>
+        <button id="pattern-save-btn" type="submit">Save</button>
+      </form>
+
+      <div id="pattern-form-status" class="status" role="status" aria-live="polite" hidden></div>
+
+      <div id="pattern-delete-zone" class="danger-zone" hidden>
+        <button id="pattern-delete-btn" class="secondary danger" type="button">Delete movement pattern</button>
+        <div id="pattern-delete-confirm" hidden>
+          <p class="muted" id="pattern-delete-copy" style="margin-bottom:12px;"></p>
+          <div class="btn-row">
+            <button id="pattern-delete-cancel" class="secondary" type="button">Cancel</button>
+            <button id="pattern-delete-confirm-btn" class="danger" type="button">Yes, delete</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== EXERCISE FORM (create / edit) =================== -->
+    <section id="exercise-form-view" hidden>
+      <div class="page-header">
+        <button id="exercise-form-back" class="icon-link" type="button" aria-label="Cancel">←</button>
+        <h1 id="exercise-form-title">New exercise</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <form id="exercise-form" novalidate>
+        <div class="field">
+          <label for="ex-name">Name</label>
+          <input id="ex-name" type="text" autocomplete="off" autocapitalize="words" required>
+        </div>
+
+        <div class="field">
+          <label for="ex-type">Type</label>
+          <select id="ex-type" required>
+            <option value="" disabled selected>Select type…</option>
+            <option value="weight_reps">Weight × reps</option>
+            <option value="time_based">Time-based</option>
+            <option value="assisted">Assisted</option>
+          </select>
+          <p id="ex-type-locked-note" class="muted" hidden style="margin-top:8px;">
+            Locked — sets have already been logged for this exercise. The type can't
+            be changed afterward because it would corrupt PR and history calculations.
+          </p>
+        </div>
+
+        <div class="field">
+          <label for="ex-pattern">Movement pattern</label>
+          <select id="ex-pattern">
+            <option value="">None — uncategorized</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="ex-notes">Notes (optional)</label>
+          <textarea id="ex-notes" placeholder="e.g. smith machine = 10kg resistance"></textarea>
+        </div>
+
+        <button id="ex-save-btn" type="submit">Save</button>
+      </form>
+
+      <div id="exercise-form-status" class="status" role="status" aria-live="polite" hidden></div>
+
+      <div id="exercise-delete-zone" class="danger-zone" hidden>
+        <button id="exercise-delete-btn" class="secondary danger" type="button">Delete exercise</button>
+        <div id="exercise-delete-confirm" hidden>
+          <p class="muted" style="margin-bottom:12px;">
+            Delete "<strong id="exercise-delete-name"></strong>"? It moves to Recently deleted
+            and can be restored later.
+          </p>
+          <div class="btn-row">
+            <button id="exercise-delete-cancel" class="secondary" type="button">Cancel</button>
+            <button id="exercise-delete-confirm-btn" class="danger" type="button">Yes, delete</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+
+    const TYPE_LABELS = {
+      weight_reps: 'Weight × reps',
+      time_based: 'Time-based',
+      assisted: 'Assisted',
+    };
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const patternsView = document.getElementById('patterns-view');
+    const detailView = document.getElementById('pattern-detail-view');
+    const patternFormView = document.getElementById('pattern-form-view');
+    const exerciseFormView = document.getElementById('exercise-form-view');
+
+    const topStatus = document.getElementById('top-status');
+    const loading = document.getElementById('loading');
+
+    const tabPatterns = document.getElementById('tab-patterns');
+    const tabDeleted = document.getElementById('tab-deleted');
+    const patternsTab = document.getElementById('patterns-tab');
+    const deletedTab = document.getElementById('deleted-tab');
+
+    const patternListEl = document.getElementById('pattern-list');
+    const emptyPatterns = document.getElementById('empty-patterns');
+
+    const deletedPatternListEl = document.getElementById('deleted-pattern-list');
+    const emptyDeletedPatterns = document.getElementById('empty-deleted-patterns');
+    const deletedExerciseListEl = document.getElementById('deleted-exercise-list');
+    const emptyDeletedExercises = document.getElementById('empty-deleted-exercises');
+
+    const newPatternBtn = document.getElementById('new-pattern-btn');
+
+    const detailBack = document.getElementById('detail-back');
+    const detailTitle = document.getElementById('detail-title');
+    const detailEditBtn = document.getElementById('detail-edit-btn');
+    const addExerciseBtn = document.getElementById('add-exercise-btn');
+    const patternExerciseListEl = document.getElementById('pattern-exercise-list');
+    const emptyPatternExercises = document.getElementById('empty-pattern-exercises');
+
+    const patternFormBack = document.getElementById('pattern-form-back');
+    const patternFormTitle = document.getElementById('pattern-form-title');
+    const patternForm = document.getElementById('pattern-form');
+    const patternNameInput = document.getElementById('pattern-name');
+    const patternSaveBtn = document.getElementById('pattern-save-btn');
+    const patternFormStatus = document.getElementById('pattern-form-status');
+    const patternDeleteZone = document.getElementById('pattern-delete-zone');
+    const patternDeleteBtn = document.getElementById('pattern-delete-btn');
+    const patternDeleteConfirm = document.getElementById('pattern-delete-confirm');
+    const patternDeleteCopy = document.getElementById('pattern-delete-copy');
+    const patternDeleteCancel = document.getElementById('pattern-delete-cancel');
+    const patternDeleteConfirmBtn = document.getElementById('pattern-delete-confirm-btn');
+
+    const exerciseFormBack = document.getElementById('exercise-form-back');
+    const exerciseFormTitle = document.getElementById('exercise-form-title');
+    const exerciseForm = document.getElementById('exercise-form');
+    const exNameInput = document.getElementById('ex-name');
+    const exTypeSelect = document.getElementById('ex-type');
+    const exTypeLockedNote = document.getElementById('ex-type-locked-note');
+    const exPatternSelect = document.getElementById('ex-pattern');
+    const exNotesInput = document.getElementById('ex-notes');
+    const exSaveBtn = document.getElementById('ex-save-btn');
+    const exerciseFormStatus = document.getElementById('exercise-form-status');
+    const exerciseDeleteZone = document.getElementById('exercise-delete-zone');
+    const exerciseDeleteBtn = document.getElementById('exercise-delete-btn');
+    const exerciseDeleteConfirm = document.getElementById('exercise-delete-confirm');
+    const exerciseDeleteName = document.getElementById('exercise-delete-name');
+    const exerciseDeleteCancel = document.getElementById('exercise-delete-cancel');
+    const exerciseDeleteConfirmBtn = document.getElementById('exercise-delete-confirm-btn');
+
+    // ------------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------------
+    let user = null;
+    let livePatterns = [];
+    let deletedPatterns = [];
+    let liveExercises = [];
+    let deletedExercises = [];
+
+    // undefined = patterns-view is active; null = viewing "Uncategorized";
+    // a string = viewing that movement pattern's id.
+    let viewingPatternId;
+    let editingPatternId = null;   // null while creating a pattern
+    let editingExerciseId = null;  // null while creating an exercise
+    let editingExerciseLocked = false;
+
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function hide(el) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    function smallButton(label) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'secondary';
+      btn.style.cssText = 'width:auto;min-height:40px;padding:0 16px;flex:0 0 auto;';
+      btn.textContent = label;
+      return btn;
+    }
+    function showView(view) {
+      patternsView.hidden = view !== 'patterns';
+      detailView.hidden = view !== 'detail';
+      patternFormView.hidden = view !== 'pattern-form';
+      exerciseFormView.hidden = view !== 'exercise-form';
+    }
+
+    // ------------------------------------------------------------------
+    // Loading
+    // ------------------------------------------------------------------
+    async function loadAll() {
+      loading.hidden = false;
+      patternListEl.hidden = true;
+      hide(topStatus);
+
+      const [lp, dp, le, de] = await Promise.all([
+        supabase.from('movement_patterns').select('*').is('deleted_at', null).order('name'),
+        supabase.from('movement_patterns').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+        supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
+        supabase.from('exercises').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+      ]);
+
+      loading.hidden = true;
+
+      const err = lp.error || dp.error || le.error || de.error;
+      if (err) {
+        show(topStatus, 'error', `Could not load exercises: ${err.message}`);
+        return;
+      }
+
+      livePatterns = lp.data;
+      deletedPatterns = dp.data;
+      liveExercises = le.data;
+      deletedExercises = de.data;
+
+      renderPatternsTab();
+      renderDeletedTab();
+    }
+
+    function countLiveExercises(patternId) {
+      return liveExercises.filter((e) => e.movement_pattern_id === patternId).length;
+    }
+
+    // ------------------------------------------------------------------
+    // Patterns tab (home)
+    // ------------------------------------------------------------------
+    function renderPatternsTab() {
+      patternListEl.innerHTML = '';
+      emptyPatterns.hidden = livePatterns.length !== 0;
+      patternListEl.hidden = false; // "Uncategorized" always renders, below
+
+      for (const p of livePatterns) {
+        patternListEl.appendChild(buildPatternListItem(p, countLiveExercises(p.id), false));
+      }
+      // Always present — otherwise a brand new account with zero patterns
+      // has no way to add its very first exercise.
+      patternListEl.appendChild(
+        buildPatternListItem({ id: null, name: 'Uncategorized' }, countLiveExercises(null), true)
+      );
+    }
+
+    function buildPatternListItem(pattern, count, isUncategorized) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = pattern.name;
+      if (isUncategorized) name.style.fontStyle = 'italic';
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = count === 1 ? '1 exercise' : `${count} exercises`;
+      meta.appendChild(badge);
+      body.appendChild(meta);
+
+      li.appendChild(body);
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.textContent = '›';
+      li.appendChild(chevron);
+
+      const open = () => openPatternDetail(pattern.id);
+      li.addEventListener('click', open);
+      li.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+
+      return li;
+    }
+
+    // ------------------------------------------------------------------
+    // Recently deleted tab
+    // ------------------------------------------------------------------
+    // A deleted exercise counts as "bundled into" a deleted pattern — and so
+    // shouldn't get its own separate trash entry — only when its pattern is
+    // *also* currently deleted AND they share the exact same deleted_at.
+    // That timestamp match is what "deleted together" means (see the
+    // cascade trigger in schema.sql); an exercise thrown out on its own
+    // beforehand keeps a different timestamp and still gets its own entry,
+    // even if its pattern happens to be in the trash too.
+    function isBundledWithDeletedPattern(ex) {
+      if (!ex.movement_pattern_id) return false;
+      const pattern = deletedPatterns.find((p) => p.id === ex.movement_pattern_id);
+      return !!pattern && pattern.deleted_at === ex.deleted_at;
+    }
+    function countBundledExercises(pattern) {
+      return deletedExercises.filter(
+        (ex) => ex.movement_pattern_id === pattern.id && ex.deleted_at === pattern.deleted_at
+      ).length;
+    }
+
+    function renderDeletedTab() {
+      deletedPatternListEl.innerHTML = '';
+      if (deletedPatterns.length === 0) {
+        deletedPatternListEl.hidden = true;
+        emptyDeletedPatterns.hidden = false;
+      } else {
+        emptyDeletedPatterns.hidden = true;
+        deletedPatternListEl.hidden = false;
+        for (const p of deletedPatterns) deletedPatternListEl.appendChild(buildDeletedPatternItem(p));
+      }
+
+      // Standalone = however this trash actually happened: deleted alone,
+      // or its pattern isn't (or is no longer) in the trash. A pattern's
+      // cascade-deleted contents show up as part of the pattern's own row
+      // instead of cluttering this list with duplicates.
+      const standaloneDeletedExercises = deletedExercises.filter((ex) => !isBundledWithDeletedPattern(ex));
+
+      deletedExerciseListEl.innerHTML = '';
+      if (standaloneDeletedExercises.length === 0) {
+        deletedExerciseListEl.hidden = true;
+        emptyDeletedExercises.hidden = false;
+      } else {
+        emptyDeletedExercises.hidden = true;
+        deletedExerciseListEl.hidden = false;
+        for (const ex of standaloneDeletedExercises) deletedExerciseListEl.appendChild(buildDeletedExerciseItem(ex));
+      }
+    }
+
+    function buildDeletedPatternItem(p) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = p.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const when = document.createElement('span');
+      when.textContent = `Deleted ${formatDate(p.deleted_at)}`;
+      meta.appendChild(when);
+      const bundledCount = countBundledExercises(p);
+      if (bundledCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = bundledCount === 1 ? 'includes 1 exercise' : `includes ${bundledCount} exercises`;
+        meta.appendChild(badge);
+      }
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const restoreBtn = smallButton('Restore');
+      restoreBtn.addEventListener('click', () => restorePattern(p, restoreBtn));
+      li.appendChild(restoreBtn);
+
+      return li;
+    }
+
+    function buildDeletedExerciseItem(ex) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = ex.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = TYPE_LABELS[ex.type] || ex.type;
+      meta.appendChild(badge);
+      const when = document.createElement('span');
+      when.textContent = `Deleted ${formatDate(ex.deleted_at)}`;
+      meta.appendChild(when);
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const restoreBtn = smallButton('Restore');
+      restoreBtn.addEventListener('click', () => restoreExercise(ex, restoreBtn));
+      li.appendChild(restoreBtn);
+
+      return li;
+    }
+
+    async function restorePattern(p, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Restoring…';
+      hide(topStatus);
+
+      const { error } = await supabase.from('movement_patterns').update({ deleted_at: null }).eq('id', p.id);
+
+      if (error) {
+        show(topStatus, 'error', `Could not restore "${p.name}": ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Restore';
+        return;
+      }
+
+      // Mirror the database's own cascade-restore rule here so the UI is
+      // right immediately: only exercises stamped with this exact deleted_at
+      // came back with the box. Anything deleted separately, earlier, stays put.
+      const originalDeletedAt = p.deleted_at;
+      const cascaded = deletedExercises.filter(
+        (e) => e.movement_pattern_id === p.id && e.deleted_at === originalDeletedAt
+      );
+      deletedExercises = deletedExercises.filter((e) => !cascaded.includes(e));
+      for (const ex of cascaded) {
+        ex.deleted_at = null;
+        liveExercises.push(ex);
+      }
+      liveExercises.sort((a, b) => a.name.localeCompare(b.name));
+
+      deletedPatterns = deletedPatterns.filter((x) => x.id !== p.id);
+      p.deleted_at = null;
+      livePatterns.push(p);
+      livePatterns.sort((a, b) => a.name.localeCompare(b.name));
+
+      renderPatternsTab();
+      renderDeletedTab();
+      show(
+        topStatus,
+        'ok',
+        cascaded.length > 0
+          ? `Restored "${p.name}" and ${cascaded.length} exercise${cascaded.length === 1 ? '' : 's'}.`
+          : `Restored "${p.name}".`
+      );
+      setTimeout(() => hide(topStatus), 4000);
+    }
+
+    async function restoreExercise(ex, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Restoring…';
+      hide(topStatus);
+
+      const { error } = await supabase.from('exercises').update({ deleted_at: null }).eq('id', ex.id);
+
+      if (error) {
+        show(topStatus, 'error', `Could not restore "${ex.name}": ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Restore';
+        return;
+      }
+
+      deletedExercises = deletedExercises.filter((e) => e.id !== ex.id);
+      ex.deleted_at = null;
+      liveExercises.push(ex);
+      liveExercises.sort((a, b) => a.name.localeCompare(b.name));
+
+      renderPatternsTab();
+      renderDeletedTab();
+      show(topStatus, 'ok', `Restored "${ex.name}".`);
+      setTimeout(() => hide(topStatus), 3000);
+    }
+
+    // ------------------------------------------------------------------
+    // Home tabs
+    // ------------------------------------------------------------------
+    function setHomeTab(which) {
+      const onPatterns = which === 'patterns';
+      tabPatterns.classList.toggle('active', onPatterns);
+      tabPatterns.setAttribute('aria-selected', String(onPatterns));
+      tabDeleted.classList.toggle('active', !onPatterns);
+      tabDeleted.setAttribute('aria-selected', String(!onPatterns));
+      patternsTab.hidden = !onPatterns;
+      deletedTab.hidden = onPatterns;
+    }
+    tabPatterns.addEventListener('click', () => setHomeTab('patterns'));
+    tabDeleted.addEventListener('click', () => setHomeTab('deleted'));
+
+    // ------------------------------------------------------------------
+    // Pattern detail (inside a box)
+    // ------------------------------------------------------------------
+    function openPatternDetail(patternId) {
+      viewingPatternId = patternId; // null = Uncategorized
+      renderPatternDetail();
+      showView('detail');
+    }
+
+    function renderPatternDetail() {
+      const isUncategorized = viewingPatternId === null;
+      const pattern = isUncategorized ? null : livePatterns.find((p) => p.id === viewingPatternId);
+
+      // The box we were looking at got deleted out from under us — bail
+      // back to the list rather than show a broken screen.
+      if (!isUncategorized && !pattern) {
+        viewingPatternId = undefined;
+        showView('patterns');
+        return;
+      }
+
+      detailTitle.textContent = isUncategorized ? 'Uncategorized' : pattern.name;
+      detailEditBtn.style.visibility = isUncategorized ? 'hidden' : 'visible';
+
+      const exercisesHere = liveExercises.filter((e) => e.movement_pattern_id === viewingPatternId);
+      patternExerciseListEl.innerHTML = '';
+
+      if (exercisesHere.length === 0) {
+        patternExerciseListEl.hidden = true;
+        emptyPatternExercises.hidden = false;
+      } else {
+        emptyPatternExercises.hidden = true;
+        patternExerciseListEl.hidden = false;
+        for (const ex of exercisesHere) patternExerciseListEl.appendChild(buildExerciseListItem(ex));
+      }
+    }
+
+    function buildExerciseListItem(ex) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = ex.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = TYPE_LABELS[ex.type] || ex.type;
+      meta.appendChild(badge);
+      body.appendChild(meta);
+
+      if (ex.persistent_notes) {
+        const notes = document.createElement('div');
+        notes.className = 'list-item-notes';
+        notes.textContent = ex.persistent_notes;
+        body.appendChild(notes);
+      }
+
+      li.appendChild(body);
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.textContent = '›';
+      li.appendChild(chevron);
+
+      const open = () => openExerciseForm(ex);
+      li.addEventListener('click', open);
+      li.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+
+      return li;
+    }
+
+    detailBack.addEventListener('click', () => {
+      viewingPatternId = undefined;
+      showView('patterns');
+    });
+    newPatternBtn.addEventListener('click', openCreatePatternForm);
+    addExerciseBtn.addEventListener('click', () => openCreateExerciseForm(viewingPatternId));
+    detailEditBtn.addEventListener('click', () => {
+      const pattern = livePatterns.find((p) => p.id === viewingPatternId);
+      if (pattern) openEditPatternForm(pattern);
+    });
+
+    // ------------------------------------------------------------------
+    // Pattern form: create / rename / delete
+    // ------------------------------------------------------------------
+    function openCreatePatternForm() {
+      editingPatternId = null;
+      patternFormTitle.textContent = 'New movement pattern';
+      patternForm.reset();
+      patternDeleteZone.hidden = true;
+      patternDeleteConfirm.hidden = true;
+      patternDeleteBtn.hidden = false;
+      hide(patternFormStatus);
+      showView('pattern-form');
+      patternNameInput.focus();
+    }
+
+    function openEditPatternForm(pattern) {
+      editingPatternId = pattern.id;
+      patternFormTitle.textContent = 'Rename movement pattern';
+      patternForm.reset();
+      patternNameInput.value = pattern.name;
+      hide(patternFormStatus);
+      patternDeleteConfirm.hidden = true;
+      patternDeleteBtn.hidden = false;
+      patternDeleteZone.hidden = false;
+
+      const count = countLiveExercises(pattern.id);
+      patternDeleteCopy.textContent = count > 0
+        ? `Delete "${pattern.name}"? Its ${count} exercise${count === 1 ? '' : 's'} move to Recently deleted too. You can restore the whole box later.`
+        : `Delete "${pattern.name}"? You can restore it later from Recently deleted.`;
+
+      showView('pattern-form');
+    }
+
+    function closePatternForm() {
+      // Editing (renaming) came from inside that pattern's own detail view,
+      // so return there. Creating always came from the home list.
+      if (editingPatternId && viewingPatternId === editingPatternId) {
+        showView('detail');
+      } else {
+        showView('patterns');
+      }
+      editingPatternId = null;
+    }
+    patternFormBack.addEventListener('click', closePatternForm);
+
+    function describePatternSaveError(error, name) {
+      if (error.code === '23505') {
+        return `You already have a movement pattern named "${name}".`;
+      }
+      if (error.message && error.message.includes('movement_patterns_name_not_blank')) {
+        return "Name can't be blank.";
+      }
+      return `Could not save: ${error.message}`;
+    }
+
+    patternForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      hide(patternFormStatus);
+
+      const name = patternNameInput.value.trim();
+      if (!name) {
+        show(patternFormStatus, 'error', 'Enter a name for this movement pattern.');
+        return;
+      }
+
+      patternSaveBtn.disabled = true;
+      patternSaveBtn.textContent = 'Saving…';
+
+      const result = editingPatternId
+        ? await supabase.from('movement_patterns').update({ name }).eq('id', editingPatternId).select().single()
+        : await supabase.from('movement_patterns').insert({ user_id: user.id, name }).select().single();
+
+      patternSaveBtn.disabled = false;
+      patternSaveBtn.textContent = 'Save';
+
+      if (result.error) {
+        show(patternFormStatus, 'error', describePatternSaveError(result.error, name));
+        return;
+      }
+
+      const saved = result.data;
+      if (editingPatternId) {
+        const idx = livePatterns.findIndex((p) => p.id === saved.id);
+        if (idx !== -1) livePatterns[idx] = saved;
+      } else {
+        livePatterns.push(saved);
+      }
+      livePatterns.sort((a, b) => a.name.localeCompare(b.name));
+
+      renderPatternsTab();
+      if (viewingPatternId !== undefined) renderPatternDetail();
+
+      const wasEditing = !!editingPatternId;
+      closePatternForm();
+      show(topStatus, 'ok', wasEditing ? `Renamed to "${saved.name}".` : `Added "${saved.name}".`);
+      setTimeout(() => hide(topStatus), 3000);
+    });
+
+    patternDeleteBtn.addEventListener('click', () => {
+      patternDeleteBtn.hidden = true;
+      patternDeleteConfirm.hidden = false;
+    });
+    patternDeleteCancel.addEventListener('click', () => {
+      patternDeleteConfirm.hidden = true;
+      patternDeleteBtn.hidden = false;
+    });
+    patternDeleteConfirmBtn.addEventListener('click', async () => {
+      if (!editingPatternId) return;
+
+      patternDeleteConfirmBtn.disabled = true;
+      patternDeleteConfirmBtn.textContent = 'Deleting…';
+      hide(patternFormStatus);
+
+      const { data, error } = await supabase
+        .from('movement_patterns')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', editingPatternId)
+        .select()
+        .single();
+
+      patternDeleteConfirmBtn.disabled = false;
+      patternDeleteConfirmBtn.textContent = 'Yes, delete';
+
+      if (error) {
+        show(patternFormStatus, 'error', `Could not delete: ${error.message}`);
+        return;
+      }
+
+      // The database trigger cascaded deleted_at onto every exercise that
+      // was live in this box — mirror that locally rather than refetch.
+      const cascaded = liveExercises.filter((e) => e.movement_pattern_id === data.id);
+      liveExercises = liveExercises.filter((e) => e.movement_pattern_id !== data.id);
+      for (const ex of cascaded) {
+        ex.deleted_at = data.deleted_at;
+        deletedExercises.unshift(ex);
+      }
+      deletedExercises.sort((a, b) => new Date(b.deleted_at) - new Date(a.deleted_at));
+
+      livePatterns = livePatterns.filter((p) => p.id !== data.id);
+      deletedPatterns.unshift(data);
+
+      renderPatternsTab();
+      renderDeletedTab();
+
+      viewingPatternId = undefined;
+      editingPatternId = null;
+      showView('patterns');
+
+      show(
+        topStatus,
+        'ok',
+        cascaded.length > 0
+          ? `Deleted "${data.name}" and ${cascaded.length} exercise${cascaded.length === 1 ? '' : 's'}.`
+          : `Deleted "${data.name}".`
+      );
+      setTimeout(() => hide(topStatus), 4000);
+    });
+
+    // ------------------------------------------------------------------
+    // Exercise form: create / edit
+    // ------------------------------------------------------------------
+    function populatePatternDropdown(selectedId) {
+      exPatternSelect.innerHTML = '';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'None — uncategorized';
+      exPatternSelect.appendChild(none);
+
+      for (const p of livePatterns) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        exPatternSelect.appendChild(opt);
+      }
+      exPatternSelect.value = selectedId || '';
+    }
+
+    function openCreateExerciseForm(presetPatternId) {
+      editingExerciseId = null;
+      editingExerciseLocked = false;
+
+      exerciseFormTitle.textContent = 'New exercise';
+      exerciseForm.reset();
+      exTypeSelect.disabled = false;
+      exTypeSelect.innerHTML = `
+        <option value="" disabled selected>Select type…</option>
+        <option value="weight_reps">Weight × reps</option>
+        <option value="time_based">Time-based</option>
+        <option value="assisted">Assisted</option>
+      `;
+      exTypeLockedNote.hidden = true;
+      populatePatternDropdown(presetPatternId);
+      exerciseDeleteZone.hidden = true;
+      exerciseDeleteConfirm.hidden = true;
+      exerciseDeleteBtn.hidden = false;
+      hide(exerciseFormStatus);
+
+      showView('exercise-form');
+      exNameInput.focus();
+    }
+
+    async function openExerciseForm(ex) {
+      editingExerciseId = ex.id;
+
+      exerciseFormTitle.textContent = 'Edit exercise';
+      exerciseForm.reset();
+      exNameInput.value = ex.name;
+      exNotesInput.value = ex.persistent_notes || '';
+      hide(exerciseFormStatus);
+      exerciseDeleteConfirm.hidden = true;
+      exerciseDeleteBtn.hidden = false;
+      exerciseDeleteZone.hidden = false;
+      exerciseDeleteName.textContent = ex.name;
+
+      populatePatternDropdown(ex.movement_pattern_id);
+
+      showView('exercise-form');
+
+      // Starts disabled with a "checking…" placeholder while we find out
+      // whether it's allowed to change, then settles into locked or open.
+      exTypeSelect.disabled = true;
+      exTypeSelect.innerHTML = `<option value="${ex.type}">${TYPE_LABELS[ex.type] || ex.type}</option>`;
+      exTypeLockedNote.hidden = true;
+
+      const { count, error } = await supabase
+        .from('sets')
+        .select('id', { count: 'exact', head: true })
+        .eq('exercise_id', ex.id);
+
+      // Only apply the result if we're still editing this same exercise.
+      if (editingExerciseId !== ex.id) return;
+
+      if (error) {
+        show(exerciseFormStatus, 'error', `Could not check whether this exercise has logged sets: ${error.message}`);
+        editingExerciseLocked = true; // safest default: don't allow an unverified type change
+        exTypeLockedNote.hidden = false;
+        return;
+      }
+
+      editingExerciseLocked = (count ?? 0) > 0;
+
+      if (editingExerciseLocked) {
+        exTypeLockedNote.hidden = false;
+      } else {
+        exTypeSelect.disabled = false;
+        exTypeSelect.innerHTML = `
+          <option value="weight_reps">Weight × reps</option>
+          <option value="time_based">Time-based</option>
+          <option value="assisted">Assisted</option>
+        `;
+        exTypeSelect.value = ex.type;
+      }
+    }
+
+    function closeExerciseForm() {
+      // Always return to whichever box's detail view we were browsing.
+      showView('detail');
+      editingExerciseId = null;
+      editingExerciseLocked = false;
+    }
+    exerciseFormBack.addEventListener('click', closeExerciseForm);
+
+    function describeExerciseSaveError(error, name) {
+      if (error.code === '23505') {
+        return `You already have an exercise named "${name}". Pick a different name, or edit the existing one instead.`;
+      }
+      if (error.message && error.message.includes('exercises_name_not_blank')) {
+        return "Name can't be blank.";
+      }
+      if (error.message && error.message.includes('sets have already been logged')) {
+        return error.message;
+      }
+      return `Could not save: ${error.message}`;
+    }
+
+    exerciseForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      hide(exerciseFormStatus);
+
+      const name = exNameInput.value.trim();
+      const type = exTypeSelect.value;
+      const patternId = exPatternSelect.value || null;
+      const notes = exNotesInput.value.trim() || null;
+
+      if (!name) {
+        show(exerciseFormStatus, 'error', 'Enter a name for this exercise.');
+        exNameInput.focus();
+        return;
+      }
+      if (!type) {
+        show(exerciseFormStatus, 'error', 'Choose a type — this locks in once you log a set, so pick carefully.');
+        return;
+      }
+
+      exSaveBtn.disabled = true;
+      exSaveBtn.textContent = 'Saving…';
+
+      let result;
+      if (editingExerciseId) {
+        const payload = { name, movement_pattern_id: patternId, persistent_notes: notes };
+        // Only send `type` if it's actually editable — avoids poking the
+        // lock trigger with a value that's already unchanged-but-disabled.
+        if (!editingExerciseLocked) payload.type = type;
+        result = await supabase.from('exercises').update(payload).eq('id', editingExerciseId).select().single();
+      } else {
+        result = await supabase
+          .from('exercises')
+          .insert({ user_id: user.id, name, type, movement_pattern_id: patternId, persistent_notes: notes })
+          .select()
+          .single();
+      }
+
+      exSaveBtn.disabled = false;
+      exSaveBtn.textContent = 'Save';
+
+      if (result.error) {
+        show(exerciseFormStatus, 'error', describeExerciseSaveError(result.error, name));
+        return;
+      }
+
+      const saved = result.data;
+      if (editingExerciseId) {
+        const idx = liveExercises.findIndex((e) => e.id === saved.id);
+        if (idx !== -1) liveExercises[idx] = saved;
+      } else {
+        liveExercises.push(saved);
+      }
+      liveExercises.sort((a, b) => a.name.localeCompare(b.name));
+
+      renderPatternsTab();
+      renderPatternDetail();
+
+      closeExerciseForm();
+      show(topStatus, 'ok', editingExerciseId ? `Saved "${saved.name}".` : `Added "${saved.name}".`);
+      setTimeout(() => hide(topStatus), 3000);
+    });
+
+    exerciseDeleteBtn.addEventListener('click', () => {
+      exerciseDeleteBtn.hidden = true;
+      exerciseDeleteConfirm.hidden = false;
+    });
+    exerciseDeleteCancel.addEventListener('click', () => {
+      exerciseDeleteConfirm.hidden = true;
+      exerciseDeleteBtn.hidden = false;
+    });
+    exerciseDeleteConfirmBtn.addEventListener('click', async () => {
+      if (!editingExerciseId) return;
+
+      exerciseDeleteConfirmBtn.disabled = true;
+      exerciseDeleteConfirmBtn.textContent = 'Deleting…';
+      hide(exerciseFormStatus);
+
+      const { data, error } = await supabase
+        .from('exercises')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', editingExerciseId)
+        .select()
+        .single();
+
+      exerciseDeleteConfirmBtn.disabled = false;
+      exerciseDeleteConfirmBtn.textContent = 'Yes, delete';
+
+      if (error) {
+        show(exerciseFormStatus, 'error', `Could not delete: ${error.message}`);
+        return;
+      }
+
+      liveExercises = liveExercises.filter((e) => e.id !== data.id);
+      deletedExercises.unshift(data);
+
+      renderPatternsTab();
+      renderPatternDetail();
+      renderDeletedTab();
+
+      closeExerciseForm();
+      show(topStatus, 'ok', `Deleted "${data.name}". Restore it anytime from Recently deleted.`);
+      setTimeout(() => hide(topStatus), 4000);
+    });
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    user = await requireSession('./index.html');
+    if (user) {
+      await loadAll();
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>
