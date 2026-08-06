@@ -30,29 +30,16 @@
         <button id="new-pattern-btn" class="icon-btn" type="button" aria-label="New movement pattern">+</button>
       </div>
 
-      <div class="tabs" role="tablist">
-        <button id="tab-patterns" class="tab active" type="button" role="tab" aria-selected="true">Patterns</button>
-        <button id="tab-deleted" class="tab" type="button" role="tab" aria-selected="false">Recently deleted</button>
-      </div>
+      <p class="muted" style="margin:-8px 0 16px;">
+        Deleted something by mistake? <a href="./settings.html" style="color:var(--accent);">Recover it in Settings</a>.
+      </p>
 
       <p id="loading" class="muted">Loading…</p>
 
-      <div id="patterns-tab">
-        <p id="empty-patterns" class="muted" hidden style="margin-bottom:12px;">
-          No movement patterns yet — tap + to create one, e.g. "Horizontal Press".
-        </p>
-        <ul id="pattern-list" class="list" hidden></ul>
-      </div>
-
-      <div id="deleted-tab" hidden>
-        <p class="section-label">Movement patterns</p>
-        <ul id="deleted-pattern-list" class="list" hidden></ul>
-        <p id="empty-deleted-patterns" class="muted" hidden>None.</p>
-
-        <p class="section-label">Exercises</p>
-        <ul id="deleted-exercise-list" class="list" hidden></ul>
-        <p id="empty-deleted-exercises" class="muted" hidden>None.</p>
-      </div>
+      <p id="empty-patterns" class="muted" hidden style="margin-bottom:12px;">
+        No movement patterns yet — tap + to create one, e.g. "Horizontal Press".
+      </p>
+      <ul id="pattern-list" class="list" hidden></ul>
     </section>
 
     <!-- =================== PATTERN DETAIL (inside a box) =================== -->
@@ -164,8 +151,8 @@
         <button id="exercise-delete-btn" class="secondary danger" type="button">Delete exercise</button>
         <div id="exercise-delete-confirm" hidden>
           <p class="muted" style="margin-bottom:12px;">
-            Delete "<strong id="exercise-delete-name"></strong>"? It moves to Recently deleted
-            and can be restored later.
+            Delete "<strong id="exercise-delete-name"></strong>"? You can restore it later
+            from Settings → Recently Deleted.
           </p>
           <div class="btn-row">
             <button id="exercise-delete-cancel" class="secondary" type="button">Cancel</button>
@@ -200,18 +187,8 @@
     const topStatus = document.getElementById('top-status');
     const loading = document.getElementById('loading');
 
-    const tabPatterns = document.getElementById('tab-patterns');
-    const tabDeleted = document.getElementById('tab-deleted');
-    const patternsTab = document.getElementById('patterns-tab');
-    const deletedTab = document.getElementById('deleted-tab');
-
     const patternListEl = document.getElementById('pattern-list');
     const emptyPatterns = document.getElementById('empty-patterns');
-
-    const deletedPatternListEl = document.getElementById('deleted-pattern-list');
-    const emptyDeletedPatterns = document.getElementById('empty-deleted-patterns');
-    const deletedExerciseListEl = document.getElementById('deleted-exercise-list');
-    const emptyDeletedExercises = document.getElementById('empty-deleted-exercises');
 
     const newPatternBtn = document.getElementById('new-pattern-btn');
 
@@ -263,9 +240,7 @@
     // ------------------------------------------------------------------
     let user = null;
     let livePatterns = [];
-    let deletedPatterns = [];
     let liveExercises = [];
-    let deletedExercises = [];
     let pastCategories = [];       // for the pattern-form chips: defaults + previously used
     let selectedPatternCategory = null;
 
@@ -285,17 +260,6 @@
       el.hidden = true;
       el.textContent = '';
     }
-    function formatDate(iso) {
-      return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-    }
-    function smallButton(label) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'secondary';
-      btn.style.cssText = 'width:auto;min-height:40px;padding:0 16px;flex:0 0 auto;';
-      btn.textContent = label;
-      return btn;
-    }
     function showView(view) {
       patternsView.hidden = view !== 'patterns';
       detailView.hidden = view !== 'detail';
@@ -311,28 +275,23 @@
       patternListEl.hidden = true;
       hide(topStatus);
 
-      const [lp, dp, le, de] = await Promise.all([
+      const [lp, le] = await Promise.all([
         supabase.from('movement_patterns').select('*').is('deleted_at', null).order('name'),
-        supabase.from('movement_patterns').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
-        supabase.from('exercises').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
       ]);
 
       loading.hidden = true;
 
-      const err = lp.error || dp.error || le.error || de.error;
+      const err = lp.error || le.error;
       if (err) {
         show(topStatus, 'error', `Could not load exercises: ${err.message}`);
         return;
       }
 
       livePatterns = lp.data;
-      deletedPatterns = dp.data;
       liveExercises = le.data;
-      deletedExercises = de.data;
 
       renderPatternsTab();
-      renderDeletedTab();
     }
 
     function countLiveExercises(patternId) {
@@ -419,199 +378,6 @@
 
       return li;
     }
-
-    // ------------------------------------------------------------------
-    // Recently deleted tab
-    // ------------------------------------------------------------------
-    // A deleted exercise counts as "bundled into" a deleted pattern — and so
-    // shouldn't get its own separate trash entry — only when its pattern is
-    // *also* currently deleted AND they share the exact same deleted_at.
-    // That timestamp match is what "deleted together" means (see the
-    // cascade trigger in schema.sql); an exercise thrown out on its own
-    // beforehand keeps a different timestamp and still gets its own entry,
-    // even if its pattern happens to be in the trash too.
-    function isBundledWithDeletedPattern(ex) {
-      if (!ex.movement_pattern_id) return false;
-      const pattern = deletedPatterns.find((p) => p.id === ex.movement_pattern_id);
-      return !!pattern && pattern.deleted_at === ex.deleted_at;
-    }
-    function countBundledExercises(pattern) {
-      return deletedExercises.filter(
-        (ex) => ex.movement_pattern_id === pattern.id && ex.deleted_at === pattern.deleted_at
-      ).length;
-    }
-
-    function renderDeletedTab() {
-      deletedPatternListEl.innerHTML = '';
-      if (deletedPatterns.length === 0) {
-        deletedPatternListEl.hidden = true;
-        emptyDeletedPatterns.hidden = false;
-      } else {
-        emptyDeletedPatterns.hidden = true;
-        deletedPatternListEl.hidden = false;
-        for (const p of deletedPatterns) deletedPatternListEl.appendChild(buildDeletedPatternItem(p));
-      }
-
-      // Standalone = however this trash actually happened: deleted alone,
-      // or its pattern isn't (or is no longer) in the trash. A pattern's
-      // cascade-deleted contents show up as part of the pattern's own row
-      // instead of cluttering this list with duplicates.
-      const standaloneDeletedExercises = deletedExercises.filter((ex) => !isBundledWithDeletedPattern(ex));
-
-      deletedExerciseListEl.innerHTML = '';
-      if (standaloneDeletedExercises.length === 0) {
-        deletedExerciseListEl.hidden = true;
-        emptyDeletedExercises.hidden = false;
-      } else {
-        emptyDeletedExercises.hidden = true;
-        deletedExerciseListEl.hidden = false;
-        for (const ex of standaloneDeletedExercises) deletedExerciseListEl.appendChild(buildDeletedExerciseItem(ex));
-      }
-    }
-
-    function buildDeletedPatternItem(p) {
-      const li = document.createElement('li');
-      li.className = 'list-item';
-
-      const body = document.createElement('div');
-      body.className = 'list-item-body';
-      const name = document.createElement('div');
-      name.className = 'list-item-name';
-      name.textContent = p.name;
-      body.appendChild(name);
-
-      const meta = document.createElement('div');
-      meta.className = 'list-item-meta';
-      const when = document.createElement('span');
-      when.textContent = `Deleted ${formatDate(p.deleted_at)}`;
-      meta.appendChild(when);
-      const bundledCount = countBundledExercises(p);
-      if (bundledCount > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = bundledCount === 1 ? 'includes 1 exercise' : `includes ${bundledCount} exercises`;
-        meta.appendChild(badge);
-      }
-      body.appendChild(meta);
-      li.appendChild(body);
-
-      const restoreBtn = smallButton('Restore');
-      restoreBtn.addEventListener('click', () => restorePattern(p, restoreBtn));
-      li.appendChild(restoreBtn);
-
-      return li;
-    }
-
-    function buildDeletedExerciseItem(ex) {
-      const li = document.createElement('li');
-      li.className = 'list-item';
-
-      const body = document.createElement('div');
-      body.className = 'list-item-body';
-      const name = document.createElement('div');
-      name.className = 'list-item-name';
-      name.textContent = ex.name;
-      body.appendChild(name);
-
-      const meta = document.createElement('div');
-      meta.className = 'list-item-meta';
-      const when = document.createElement('span');
-      when.textContent = `Deleted ${formatDate(ex.deleted_at)}`;
-      meta.appendChild(when);
-      body.appendChild(meta);
-      li.appendChild(body);
-
-      const restoreBtn = smallButton('Restore');
-      restoreBtn.addEventListener('click', () => restoreExercise(ex, restoreBtn));
-      li.appendChild(restoreBtn);
-
-      return li;
-    }
-
-    async function restorePattern(p, btn) {
-      btn.disabled = true;
-      btn.textContent = 'Restoring…';
-      hide(topStatus);
-
-      const { error } = await supabase.from('movement_patterns').update({ deleted_at: null }).eq('id', p.id);
-
-      if (error) {
-        show(topStatus, 'error', `Could not restore "${p.name}": ${error.message}`);
-        btn.disabled = false;
-        btn.textContent = 'Restore';
-        return;
-      }
-
-      // Mirror the database's own cascade-restore rule here so the UI is
-      // right immediately: only exercises stamped with this exact deleted_at
-      // came back with the box. Anything deleted separately, earlier, stays put.
-      const originalDeletedAt = p.deleted_at;
-      const cascaded = deletedExercises.filter(
-        (e) => e.movement_pattern_id === p.id && e.deleted_at === originalDeletedAt
-      );
-      deletedExercises = deletedExercises.filter((e) => !cascaded.includes(e));
-      for (const ex of cascaded) {
-        ex.deleted_at = null;
-        liveExercises.push(ex);
-      }
-      liveExercises.sort((a, b) => a.name.localeCompare(b.name));
-
-      deletedPatterns = deletedPatterns.filter((x) => x.id !== p.id);
-      p.deleted_at = null;
-      livePatterns.push(p);
-      livePatterns.sort((a, b) => a.name.localeCompare(b.name));
-
-      renderPatternsTab();
-      renderDeletedTab();
-      show(
-        topStatus,
-        'ok',
-        cascaded.length > 0
-          ? `Restored "${p.name}" and ${cascaded.length} exercise${cascaded.length === 1 ? '' : 's'}.`
-          : `Restored "${p.name}".`
-      );
-      setTimeout(() => hide(topStatus), 4000);
-    }
-
-    async function restoreExercise(ex, btn) {
-      btn.disabled = true;
-      btn.textContent = 'Restoring…';
-      hide(topStatus);
-
-      const { error } = await supabase.from('exercises').update({ deleted_at: null }).eq('id', ex.id);
-
-      if (error) {
-        show(topStatus, 'error', `Could not restore "${ex.name}": ${error.message}`);
-        btn.disabled = false;
-        btn.textContent = 'Restore';
-        return;
-      }
-
-      deletedExercises = deletedExercises.filter((e) => e.id !== ex.id);
-      ex.deleted_at = null;
-      liveExercises.push(ex);
-      liveExercises.sort((a, b) => a.name.localeCompare(b.name));
-
-      renderPatternsTab();
-      renderDeletedTab();
-      show(topStatus, 'ok', `Restored "${ex.name}".`);
-      setTimeout(() => hide(topStatus), 3000);
-    }
-
-    // ------------------------------------------------------------------
-    // Home tabs
-    // ------------------------------------------------------------------
-    function setHomeTab(which) {
-      const onPatterns = which === 'patterns';
-      tabPatterns.classList.toggle('active', onPatterns);
-      tabPatterns.setAttribute('aria-selected', String(onPatterns));
-      tabDeleted.classList.toggle('active', !onPatterns);
-      tabDeleted.setAttribute('aria-selected', String(!onPatterns));
-      patternsTab.hidden = !onPatterns;
-      deletedTab.hidden = onPatterns;
-    }
-    tabPatterns.addEventListener('click', () => setHomeTab('patterns'));
-    tabDeleted.addEventListener('click', () => setHomeTab('deleted'));
 
     // ------------------------------------------------------------------
     // Pattern detail (inside a box)
@@ -761,8 +527,8 @@
 
       const count = countLiveExercises(pattern.id);
       patternDeleteCopy.textContent = count > 0
-        ? `Delete "${pattern.name}"? Its ${count} exercise${count === 1 ? '' : 's'} move to Recently deleted too. You can restore the whole box later.`
-        : `Delete "${pattern.name}"? You can restore it later from Recently deleted.`;
+        ? `Delete "${pattern.name}"? Its ${count} exercise${count === 1 ? '' : 's'} get removed too. Restore the whole box later from Settings.`
+        : `Delete "${pattern.name}"? You can restore it later from Settings.`;
 
       showView('pattern-form');
     }
@@ -865,19 +631,11 @@
 
       // The database trigger cascaded deleted_at onto every exercise that
       // was live in this box — mirror that locally rather than refetch.
-      const cascaded = liveExercises.filter((e) => e.movement_pattern_id === data.id);
+      const cascadedCount = liveExercises.filter((e) => e.movement_pattern_id === data.id).length;
       liveExercises = liveExercises.filter((e) => e.movement_pattern_id !== data.id);
-      for (const ex of cascaded) {
-        ex.deleted_at = data.deleted_at;
-        deletedExercises.unshift(ex);
-      }
-      deletedExercises.sort((a, b) => new Date(b.deleted_at) - new Date(a.deleted_at));
-
       livePatterns = livePatterns.filter((p) => p.id !== data.id);
-      deletedPatterns.unshift(data);
 
       renderPatternsTab();
-      renderDeletedTab();
 
       viewingPatternId = undefined;
       editingPatternId = null;
@@ -886,9 +644,9 @@
       show(
         topStatus,
         'ok',
-        cascaded.length > 0
-          ? `Deleted "${data.name}" and ${cascaded.length} exercise${cascaded.length === 1 ? '' : 's'}.`
-          : `Deleted "${data.name}".`
+        cascadedCount > 0
+          ? `Deleted "${data.name}" and ${cascadedCount} exercise${cascadedCount === 1 ? '' : 's'}. Recover in Settings.`
+          : `Deleted "${data.name}". Recover it in Settings.`
       );
       setTimeout(() => hide(topStatus), 4000);
     });
@@ -1116,14 +874,12 @@
       }
 
       liveExercises = liveExercises.filter((e) => e.id !== data.id);
-      deletedExercises.unshift(data);
 
       renderPatternsTab();
       renderPatternDetail();
-      renderDeletedTab();
 
       closeExerciseForm();
-      show(topStatus, 'ok', `Deleted "${data.name}". Restore it anytime from Recently deleted.`);
+      show(topStatus, 'ok', `Deleted "${data.name}". Restore it anytime from Settings.`);
       setTimeout(() => hide(topStatus), 4000);
     });
 

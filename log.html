@@ -242,7 +242,7 @@
       setTimeout(() => hide(topStatus), ms);
     }
     function formatDate(iso) {
-      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
     function showView(view) {
       startView.hidden = view !== 'start';
@@ -585,7 +585,7 @@
         const mins = Math.floor(ms / 60000);
         const hrs = Math.floor(mins / 60);
         const started = new Date(session.start_time)
-          .toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+          .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         const elapsed = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
         sessionClock.textContent = `Started ${started} · ${elapsed}`;
       };

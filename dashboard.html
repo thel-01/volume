@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Dashboard</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div class="page-header">
+      <a href="./app.html" class="icon-link" aria-label="Back">←</a>
+      <h1>Dashboard</h1>
+      <span class="icon-link" style="visibility:hidden">←</span>
+    </div>
+
+    <p id="loading" class="muted">Loading…</p>
+
+    <div id="content" hidden>
+
+      <p class="section-label">This week</p>
+      <div class="card" style="margin-bottom:24px;">
+        <div class="reference-line" style="margin-top:0;">
+          <span class="reference-label">Sets:</span>
+          <span class="reference-value" id="volume-this-week"></span>
+        </div>
+        <div class="reference-line">
+          <span class="reference-label">8-week avg:</span>
+          <span class="reference-value" id="volume-average"></span>
+        </div>
+      </div>
+
+      <p class="section-label">Recent PRs</p>
+      <ul id="pr-list" class="list" hidden></ul>
+      <button id="pr-toggle" type="button" class="link-button" style="margin-bottom:24px;" hidden></button>
+      <p id="empty-prs" class="empty-state" hidden>No sets logged yet.</p>
+
+      <p class="section-label">Time since last session</p>
+      <ul id="category-list" class="list" hidden></ul>
+      <p id="empty-categories" class="empty-state" hidden>No sessions logged yet.</p>
+
+    </div>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const topStatus = document.getElementById('top-status');
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('content');
+
+    const volumeThisWeek = document.getElementById('volume-this-week');
+    const volumeAverage = document.getElementById('volume-average');
+
+    const prListEl = document.getElementById('pr-list');
+    const prToggle = document.getElementById('pr-toggle');
+    const emptyPrs = document.getElementById('empty-prs');
+
+    const categoryListEl = document.getElementById('category-list');
+    const emptyCategories = document.getElementById('empty-categories');
+
+    // ------------------------------------------------------------------
+    // Small shared helpers (same shape as the rest of the app)
+    // ------------------------------------------------------------------
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function formatWeight(value) {
+      if (value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+    function formatDuration(seconds) {
+      if (seconds === null || seconds === undefined) return '';
+      const s = Number(seconds);
+      if (s < 60) return `${s}s`;
+      const mins = Math.floor(s / 60);
+      const rest = s % 60;
+      return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
+    }
+    function tagLetter(quickTag) {
+      if (quickTag === 'easy') return 'e';
+      if (quickTag === 'hard') return 'h';
+      if (quickTag === 'failure') return 'f';
+      return '';
+    }
+    function describeSet(set, type) {
+      if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
+      const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
+      const suffix = type === 'assisted' ? ' assist' : '';
+      const parts = [];
+      if (weight) parts.push(weight + suffix);
+      if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}${tagLetter(set.quick_tag)}`);
+      return parts.join(' ') || '—';
+    }
+    /**
+     * How impressive a set was, independent of weight/reps: failing a rep is
+     * worse than grinding it out, which is worse than a clean unremarkable
+     * set, which is worse than one tagged easy. Used only to break a tie
+     * where weight AND reps are identical — e.g. 20kg×12 clean beats a later
+     * 20kg×12 taken to failure, even though the failed one happened more
+     * recently.
+     */
+    function tagQuality(quickTag) {
+      if (quickTag === 'easy') return 2;
+      if (quickTag === 'hard') return 0;
+      if (quickTag === 'failure') return -1;
+      return 1; // no tag — the baseline
+    }
+    /** Midnight local time on the Monday of the week containing `date`. */
+    function mondayOf(date) {
+      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const day = d.getDay(); // 0 = Sunday .. 6 = Saturday
+      d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+      return d;
+    }
+    function timeAgo(iso) {
+      const diffMs = Date.now() - new Date(iso).getTime();
+      const days = Math.floor(diffMs / 86400000);
+      if (days <= 0) return 'today';
+      if (days === 1) return 'yesterday';
+      if (days < 7) return `${days} days ago`;
+      const weeks = Math.floor(days / 7);
+      if (weeks < 5) return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+      const months = Math.floor(days / 30.44);
+      if (months < 12) return months <= 1 ? '1 month ago' : `${months} months ago`;
+      const years = Math.floor(days / 365.25);
+      return years === 1 ? '1 year ago' : `${years} years ago`;
+    }
+
+    // ------------------------------------------------------------------
+    // Loading — 3 queries total, none scoped per-exercise. Everything else
+    // below is a single pass over the results, grouped in memory.
+    // ------------------------------------------------------------------
+    async function loadAll() {
+      loading.hidden = false;
+      content.hidden = true;
+
+      const [exercisesRes, setsRes, sessionsRes] = await Promise.all([
+        supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
+        supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
+        supabase.from('sessions').select('id, category, start_time')
+          .is('deleted_at', null)
+          .not('end_time', 'is', null)
+          .order('start_time', { ascending: false }),
+      ]);
+
+      const err = exercisesRes.error || setsRes.error || sessionsRes.error;
+      if (err) {
+        loading.hidden = true;
+        show(topStatus, 'error', `Could not load the dashboard: ${err.message}`);
+        return;
+      }
+
+      // A soft-deleted session's sets aren't cascade-removed (sets has no
+      // deleted_at of its own), so exclude them here explicitly.
+      const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
+
+      loading.hidden = true;
+      content.hidden = false;
+
+      renderVolume(liveSets);
+      renderPrs(exercisesRes.data, liveSets);
+      renderCategories(sessionsRes.data);
+    }
+
+    // ------------------------------------------------------------------
+    // This week's volume vs. the trailing 8-week average
+    // ------------------------------------------------------------------
+    function renderVolume(liveSets) {
+      const thisMonday = mondayOf(new Date());
+      const thisWeekEnd = new Date(thisMonday);
+      thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+      const rollingStart = new Date(thisMonday);
+      rollingStart.setDate(rollingStart.getDate() - 8 * 7);
+
+      let thisWeekCount = 0;
+      let rollingCount = 0;
+      for (const s of liveSets) {
+        const start = new Date(s.sessions.start_time);
+        if (start >= thisMonday && start < thisWeekEnd) thisWeekCount++;
+        else if (start >= rollingStart && start < thisMonday) rollingCount++;
+      }
+
+      volumeThisWeek.textContent = thisWeekCount === 1 ? '1 set' : `${thisWeekCount} sets`;
+      const avg = Math.round(rollingCount / 8);
+      volumeAverage.textContent = `${avg} set${avg === 1 ? '' : 's'}/week`;
+    }
+
+    // ------------------------------------------------------------------
+    // PRs — one per exercise: the single best set ever (highest weight for
+    // standard, lowest assistance for assisted, longest duration for
+    // time-based). Ties on weight (or duration) are broken by more reps;
+    // ties on BOTH weight and reps are broken by tag quality (a clean set
+    // beats one taken to failure); only after all of that does the most
+    // recent occurrence decide. No frontier/dominance logic — just the one
+    // set that was, on its own, the most impressive.
+    // ------------------------------------------------------------------
+    function findPr(sets, type) {
+      if (sets.length === 0) return null;
+      const isBetterWeight = (a, b) => (type === 'assisted' ? a < b : a > b);
+      let best = null;
+
+      for (const s of sets) {
+        if (type === 'time_based') {
+          if (s.duration_seconds === null) continue;
+          const beats = !best
+            || s.duration_seconds > best.duration_seconds
+            || (s.duration_seconds === best.duration_seconds && (
+                  tagQuality(s.quick_tag) > tagQuality(best.quick_tag)
+                  || (tagQuality(s.quick_tag) === tagQuality(best.quick_tag)
+                      && new Date(s.sessions.start_time) >= new Date(best.sessions.start_time))
+                ));
+          if (beats) best = s;
+        } else {
+          if (s.weight === null || s.reps === null) continue;
+          const w = Number(s.weight);
+          if (!best) { best = s; continue; }
+          const bw = Number(best.weight);
+          const beats = isBetterWeight(w, bw)
+            || (w === bw && s.reps > best.reps)
+            || (w === bw && s.reps === best.reps && (
+                  tagQuality(s.quick_tag) > tagQuality(best.quick_tag)
+                  || (tagQuality(s.quick_tag) === tagQuality(best.quick_tag)
+                      && new Date(s.sessions.start_time) >= new Date(best.sessions.start_time))
+                ));
+          if (beats) best = s;
+        }
+      }
+      if (!best) return null;
+      return { description: describeSet(best, type), date: best.sessions.start_time };
+    }
+
+    /**
+     * How many points the trend chart would have for this exercise — one
+     * per workout with a valid set. Mirrors exercise-trend.html's own
+     * per-session grouping, so "tappable here" always matches "has a real
+     * chart there."
+     */
+    function countTrendPoints(sets, type) {
+      const sessionIds = new Set();
+      for (const s of sets) {
+        if (type === 'time_based') {
+          if (s.duration_seconds === null) continue;
+        } else {
+          if (s.weight === null || s.reps === null) continue;
+        }
+        sessionIds.add(s.session_id);
+      }
+      return sessionIds.size;
+    }
+
+    function renderPrs(exercises, liveSets) {
+      const setsByExercise = new Map();
+      for (const s of liveSets) {
+        if (!setsByExercise.has(s.exercise_id)) setsByExercise.set(s.exercise_id, []);
+        setsByExercise.get(s.exercise_id).push(s);
+      }
+
+      const stats = exercises.map((ex) => {
+        const sets = setsByExercise.get(ex.id) || [];
+        return { exercise: ex, pr: findPr(sets, ex.type), trendPoints: countTrendPoints(sets, ex.type) };
+      });
+
+      const withPr = stats.filter((s) => s.pr).sort((a, b) => new Date(b.pr.date) - new Date(a.pr.date));
+      const withoutPr = stats.filter((s) => !s.pr).sort((a, b) => a.exercise.name.localeCompare(b.exercise.name));
+      const ordered = [...withPr, ...withoutPr];
+
+      if (ordered.length === 0) {
+        prListEl.hidden = true;
+        emptyPrs.hidden = false;
+        prToggle.hidden = true;
+        return;
+      }
+      emptyPrs.hidden = true;
+      prListEl.hidden = false;
+
+      let expanded = false;
+      const renderList = () => {
+        prListEl.innerHTML = '';
+        const visible = expanded ? ordered : ordered.slice(0, 3);
+        for (const stat of visible) prListEl.appendChild(buildPrListItem(stat));
+      };
+      renderList();
+
+      if (ordered.length > 3) {
+        prToggle.hidden = false;
+        prToggle.textContent = `Show all ${ordered.length}`;
+        prToggle.onclick = () => {
+          expanded = !expanded;
+          prToggle.textContent = expanded ? 'Show fewer' : `Show all ${ordered.length}`;
+          renderList();
+        };
+      } else {
+        prToggle.hidden = true;
+      }
+    }
+
+    function buildPrListItem(stat) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      // Not enough workouts to draw a trend — no arrow, no tap.
+      const tappable = stat.trendPoints > 1;
+      if (tappable) {
+        li.tabIndex = 0;
+        li.setAttribute('role', 'button');
+        const goToTrend = () => {
+          window.location.href = `./exercise-trend.html?id=${encodeURIComponent(stat.exercise.id)}`;
+        };
+        li.addEventListener('click', goToTrend);
+        li.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToTrend(); }
+        });
+      } else {
+        li.style.cursor = 'default';
+      }
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = stat.exercise.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const value = document.createElement('span');
+      if (stat.pr) {
+        value.textContent = `${stat.pr.description} · ${timeAgo(stat.pr.date)}`;
+      } else {
+        value.className = 'muted';
+        value.textContent = 'Never logged';
+      }
+      meta.appendChild(value);
+      body.appendChild(meta);
+
+      li.appendChild(body);
+      if (tappable) {
+        const chevron = document.createElement('span');
+        chevron.className = 'list-item-chevron';
+        chevron.textContent = '›';
+        li.appendChild(chevron);
+      }
+      return li;
+    }
+
+    // ------------------------------------------------------------------
+    // Time since last session, per category
+    // ------------------------------------------------------------------
+    function renderCategories(sessions) {
+      const lastByCategory = new Map();
+      for (const s of sessions) {
+        const cat = (s.category || '').trim();
+        if (!cat) continue;
+        const prev = lastByCategory.get(cat);
+        if (!prev || new Date(s.start_time) > new Date(prev)) lastByCategory.set(cat, s.start_time);
+      }
+
+      const rows = [...lastByCategory.entries()].sort((a, b) => new Date(b[1]) - new Date(a[1]));
+
+      categoryListEl.innerHTML = '';
+      if (rows.length === 0) {
+        categoryListEl.hidden = true;
+        emptyCategories.hidden = false;
+        return;
+      }
+      emptyCategories.hidden = true;
+      categoryListEl.hidden = false;
+
+      for (const [category, lastStart] of rows) {
+        const li = document.createElement('li');
+        li.className = 'list-item';
+
+        const body = document.createElement('div');
+        body.className = 'list-item-body';
+        const name = document.createElement('div');
+        name.className = 'list-item-name';
+        name.textContent = category;
+        body.appendChild(name);
+        li.appendChild(body);
+
+        const value = document.createElement('span');
+        value.className = 'badge';
+        value.textContent = timeAgo(lastStart);
+        li.appendChild(value);
+
+        categoryListEl.appendChild(li);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    const user = await requireSession('./index.html');
+    if (user) {
+      await loadAll();
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

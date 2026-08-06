@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — History</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <!-- =================== LIST VIEW =================== -->
+    <section id="list-view">
+      <div class="page-header">
+        <a href="./app.html" class="icon-link" aria-label="Back">←</a>
+        <h1>History</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <p class="section-label">Filter</p>
+      <div id="category-chips" class="chips" style="margin-bottom:16px;"></div>
+
+      <p id="loading" class="muted">Loading…</p>
+      <div id="session-list" hidden></div>
+      <p id="empty-sessions" class="empty-state" hidden>No sessions match these filters.</p>
+    </section>
+
+    <!-- =================== SESSION DETAIL =================== -->
+    <section id="detail-view" hidden>
+      <div class="page-header">
+        <button id="detail-back" class="icon-link" type="button" aria-label="Back to history">←</button>
+        <h1>Session</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+      <p id="detail-subtitle" class="subtitle"></p>
+
+      <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add note</button>
+      <div class="field" id="session-comment-field" hidden>
+        <label for="session-comment">Session comment</label>
+        <textarea id="session-comment" placeholder="e.g. didn't eat much today"></textarea>
+        <p id="session-comment-state" class="muted" style="margin:4px 0 0;min-height:18px;font-size:13px;"></p>
+      </div>
+
+      <div id="exercise-cards"></div>
+      <p id="empty-exercises" class="empty-state" hidden>Nothing was logged in this session.</p>
+
+      <div class="danger-zone">
+        <button id="delete-session-btn" class="secondary danger" type="button">Delete this session</button>
+        <div id="delete-session-confirm" hidden>
+          <p class="muted" style="margin:12px 0;">
+            Delete this whole session? You can restore it later from Settings.
+          </p>
+          <div class="btn-row">
+            <button id="delete-session-cancel" class="secondary" type="button">Cancel</button>
+            <button id="delete-session-confirm-btn" class="danger" type="button">Yes, delete</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+
+    const QUICK_TAGS = [
+      { value: 'easy', label: 'Easy' },
+      { value: 'hard', label: 'Hard' },
+      { value: 'failure', label: 'Failure' },
+    ];
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const listView = document.getElementById('list-view');
+    const detailView = document.getElementById('detail-view');
+
+    const topStatus = document.getElementById('top-status');
+
+    const categoryChips = document.getElementById('category-chips');
+    const loading = document.getElementById('loading');
+    const sessionListEl = document.getElementById('session-list');
+    const emptySessions = document.getElementById('empty-sessions');
+
+    const detailBack = document.getElementById('detail-back');
+    const detailSubtitle = document.getElementById('detail-subtitle');
+    const sessionCommentToggle = document.getElementById('session-comment-toggle');
+    const sessionCommentField = document.getElementById('session-comment-field');
+    const sessionCommentInput = document.getElementById('session-comment');
+    const sessionCommentState = document.getElementById('session-comment-state');
+    const exerciseCardsEl = document.getElementById('exercise-cards');
+    const emptyExercises = document.getElementById('empty-exercises');
+    const deleteSessionBtn = document.getElementById('delete-session-btn');
+    const deleteSessionConfirm = document.getElementById('delete-session-confirm');
+    const deleteSessionCancel = document.getElementById('delete-session-cancel');
+    const deleteSessionConfirmBtn = document.getElementById('delete-session-confirm-btn');
+
+    // ------------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------------
+    let user = null;
+    let allSessions = [];         // live, completed sessions
+    let allSessionExercises = []; // all rows, joined with exercises(*)
+    let allSets = [];
+
+    let selectedCategory = null;
+    let currentSessionId = null;
+
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function hide(el) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+    function flash(message, kind = 'ok', ms = 3000) {
+      show(topStatus, kind, message);
+      setTimeout(() => hide(topStatus), ms);
+    }
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    /** Midnight local time on the Monday of the week containing `date`. */
+    function mondayOf(date) {
+      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const day = d.getDay(); // 0 = Sunday .. 6 = Saturday
+      d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+      return d;
+    }
+    /**
+     * Groups sessions (already newest-first) into "This week" / "Last week" /
+     * "Earlier" (rest of this year) / one bucket per past year — in that
+     * order, which falls out naturally from the input already being sorted,
+     * since every timestamp in an earlier bucket is chronologically older
+     * than every timestamp in the bucket before it.
+     */
+    function bucketSessions(sessions) {
+      const now = new Date();
+      const thisMonday = mondayOf(now);
+      const thisWeekEnd = new Date(thisMonday);
+      thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+      const lastMonday = new Date(thisMonday);
+      lastMonday.setDate(lastMonday.getDate() - 7);
+      const thisYear = now.getFullYear();
+
+      const labelFor = (s) => {
+        const start = new Date(s.start_time);
+        if (start >= thisMonday && start < thisWeekEnd) return 'This week';
+        if (start >= lastMonday && start < thisMonday) return 'Last week';
+        if (start.getFullYear() === thisYear) return 'Earlier';
+        return String(start.getFullYear());
+      };
+
+      const buckets = [];
+      const byLabel = new Map();
+      for (const s of sessions) {
+        const label = labelFor(s);
+        if (!byLabel.has(label)) {
+          const bucket = { label, sessions: [] };
+          byLabel.set(label, bucket);
+          buckets.push(bucket);
+        }
+        byLabel.get(label).sessions.push(s);
+      }
+      return buckets;
+    }
+    /** This/last week show just the weekday — the heading already says which week. */
+    function formatSessionListDate(iso, bucketLabel) {
+      const d = new Date(iso);
+      if (bucketLabel === 'This week') return d.toLocaleDateString('en-US', { weekday: 'long' });
+      if (bucketLabel === 'Last week') return `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
+      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+    function formatWeight(value) {
+      if (value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+    function formatDuration(seconds) {
+      if (seconds === null || seconds === undefined) return '';
+      const s = Number(seconds);
+      if (s < 60) return `${s}s`;
+      const mins = Math.floor(s / 60);
+      const rest = s % 60;
+      return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
+    }
+    function formatSessionDuration(session) {
+      if (!session.end_time) return null;
+      const mins = Math.round((new Date(session.end_time) - new Date(session.start_time)) / 60000);
+      const hrs = Math.floor(mins / 60);
+      return hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+    }
+    function describeSet(set, type) {
+      if (type === 'time_based') return formatDuration(set.duration_seconds);
+      const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
+      const suffix = type === 'assisted' ? ' assist' : '';
+      const parts = [];
+      if (weight) parts.push(weight + suffix);
+      if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}`);
+      return parts.join(' ') || '—';
+    }
+    function showView(view) {
+      listView.hidden = view !== 'list';
+      detailView.hidden = view !== 'detail';
+    }
+
+    // ------------------------------------------------------------------
+    // Loading
+    // ------------------------------------------------------------------
+    async function loadAll() {
+      loading.hidden = false;
+      sessionListEl.hidden = true;
+      hide(topStatus);
+
+      const [sessionsRes, seRes, setsRes] = await Promise.all([
+        supabase.from('sessions').select('*')
+          .is('deleted_at', null)
+          .not('end_time', 'is', null)
+          .order('start_time', { ascending: false }),
+        supabase.from('session_exercises').select('*, exercises(*)').order('created_at'),
+        supabase.from('sets').select('*').order('created_at'),
+      ]);
+
+      loading.hidden = true;
+
+      const err = sessionsRes.error || seRes.error || setsRes.error;
+      if (err) {
+        show(topStatus, 'error', `Could not load history: ${err.message}`);
+        return;
+      }
+
+      allSessions = sessionsRes.data;
+      allSessionExercises = seRes.data;
+      allSets = setsRes.data;
+
+      renderCategoryChips();
+      renderSessionList();
+    }
+
+    // ------------------------------------------------------------------
+    // List view
+    // ------------------------------------------------------------------
+    function renderCategoryChips() {
+      const seen = [];
+      for (const s of allSessions) {
+        const c = (s.category || '').trim();
+        if (c && !seen.some((x) => x.toLowerCase() === c.toLowerCase())) seen.push(c);
+      }
+      seen.sort((a, b) => a.localeCompare(b));
+
+      categoryChips.innerHTML = '';
+      categoryChips.hidden = seen.length === 0;
+      for (const cat of seen) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip' + (selectedCategory === cat ? ' selected' : '');
+        chip.textContent = cat;
+        chip.addEventListener('click', () => {
+          selectedCategory = selectedCategory === cat ? null : cat;
+          renderCategoryChips();
+          renderSessionList();
+        });
+        categoryChips.appendChild(chip);
+      }
+    }
+
+    function filteredSessions() {
+      if (!selectedCategory) return allSessions;
+      return allSessions.filter((s) => (s.category || '').toLowerCase() === selectedCategory.toLowerCase());
+    }
+
+    function renderSessionList() {
+      const sessions = filteredSessions();
+      sessionListEl.innerHTML = '';
+
+      if (sessions.length === 0) {
+        sessionListEl.hidden = true;
+        emptySessions.hidden = false;
+        return;
+      }
+      emptySessions.hidden = true;
+      sessionListEl.hidden = false;
+
+      for (const bucket of bucketSessions(sessions)) {
+        const heading = document.createElement('p');
+        heading.className = 'section-label';
+        heading.textContent = bucket.label;
+        sessionListEl.appendChild(heading);
+
+        const ul = document.createElement('ul');
+        ul.className = 'list';
+        for (const s of bucket.sessions) ul.appendChild(buildSessionListItem(s, bucket.label));
+        sessionListEl.appendChild(ul);
+      }
+    }
+
+    function buildSessionListItem(s, bucketLabel) {
+      const exerciseCount = allSessionExercises.filter((se) => se.session_id === s.id).length;
+      const setCount = allSets.filter((set) => set.session_id === s.id).length;
+
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = formatSessionListDate(s.start_time, bucketLabel);
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      if (s.category) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = s.category;
+        meta.appendChild(badge);
+      }
+      const summary = document.createElement('span');
+      summary.textContent = exerciseCount === 0
+        ? 'Nothing logged'
+        : `${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'} · ${setCount} set${setCount === 1 ? '' : 's'}`;
+      meta.appendChild(summary);
+      body.appendChild(meta);
+
+      li.appendChild(body);
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.textContent = '›';
+      li.appendChild(chevron);
+
+      const open = () => openSessionDetail(s.id);
+      li.addEventListener('click', open);
+      li.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+
+      return li;
+    }
+
+    // ------------------------------------------------------------------
+    // Session detail
+    // ------------------------------------------------------------------
+    function openSessionDetail(sessionId) {
+      currentSessionId = sessionId;
+      renderDetail();
+      showView('detail');
+    }
+
+    detailBack.addEventListener('click', () => {
+      currentSessionId = null;
+      showView('list');
+    });
+
+    sessionCommentToggle.addEventListener('click', () => {
+      const session = currentSession();
+      if (!session) return;
+      session._commentExpanded = !session._commentExpanded;
+      sessionCommentField.hidden = !session._commentExpanded;
+      sessionCommentToggle.textContent = session._commentExpanded ? '− Hide note' : '+ Add note';
+      if (session._commentExpanded) sessionCommentInput.focus();
+    });
+
+    function currentSession() {
+      return allSessions.find((s) => s.id === currentSessionId);
+    }
+
+    function renderDetail() {
+      const session = currentSession();
+      if (!session) {
+        showView('list');
+        return;
+      }
+
+      const duration = formatSessionDuration(session);
+      detailSubtitle.textContent = [
+        formatDate(session.start_time),
+        session.category || null,
+        duration,
+      ].filter(Boolean).join(' · ');
+
+      sessionCommentInput.value = session.comment || '';
+      sessionCommentState.textContent = '';
+      // Collapsed unless it already has something — same pattern as
+      // everywhere else in the app: comments are made in the moment, not
+      // what you're here for, so don't show an empty box by default.
+      if (session._commentExpanded === undefined) {
+        session._commentExpanded = !!(session.comment && session.comment.trim());
+      }
+      sessionCommentField.hidden = !session._commentExpanded;
+      sessionCommentToggle.textContent = session._commentExpanded ? '− Hide note' : '+ Add note';
+      wireCommentAutosave(
+        'sessions', session.id,
+        () => session.comment,
+        (v) => { session.comment = v; },
+        sessionCommentInput, sessionCommentState
+      );
+
+      deleteSessionConfirm.hidden = true;
+      deleteSessionBtn.hidden = false;
+
+      const entries = allSessionExercises
+        .filter((se) => se.session_id === session.id)
+        .map((se) => ({
+          sessionExercise: se,
+          exercise: se.exercises,
+          sets: allSets
+            .filter((set) => set.session_id === session.id && set.exercise_id === se.exercise_id)
+            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
+        }))
+        .filter((entry) => entry.exercise); // guard against a dangling join
+
+      exerciseCardsEl.innerHTML = '';
+      emptyExercises.hidden = entries.length !== 0;
+      for (const entry of entries) exerciseCardsEl.appendChild(buildExerciseCard(entry));
+    }
+
+    /** Debounced (800ms) + save-on-blur autosave for a `comment` column on any table. */
+    function wireCommentAutosave(table, id, getValue, setValue, textarea, stateEl) {
+      let timer = null;
+      let lastSaved = getValue() || '';
+
+      const save = async () => {
+        const value = textarea.value.trim();
+        setValue(value);
+        if (value === lastSaved) return;
+
+        stateEl.textContent = 'Saving…';
+        const { error } = await supabase.from(table).update({ comment: value || null }).eq('id', id);
+
+        if (error) {
+          stateEl.textContent = `Not saved — ${error.message}`;
+          return;
+        }
+        lastSaved = value;
+        stateEl.textContent = 'Saved';
+        setTimeout(() => {
+          if (stateEl.textContent === 'Saved') stateEl.textContent = '';
+        }, 2000);
+      };
+
+      textarea.oninput = () => {
+        setValue(textarea.value);
+        stateEl.textContent = '';
+        clearTimeout(timer);
+        timer = setTimeout(save, 800);
+      };
+      textarea.onblur = () => {
+        clearTimeout(timer);
+        save();
+      };
+    }
+
+    function buildExerciseCard(entry) {
+      const card = document.createElement('div');
+      card.className = 'exercise-card expanded';
+
+      const header = document.createElement('div');
+      header.className = 'exercise-card-header';
+      header.style.cursor = 'default';
+
+      const headerBody = document.createElement('div');
+      headerBody.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = entry.exercise.name;
+      if (entry.exercise.deleted_at) {
+        const flag = document.createElement('span');
+        flag.className = 'badge';
+        flag.style.marginLeft = '8px';
+        flag.textContent = 'removed from library';
+        name.appendChild(flag);
+      }
+      headerBody.appendChild(name);
+      header.appendChild(headerBody);
+      card.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = 'exercise-card-body';
+
+      // Exercise comment — collapsed unless it already has something.
+      // Comments are made in the moment, not the point of this screen.
+      const se = entry.sessionExercise;
+      if (se._commentExpanded === undefined) {
+        se._commentExpanded = !!(se.comment && se.comment.trim());
+      }
+
+      const commentToggle = document.createElement('button');
+      commentToggle.type = 'button';
+      commentToggle.className = 'link-button';
+      commentToggle.textContent = se._commentExpanded ? '− Hide note' : '+ Add note';
+      body.appendChild(commentToggle);
+
+      const commentField = document.createElement('div');
+      commentField.className = 'field';
+      commentField.style.marginTop = '8px';
+      commentField.hidden = !se._commentExpanded;
+      const commentLabel = document.createElement('label');
+      commentLabel.textContent = 'Notes for this session';
+      commentField.appendChild(commentLabel);
+      const comment = document.createElement('textarea');
+      comment.value = se.comment || '';
+      commentField.appendChild(comment);
+      const commentState = document.createElement('p');
+      commentState.className = 'muted';
+      commentState.style.cssText = 'margin:4px 0 0;min-height:18px;font-size:13px;';
+      commentField.appendChild(commentState);
+      wireCommentAutosave(
+        'session_exercises', se.id,
+        () => se.comment,
+        (v) => { se.comment = v; },
+        comment, commentState
+      );
+      body.appendChild(commentField);
+
+      commentToggle.addEventListener('click', () => {
+        se._commentExpanded = !se._commentExpanded;
+        commentField.hidden = !se._commentExpanded;
+        commentToggle.textContent = se._commentExpanded ? '− Hide note' : '+ Add note';
+        if (se._commentExpanded) comment.focus();
+      });
+
+      // Sets
+      if (entry.sets.length > 0) {
+        const label = document.createElement('p');
+        label.className = 'section-label';
+        label.textContent = 'Sets';
+        body.appendChild(label);
+        for (const set of entry.sets) body.appendChild(buildSetRow(entry, set));
+      }
+
+      body.appendChild(buildAddSetSection(entry));
+
+      // Remove this exercise from the session — a correction to the log,
+      // not a library action. Hard-deletes its sets and the session_exercises
+      // link for THIS session only; the exercise definition is untouched.
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'link-button';
+      removeBtn.style.cssText = 'margin-top:14px;color:var(--danger);';
+      removeBtn.textContent = 'Remove from this session';
+      body.appendChild(removeBtn);
+
+      const removeConfirm = document.createElement('div');
+      removeConfirm.hidden = true;
+      removeConfirm.style.marginTop = '10px';
+      const removeCopy = document.createElement('p');
+      removeCopy.className = 'muted';
+      removeCopy.style.marginBottom = '10px';
+      const n = entry.sets.length;
+      removeCopy.textContent = `Remove "${entry.exercise.name}" and its ${n} set${n === 1 ? '' : 's'} from this session? This can't be undone.`;
+      removeConfirm.appendChild(removeCopy);
+      const removeRow = document.createElement('div');
+      removeRow.className = 'btn-row';
+      const removeCancel = document.createElement('button');
+      removeCancel.type = 'button';
+      removeCancel.className = 'secondary';
+      removeCancel.textContent = 'Cancel';
+      const removeYes = document.createElement('button');
+      removeYes.type = 'button';
+      removeYes.className = 'danger';
+      removeYes.textContent = 'Yes, remove';
+      removeRow.appendChild(removeCancel);
+      removeRow.appendChild(removeYes);
+      removeConfirm.appendChild(removeRow);
+      body.appendChild(removeConfirm);
+
+      removeBtn.addEventListener('click', () => {
+        removeBtn.hidden = true;
+        removeConfirm.hidden = false;
+      });
+      removeCancel.addEventListener('click', () => {
+        removeConfirm.hidden = true;
+        removeBtn.hidden = false;
+      });
+      removeYes.addEventListener('click', async () => {
+        removeYes.disabled = true;
+        removeYes.textContent = 'Removing…';
+
+        const { error: setsErr } = await supabase.from('sets')
+          .delete().eq('session_id', currentSessionId).eq('exercise_id', entry.exercise.id);
+        if (setsErr) {
+          removeYes.disabled = false;
+          removeYes.textContent = 'Yes, remove';
+          flash(`Could not remove: ${setsErr.message}`, 'error', 5000);
+          return;
+        }
+        const { error: seErr } = await supabase.from('session_exercises')
+          .delete().eq('id', entry.sessionExercise.id);
+        if (seErr) {
+          removeYes.disabled = false;
+          removeYes.textContent = 'Yes, remove';
+          flash(`Removed the sets, but couldn't remove the exercise entry: ${seErr.message}`, 'error', 6000);
+          return;
+        }
+
+        allSets = allSets.filter((s) => !(s.session_id === currentSessionId && s.exercise_id === entry.exercise.id));
+        allSessionExercises = allSessionExercises.filter((se) => se.id !== entry.sessionExercise.id);
+
+        renderDetail();
+        renderSessionList();
+        flash(`Removed "${entry.exercise.name}" from this session.`);
+      });
+
+      card.appendChild(body);
+      return card;
+    }
+
+    /**
+     * "Enter something that was forgotten" — recover from a wrong delete,
+     * or log a set you missed entirely. Collapsed by default, and the
+     * weight carries forward from the most recent set here (same idea as
+     * the Log screen) so adding a couple more sets in a row is quick.
+     */
+    function buildAddSetSection(entry) {
+      const se = entry.sessionExercise;
+      const wrap = document.createElement('div');
+      wrap.style.marginTop = '14px';
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'link-button';
+      toggle.textContent = se._addingSet ? '− Hide' : '+ Add set';
+      wrap.appendChild(toggle);
+
+      const formWrap = document.createElement('div');
+      formWrap.style.marginTop = '10px';
+      formWrap.hidden = !se._addingSet;
+      wrap.appendChild(formWrap);
+
+      toggle.addEventListener('click', () => {
+        se._addingSet = !se._addingSet;
+        toggle.textContent = se._addingSet ? '− Hide' : '+ Add set';
+        formWrap.hidden = !se._addingSet;
+        if (se._addingSet) buildAddSetForm(formWrap, entry);
+      });
+
+      if (se._addingSet) buildAddSetForm(formWrap, entry);
+
+      return wrap;
+    }
+
+    function buildAddSetForm(container, entry) {
+      container.innerHTML = '';
+      const type = entry.exercise.type;
+
+      const fieldRow = document.createElement('div');
+      fieldRow.className = 'field-row';
+
+      let weightInput = null, repsInput = null, durationInput = null;
+
+      if (type === 'time_based') {
+        const f = document.createElement('div');
+        f.className = 'field';
+        const l = document.createElement('label');
+        l.textContent = 'Duration (seconds)';
+        f.appendChild(l);
+        durationInput = document.createElement('input');
+        durationInput.type = 'text';
+        durationInput.inputMode = 'numeric';
+        f.appendChild(durationInput);
+        fieldRow.appendChild(f);
+      } else {
+        const wf = document.createElement('div');
+        wf.className = 'field';
+        const wl = document.createElement('label');
+        wl.textContent = type === 'assisted' ? 'Assistance (kg)' : 'Weight (kg)';
+        wf.appendChild(wl);
+        weightInput = document.createElement('input');
+        weightInput.type = 'text';
+        weightInput.inputMode = 'decimal';
+        // Sticky, same idea as the Log screen: carry the last set's weight.
+        const last = entry.sets[entry.sets.length - 1];
+        weightInput.value = last && last.weight !== null ? formatWeight(last.weight) : '';
+        wf.appendChild(weightInput);
+        fieldRow.appendChild(wf);
+
+        const rf = document.createElement('div');
+        rf.className = 'field';
+        const rl = document.createElement('label');
+        rl.textContent = 'Reps';
+        rf.appendChild(rl);
+        repsInput = document.createElement('input');
+        repsInput.type = 'text';
+        repsInput.inputMode = 'numeric';
+        rf.appendChild(repsInput);
+        fieldRow.appendChild(rf);
+      }
+      container.appendChild(fieldRow);
+
+      let activeTag = null;
+      const chips = document.createElement('div');
+      chips.className = 'chips';
+      chips.style.margin = '10px 0';
+      for (const tag of QUICK_TAGS) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = tag.label;
+        chip.addEventListener('click', () => {
+          activeTag = activeTag === tag.value ? null : tag.value;
+          for (const c of chips.children) c.classList.remove('selected');
+          if (activeTag) chip.classList.add('selected');
+        });
+        chips.appendChild(chip);
+      }
+      container.appendChild(chips);
+
+      const addStatus = document.createElement('div');
+      addStatus.className = 'status';
+      addStatus.hidden = true;
+      container.appendChild(addStatus);
+
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.textContent = 'Log set';
+      container.appendChild(addBtn);
+
+      addBtn.addEventListener('click', async () => {
+        hide(addStatus);
+        const payload = { session_id: currentSessionId, exercise_id: entry.exercise.id };
+
+        if (type === 'time_based') {
+          const secs = parseInt(durationInput.value.trim(), 10);
+          if (!Number.isFinite(secs) || secs <= 0) {
+            show(addStatus, 'error', 'Enter a duration in seconds.');
+            return;
+          }
+          payload.duration_seconds = secs;
+        } else {
+          const rawWeight = weightInput.value.trim().replace(',', '.');
+          const reps = parseInt(repsInput.value.trim(), 10);
+          if (!Number.isFinite(reps) || reps <= 0) {
+            show(addStatus, 'error', 'Enter how many reps.');
+            return;
+          }
+          if (rawWeight !== '') {
+            const w = parseFloat(rawWeight);
+            if (!Number.isFinite(w) || w < 0) {
+              show(addStatus, 'error', 'Weight must be a number, 0 or more.');
+              return;
+            }
+            payload.weight = w;
+          }
+          payload.reps = reps;
+        }
+        if (activeTag) payload.quick_tag = activeTag;
+
+        addBtn.disabled = true;
+        addBtn.textContent = 'Logging…';
+
+        const { data, error } = await supabase.from('sets').insert(payload).select().single();
+
+        addBtn.disabled = false;
+        addBtn.textContent = 'Log set';
+
+        if (error) {
+          show(addStatus, 'error', describeSetError(error));
+          return;
+        }
+
+        allSets.push(data);
+        entry.sets.push(data);
+        entry.sessionExercise._addingSet = true; // keep the form open for the next set
+        renderDetail();
+        renderSessionList();
+        flash('Set logged.', 'ok', 1800);
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // Editing / deleting a set
+    // ------------------------------------------------------------------
+    function describeSetError(error) {
+      if (error.message?.includes('sets_reps_sane')) return 'Reps must be a whole number above 0.';
+      if (error.message?.includes('sets_duration_sane')) return 'Duration must be above 0 seconds.';
+      if (error.message?.includes('sets_weight_sane')) return "Weight can't be negative.";
+      if (error.message?.includes('sets_not_empty')) return 'Enter at least a weight, reps, or a duration.';
+      return `Could not save: ${error.message}`;
+    }
+
+    function buildSetRow(entry, set) {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+      row.style.flexWrap = 'wrap';
+
+      if (!set._editing) {
+        renderSetDisplay(row, entry, set);
+      } else {
+        renderSetEditor(row, entry, set);
+      }
+
+      return row;
+    }
+
+    function renderSetDisplay(row, entry, set) {
+      row.innerHTML = '';
+      const type = entry.exercise.type;
+
+      const detailWrap = document.createElement('div');
+      detailWrap.className = 'set-detail';
+      detailWrap.style.cursor = 'pointer';
+      const detail = document.createElement('div');
+      detail.textContent = describeSet(set, type);
+      detailWrap.appendChild(detail);
+      detailWrap.addEventListener('click', () => {
+        set._editing = true;
+        renderSetRowInPlace(row, entry, set);
+      });
+      row.appendChild(detailWrap);
+
+      if (set.quick_tag) {
+        const tag = document.createElement('span');
+        tag.className = 'badge';
+        const found = QUICK_TAGS.find((t) => t.value === set.quick_tag);
+        tag.textContent = found ? found.label : set.quick_tag;
+        row.appendChild(tag);
+      }
+
+      // Two-tap hard delete, identical state machine to the Log screen.
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'set-delete';
+      del.textContent = '×';
+      del.setAttribute('aria-label', 'Delete set');
+      let armed = false;
+      let disarmTimer = null;
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!armed) {
+          armed = true;
+          del.classList.add('confirming');
+          del.textContent = 'Delete?';
+          disarmTimer = setTimeout(() => {
+            armed = false;
+            del.classList.remove('confirming');
+            del.textContent = '×';
+          }, 4000);
+          return;
+        }
+        clearTimeout(disarmTimer);
+        del.disabled = true;
+        del.textContent = '…';
+        const { error } = await supabase.from('sets').delete().eq('id', set.id);
+        if (error) {
+          del.disabled = false;
+          del.classList.remove('confirming');
+          del.textContent = '×';
+          armed = false;
+          flash(`Could not delete the set: ${error.message}`, 'error', 5000);
+          return;
+        }
+        allSets = allSets.filter((s) => s.id !== set.id);
+        entry.sets = entry.sets.filter((s) => s.id !== set.id);
+        renderDetail();
+        renderSessionList();
+        flash('Set deleted.');
+      });
+      row.appendChild(del);
+    }
+
+    function renderSetRowInPlace(row, entry, set) {
+      if (set._editing) {
+        renderSetEditor(row, entry, set);
+      } else {
+        renderSetDisplay(row, entry, set);
+      }
+    }
+
+    function renderSetEditor(row, entry, set) {
+      row.innerHTML = '';
+      const type = entry.exercise.type;
+
+      const form = document.createElement('div');
+      form.style.width = '100%';
+
+      const fieldRow = document.createElement('div');
+      fieldRow.className = 'field-row';
+
+      let weightInput = null, repsInput = null, durationInput = null;
+
+      if (type === 'time_based') {
+        const f = document.createElement('div');
+        f.className = 'field';
+        const l = document.createElement('label');
+        l.textContent = 'Duration (seconds)';
+        f.appendChild(l);
+        durationInput = document.createElement('input');
+        durationInput.type = 'text';
+        durationInput.inputMode = 'numeric';
+        durationInput.value = set.duration_seconds ?? '';
+        f.appendChild(durationInput);
+        fieldRow.appendChild(f);
+      } else {
+        const wf = document.createElement('div');
+        wf.className = 'field';
+        const wl = document.createElement('label');
+        wl.textContent = type === 'assisted' ? 'Assistance (kg)' : 'Weight (kg)';
+        wf.appendChild(wl);
+        weightInput = document.createElement('input');
+        weightInput.type = 'text';
+        weightInput.inputMode = 'decimal';
+        weightInput.value = set.weight === null ? '' : formatWeight(set.weight);
+        wf.appendChild(weightInput);
+        fieldRow.appendChild(wf);
+
+        const rf = document.createElement('div');
+        rf.className = 'field';
+        const rl = document.createElement('label');
+        rl.textContent = 'Reps';
+        rf.appendChild(rl);
+        repsInput = document.createElement('input');
+        repsInput.type = 'text';
+        repsInput.inputMode = 'numeric';
+        repsInput.value = set.reps ?? '';
+        rf.appendChild(repsInput);
+        fieldRow.appendChild(rf);
+      }
+      form.appendChild(fieldRow);
+
+      let activeTag = set.quick_tag || null;
+      const chips = document.createElement('div');
+      chips.className = 'chips';
+      chips.style.margin = '10px 0';
+      for (const tag of QUICK_TAGS) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip' + (activeTag === tag.value ? ' selected' : '');
+        chip.textContent = tag.label;
+        chip.addEventListener('click', () => {
+          activeTag = activeTag === tag.value ? null : tag.value;
+          for (const c of chips.children) c.classList.remove('selected');
+          if (activeTag) chip.classList.add('selected');
+        });
+        chips.appendChild(chip);
+      }
+      form.appendChild(chips);
+
+      const editStatus = document.createElement('div');
+      editStatus.className = 'status';
+      editStatus.hidden = true;
+      form.appendChild(editStatus);
+
+      const btnRow = document.createElement('div');
+      btnRow.className = 'btn-row';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'secondary';
+      cancelBtn.textContent = 'Cancel';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = 'Save';
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(saveBtn);
+      form.appendChild(btnRow);
+
+      cancelBtn.addEventListener('click', () => {
+        set._editing = false;
+        renderSetRowInPlace(row, entry, set);
+      });
+
+      saveBtn.addEventListener('click', async () => {
+        hide(editStatus);
+        const payload = {};
+
+        if (type === 'time_based') {
+          const secs = parseInt(durationInput.value.trim(), 10);
+          if (!Number.isFinite(secs) || secs <= 0) {
+            show(editStatus, 'error', 'Enter a duration in seconds.');
+            return;
+          }
+          payload.duration_seconds = secs;
+          payload.weight = null;
+          payload.reps = null;
+        } else {
+          const rawWeight = weightInput.value.trim().replace(',', '.');
+          const reps = parseInt(repsInput.value.trim(), 10);
+          if (!Number.isFinite(reps) || reps <= 0) {
+            show(editStatus, 'error', 'Enter how many reps you did.');
+            return;
+          }
+          if (rawWeight !== '') {
+            const w = parseFloat(rawWeight);
+            if (!Number.isFinite(w) || w < 0) {
+              show(editStatus, 'error', 'Weight must be a number, 0 or more.');
+              return;
+            }
+            payload.weight = w;
+          } else {
+            payload.weight = null;
+          }
+          payload.reps = reps;
+          payload.duration_seconds = null;
+        }
+
+        payload.quick_tag = activeTag;
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+
+        const { data, error } = await supabase.from('sets').update(payload).eq('id', set.id).select().single();
+
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+
+        if (error) {
+          show(editStatus, 'error', describeSetError(error));
+          return;
+        }
+
+        Object.assign(set, data);
+        set._editing = false;
+
+        const idx = allSets.findIndex((s) => s.id === set.id);
+        if (idx !== -1) allSets[idx] = set;
+
+        renderSetRowInPlace(row, entry, set);
+        flash('Set updated.');
+      });
+
+      row.appendChild(form);
+    }
+
+    // ------------------------------------------------------------------
+    // Delete session
+    // ------------------------------------------------------------------
+    deleteSessionBtn.addEventListener('click', () => {
+      deleteSessionBtn.hidden = true;
+      deleteSessionConfirm.hidden = false;
+    });
+    deleteSessionCancel.addEventListener('click', () => {
+      deleteSessionConfirm.hidden = true;
+      deleteSessionBtn.hidden = false;
+    });
+    deleteSessionConfirmBtn.addEventListener('click', async () => {
+      const session = currentSession();
+      if (!session) return;
+
+      deleteSessionConfirmBtn.disabled = true;
+      deleteSessionConfirmBtn.textContent = 'Deleting…';
+
+      const { error } = await supabase.from('sessions')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', session.id);
+
+      deleteSessionConfirmBtn.disabled = false;
+      deleteSessionConfirmBtn.textContent = 'Yes, delete';
+
+      if (error) {
+        flash(`Could not delete: ${error.message}`, 'error', 5000);
+        return;
+      }
+
+      allSessions = allSessions.filter((s) => s.id !== session.id);
+      currentSessionId = null;
+      showView('list');
+      renderSessionList();
+      flash('Session deleted. Restore it anytime from Settings.', 'ok', 4000);
+    });
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    user = await requireSession('./index.html');
+    if (user) {
+      await loadAll();
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

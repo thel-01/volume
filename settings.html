@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Settings</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <!-- =================== SETTINGS HOME =================== -->
+    <!-- Just one row today. Adding a future section (e.g. plate inventory)
+         is one more list item here plus one more <section> below — not a
+         redesign of this page. -->
+    <section id="home-view">
+      <div class="page-header">
+        <a href="./app.html" class="icon-link" aria-label="Back">←</a>
+        <h1>Settings</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <ul class="list">
+        <li class="list-item" id="recently-deleted-link" tabindex="0" role="button">
+          <div class="list-item-body">
+            <div class="list-item-name">Recently Deleted</div>
+          </div>
+          <span class="list-item-chevron">›</span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- =================== RECENTLY DELETED =================== -->
+    <section id="recently-deleted-view" hidden>
+      <div class="page-header">
+        <button id="rd-back" class="icon-link" type="button" aria-label="Back to settings">←</button>
+        <h1>Recently Deleted</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <p id="loading" class="muted">Loading…</p>
+
+      <div id="lists" hidden>
+        <p class="section-label">Movement patterns</p>
+        <ul id="deleted-pattern-list" class="list" hidden></ul>
+        <p id="empty-deleted-patterns" class="muted" hidden>None.</p>
+
+        <p class="section-label">Exercises</p>
+        <ul id="deleted-exercise-list" class="list" hidden></ul>
+        <p id="empty-deleted-exercises" class="muted" hidden>None.</p>
+
+        <p class="section-label">Sessions</p>
+        <ul id="deleted-session-list" class="list" hidden></ul>
+        <p id="empty-deleted-sessions" class="muted" hidden>None.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const homeView = document.getElementById('home-view');
+    const recentlyDeletedView = document.getElementById('recently-deleted-view');
+    const recentlyDeletedLink = document.getElementById('recently-deleted-link');
+    const rdBack = document.getElementById('rd-back');
+
+    const topStatus = document.getElementById('top-status');
+    const loading = document.getElementById('loading');
+    const lists = document.getElementById('lists');
+
+    const deletedPatternListEl = document.getElementById('deleted-pattern-list');
+    const emptyDeletedPatterns = document.getElementById('empty-deleted-patterns');
+    const deletedExerciseListEl = document.getElementById('deleted-exercise-list');
+    const emptyDeletedExercises = document.getElementById('empty-deleted-exercises');
+    const deletedSessionListEl = document.getElementById('deleted-session-list');
+    const emptyDeletedSessions = document.getElementById('empty-deleted-sessions');
+
+    // ------------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------------
+    let user = null;
+    let deletedPatterns = [];
+    let deletedExercises = [];
+    let deletedSessions = [];
+    let loaded = false;
+
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function hide(el) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    function smallButton(label) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'secondary';
+      btn.style.cssText = 'width:auto;min-height:40px;padding:0 16px;flex:0 0 auto;';
+      btn.textContent = label;
+      return btn;
+    }
+    function showView(view) {
+      homeView.hidden = view !== 'home';
+      recentlyDeletedView.hidden = view !== 'recently-deleted';
+    }
+
+    // ------------------------------------------------------------------
+    // Navigation
+    // ------------------------------------------------------------------
+    function openRecentlyDeleted() {
+      showView('recently-deleted');
+      if (!loaded) loadAll();
+    }
+    recentlyDeletedLink.addEventListener('click', openRecentlyDeleted);
+    recentlyDeletedLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRecentlyDeleted(); }
+    });
+    rdBack.addEventListener('click', () => showView('home'));
+
+    // ------------------------------------------------------------------
+    // Loading
+    // ------------------------------------------------------------------
+    async function loadAll() {
+      loading.hidden = false;
+      lists.hidden = true;
+      hide(topStatus);
+
+      const [dp, de, ds] = await Promise.all([
+        supabase.from('movement_patterns').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+        supabase.from('exercises').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+        supabase.from('sessions').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+      ]);
+
+      loading.hidden = true;
+      lists.hidden = false;
+
+      const err = dp.error || de.error || ds.error;
+      if (err) {
+        show(topStatus, 'error', `Could not load recently deleted items: ${err.message}`);
+        return;
+      }
+
+      loaded = true;
+      deletedPatterns = dp.data;
+      deletedExercises = de.data;
+      deletedSessions = ds.data;
+
+      renderAll();
+    }
+
+    function renderAll() {
+      renderPatterns();
+      renderExercises();
+      renderSessions();
+    }
+
+    // ------------------------------------------------------------------
+    // Movement patterns + exercises
+    // ------------------------------------------------------------------
+    // A deleted exercise counts as "bundled into" a deleted pattern — and so
+    // shouldn't get its own separate row — only when its pattern is *also*
+    // currently deleted AND they share the exact same deleted_at. That
+    // timestamp match is what "deleted together" means (see the cascade
+    // trigger in schema.sql); an exercise thrown out on its own beforehand
+    // keeps a different timestamp and still gets its own row, even if its
+    // pattern happens to be in the trash too.
+    function isBundledWithDeletedPattern(ex) {
+      if (!ex.movement_pattern_id) return false;
+      const pattern = deletedPatterns.find((p) => p.id === ex.movement_pattern_id);
+      return !!pattern && pattern.deleted_at === ex.deleted_at;
+    }
+    function countBundledExercises(pattern) {
+      return deletedExercises.filter(
+        (ex) => ex.movement_pattern_id === pattern.id && ex.deleted_at === pattern.deleted_at
+      ).length;
+    }
+
+    function renderPatterns() {
+      deletedPatternListEl.innerHTML = '';
+      if (deletedPatterns.length === 0) {
+        deletedPatternListEl.hidden = true;
+        emptyDeletedPatterns.hidden = false;
+      } else {
+        emptyDeletedPatterns.hidden = true;
+        deletedPatternListEl.hidden = false;
+        for (const p of deletedPatterns) deletedPatternListEl.appendChild(buildDeletedPatternItem(p));
+      }
+    }
+
+    function renderExercises() {
+      const standalone = deletedExercises.filter((ex) => !isBundledWithDeletedPattern(ex));
+      deletedExerciseListEl.innerHTML = '';
+      if (standalone.length === 0) {
+        deletedExerciseListEl.hidden = true;
+        emptyDeletedExercises.hidden = false;
+      } else {
+        emptyDeletedExercises.hidden = true;
+        deletedExerciseListEl.hidden = false;
+        for (const ex of standalone) deletedExerciseListEl.appendChild(buildDeletedExerciseItem(ex));
+      }
+    }
+
+    function buildDeletedPatternItem(p) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = p.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const when = document.createElement('span');
+      when.textContent = `Deleted ${formatDate(p.deleted_at)}`;
+      meta.appendChild(when);
+      const bundledCount = countBundledExercises(p);
+      if (bundledCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = bundledCount === 1 ? 'includes 1 exercise' : `includes ${bundledCount} exercises`;
+        meta.appendChild(badge);
+      }
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const restoreBtn = smallButton('Restore');
+      restoreBtn.addEventListener('click', () => restorePattern(p, restoreBtn));
+      li.appendChild(restoreBtn);
+
+      return li;
+    }
+
+    function buildDeletedExerciseItem(ex) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = ex.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const when = document.createElement('span');
+      when.textContent = `Deleted ${formatDate(ex.deleted_at)}`;
+      meta.appendChild(when);
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const restoreBtn = smallButton('Restore');
+      restoreBtn.addEventListener('click', () => restoreExercise(ex, restoreBtn));
+      li.appendChild(restoreBtn);
+
+      return li;
+    }
+
+    async function restorePattern(p, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Restoring…';
+      hide(topStatus);
+
+      const { error } = await supabase.from('movement_patterns').update({ deleted_at: null }).eq('id', p.id);
+
+      if (error) {
+        show(topStatus, 'error', `Could not restore "${p.name}": ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Restore';
+        return;
+      }
+
+      // Mirror the database's own cascade-restore rule so the UI is right
+      // immediately: only exercises stamped with this exact deleted_at came
+      // back with the box. Anything deleted separately, earlier, stays put.
+      const originalDeletedAt = p.deleted_at;
+      const cascaded = deletedExercises.filter(
+        (e) => e.movement_pattern_id === p.id && e.deleted_at === originalDeletedAt
+      );
+      deletedExercises = deletedExercises.filter((e) => !cascaded.includes(e));
+      deletedPatterns = deletedPatterns.filter((x) => x.id !== p.id);
+
+      renderAll();
+      show(
+        topStatus,
+        'ok',
+        cascaded.length > 0
+          ? `Restored "${p.name}" and ${cascaded.length} exercise${cascaded.length === 1 ? '' : 's'}.`
+          : `Restored "${p.name}".`
+      );
+      setTimeout(() => hide(topStatus), 4000);
+    }
+
+    async function restoreExercise(ex, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Restoring…';
+      hide(topStatus);
+
+      const { error } = await supabase.from('exercises').update({ deleted_at: null }).eq('id', ex.id);
+
+      if (error) {
+        show(topStatus, 'error', `Could not restore "${ex.name}": ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Restore';
+        return;
+      }
+
+      deletedExercises = deletedExercises.filter((e) => e.id !== ex.id);
+      renderExercises();
+      show(topStatus, 'ok', `Restored "${ex.name}".`);
+      setTimeout(() => hide(topStatus), 3000);
+    }
+
+    // ------------------------------------------------------------------
+    // Sessions
+    // ------------------------------------------------------------------
+    function renderSessions() {
+      deletedSessionListEl.innerHTML = '';
+      if (deletedSessions.length === 0) {
+        deletedSessionListEl.hidden = true;
+        emptyDeletedSessions.hidden = false;
+      } else {
+        emptyDeletedSessions.hidden = true;
+        deletedSessionListEl.hidden = false;
+        for (const s of deletedSessions) deletedSessionListEl.appendChild(buildDeletedSessionItem(s));
+      }
+    }
+
+    function buildDeletedSessionItem(s) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = s.category ? `${s.category} — ${formatDate(s.start_time)}` : formatDate(s.start_time);
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const when = document.createElement('span');
+      when.textContent = `Deleted ${formatDate(s.deleted_at)}`;
+      meta.appendChild(when);
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const restoreBtn = smallButton('Restore');
+      restoreBtn.addEventListener('click', () => restoreSession(s, restoreBtn));
+      li.appendChild(restoreBtn);
+
+      return li;
+    }
+
+    async function restoreSession(s, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Restoring…';
+      hide(topStatus);
+
+      const { error } = await supabase.from('sessions').update({ deleted_at: null }).eq('id', s.id);
+
+      if (error) {
+        show(topStatus, 'error', `Could not restore that session: ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Restore';
+        return;
+      }
+
+      deletedSessions = deletedSessions.filter((x) => x.id !== s.id);
+      renderSessions();
+      show(topStatus, 'ok', 'Session restored.');
+      setTimeout(() => hide(topStatus), 3000);
+    }
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    user = await requireSession('./index.html');
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

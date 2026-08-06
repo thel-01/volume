@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Trend</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 8px 6px;
+    }
+    .chart-card svg { display: block; width: 100%; height: auto; }
+    .chart-hint {
+      margin-top: 10px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div class="page-header">
+      <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
+      <h1>Trend</h1>
+      <span class="icon-link" style="visibility:hidden">←</span>
+    </div>
+    <p id="subtitle" class="subtitle" hidden></p>
+
+    <p id="loading" class="muted">Loading…</p>
+
+    <div id="content" hidden>
+      <div class="chart-card">
+        <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Trend over time"></svg>
+      </div>
+      <p class="chart-hint">Tap a point for details.</p>
+    </div>
+
+    <p id="empty-state" class="empty-state" hidden></p>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+
+    const NS = 'http://www.w3.org/2000/svg';
+    const VIEW_W = 340;
+    const VIEW_H = 180;
+    const MARGIN = { top: 16, right: 16, bottom: 26, left: 40 };
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const topStatus = document.getElementById('top-status');
+    const heading = document.querySelector('.page-header h1');
+    const subtitle = document.getElementById('subtitle');
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('content');
+    const emptyState = document.getElementById('empty-state');
+    const svg = document.getElementById('chart');
+
+    // ------------------------------------------------------------------
+    // Small shared helpers (same shape as the rest of the app)
+    // ------------------------------------------------------------------
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function formatWeight(value) {
+      if (value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+    function formatDuration(seconds) {
+      if (seconds === null || seconds === undefined) return '';
+      const s = Number(seconds);
+      if (s < 60) return `${s}s`;
+      const mins = Math.floor(s / 60);
+      const rest = s % 60;
+      return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
+    }
+    function tagLetter(quickTag) {
+      if (quickTag === 'easy') return 'e';
+      if (quickTag === 'hard') return 'h';
+      if (quickTag === 'failure') return 'f';
+      return '';
+    }
+    function describeSet(set, type) {
+      if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
+      const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
+      const suffix = type === 'assisted' ? ' assist' : '';
+      const parts = [];
+      if (weight) parts.push(weight + suffix);
+      if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}${tagLetter(set.quick_tag)}`);
+      return parts.join(' ') || '—';
+    }
+    function formatFullDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    /** Compact axis label: "Aug 5", or "Aug 5 '25" if it needs disambiguating from the other end. */
+    function formatCompactDate(iso, showYear) {
+      const d = new Date(iso);
+      const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
+    }
+
+    // ------------------------------------------------------------------
+    // "Nice" round numbers for axis ticks (Heckbert's algorithm), capped
+    // at 2–3 labels total. Picked to look clean, not to hit the data's
+    // exact min/max — this is a trend visualizer, not a precise readout.
+    // ------------------------------------------------------------------
+    function niceNum(range, round) {
+      if (range <= 0) return 1;
+      const exponent = Math.floor(Math.log10(range));
+      const fraction = range / Math.pow(10, exponent);
+      let niceFraction;
+      if (round) {
+        if (fraction < 1.5) niceFraction = 1;
+        else if (fraction < 3) niceFraction = 2;
+        else if (fraction < 7) niceFraction = 5;
+        else niceFraction = 10;
+      } else {
+        if (fraction <= 1) niceFraction = 1;
+        else if (fraction <= 2) niceFraction = 2;
+        else if (fraction <= 5) niceFraction = 5;
+        else niceFraction = 10;
+      }
+      return niceFraction * Math.pow(10, exponent);
+    }
+
+    function computeYAxis(values) {
+      const dataMin = Math.min(...values);
+      const dataMax = Math.max(...values);
+      let lo = dataMin;
+      let hi = dataMax;
+
+      if (lo === hi) {
+        // Flat or single-point series — fabricate a small window so the
+        // point sits mid-chart instead of on a zero-height axis.
+        const pad = Math.max(1, Math.round(Math.abs(lo) * 0.1));
+        lo -= pad;
+        hi += pad;
+      } else {
+        // Headroom so the line and dots get room to breathe, not hug the edges.
+        const pad = (hi - lo) * 0.18;
+        lo -= pad;
+        hi += pad;
+      }
+      if (lo < 0 && dataMin >= 0) lo = 0; // don't invent negative territory that was never real
+
+      // Grow the step (rather than slicing an uneven set of ticks down to
+      // size) so whatever labels remain stay evenly spaced.
+      let step = niceNum((hi - lo) / 2, true);
+      let niceMin, niceMax, ticks;
+      for (let guard = 0; guard < 10; guard++) {
+        niceMin = Math.floor(lo / step) * step;
+        niceMax = Math.ceil(hi / step) * step;
+        ticks = [];
+        for (let v = niceMin; v <= niceMax + step * 1e-6; v += step) ticks.push(Math.round(v));
+        if (ticks.length <= 3) break;
+        step = niceNum(step * 1.5, true);
+      }
+
+      return { min: niceMin, max: niceMax, ticks };
+    }
+
+    // `useMinutes` is decided once per axis (from its max, not each tick)
+    // so ticks never mix units — no axis showing "0s" next to "2m".
+    function formatAxisValue(value, type, useMinutes) {
+      if (type === 'time_based') {
+        return useMinutes ? `${Math.round(value / 60)}m` : `${Math.round(value)}s`;
+      }
+      return `${Math.round(value)} kg`;
+    }
+
+    // ------------------------------------------------------------------
+    // One point per workout — the heaviest (or longest / least-assisted)
+    // set logged in that session, not just the sessions that happened to
+    // set an all-time record. This also means a single session's own
+    // warm-up-to-top-set climb collapses into one point instead of
+    // several, so it never shows up as its own near-vertical segment.
+    // ------------------------------------------------------------------
+    function computeSessionBests(sets, type) {
+      const bySession = new Map();
+      for (const s of sets) {
+        if (type === 'time_based') {
+          if (s.duration_seconds === null) continue;
+        } else {
+          if (s.weight === null || s.reps === null) continue;
+        }
+        if (!bySession.has(s.session_id)) bySession.set(s.session_id, []);
+        bySession.get(s.session_id).push(s);
+      }
+
+      const points = [];
+      for (const sessionSets of bySession.values()) {
+        let best = null;
+        for (const s of sessionSets) {
+          if (type === 'time_based') {
+            if (!best || s.duration_seconds > best.duration_seconds) best = s;
+          } else {
+            const w = Number(s.weight);
+            const better = !best
+              || (type === 'assisted' ? w < Number(best.weight) : w > Number(best.weight))
+              || (w === Number(best.weight) && s.reps > best.reps);
+            if (better) best = s;
+          }
+        }
+        const value = type === 'time_based' ? best.duration_seconds : Number(best.weight);
+        points.push({ date: best.sessions.start_time, value, set: best });
+      }
+
+      points.sort((a, b) => new Date(a.date) - new Date(b.date));
+      return points;
+    }
+
+    // ------------------------------------------------------------------
+    // Chart rendering — plain SVG, no library. Straight-line segments
+    // between each workout's point, dots only on the real points, tap for
+    // a tooltip. No grid lines; axis is deliberately sparse.
+    // ------------------------------------------------------------------
+    function renderChart(points, type) {
+      svg.innerHTML = '';
+      const plotW = VIEW_W - MARGIN.left - MARGIN.right;
+      const plotH = VIEW_H - MARGIN.top - MARGIN.bottom;
+
+      const minT = new Date(points[0].date).getTime();
+      const maxT = new Date(points[points.length - 1].date).getTime();
+      const values = points.map((p) => p.value);
+      const axis = computeYAxis(values);
+      const useMinutes = type === 'time_based' && axis.max >= 60;
+
+      const xScale = (t) => (maxT === minT
+        ? MARGIN.left + plotW / 2
+        : MARGIN.left + ((t - minT) / (maxT - minT)) * plotW);
+      const yScale = (v) => MARGIN.top + plotH - ((v - axis.min) / (axis.max - axis.min)) * plotH;
+
+      // Invisible full-size backdrop: tapping empty chart space dismisses any open tooltip.
+      const backdrop = document.createElementNS(NS, 'rect');
+      backdrop.setAttribute('x', 0);
+      backdrop.setAttribute('y', 0);
+      backdrop.setAttribute('width', VIEW_W);
+      backdrop.setAttribute('height', VIEW_H);
+      backdrop.setAttribute('fill', 'transparent');
+      backdrop.addEventListener('click', () => clearTooltip());
+      svg.appendChild(backdrop);
+
+      // Y-axis labels only — no tick marks, no grid lines.
+      for (const tickValue of axis.ticks) {
+        const y = yScale(tickValue);
+        const text = document.createElementNS(NS, 'text');
+        text.setAttribute('x', MARGIN.left - 8);
+        text.setAttribute('y', y + 3.5);
+        text.setAttribute('text-anchor', 'end');
+        text.setAttribute('font-size', '11');
+        text.setAttribute('fill', 'var(--muted)');
+        text.textContent = formatAxisValue(tickValue, type, useMinutes);
+        svg.appendChild(text);
+      }
+
+      // X-axis: first and last day only.
+      const sameYear = new Date(minT).getFullYear() === new Date(maxT).getFullYear();
+      if (maxT === minT) {
+        const text = document.createElementNS(NS, 'text');
+        text.setAttribute('x', xScale(minT));
+        text.setAttribute('y', VIEW_H - 6);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('font-size', '11');
+        text.setAttribute('fill', 'var(--muted)');
+        text.textContent = formatCompactDate(points[0].date, false);
+        svg.appendChild(text);
+      } else {
+        const firstLabel = document.createElementNS(NS, 'text');
+        firstLabel.setAttribute('x', MARGIN.left);
+        firstLabel.setAttribute('y', VIEW_H - 6);
+        firstLabel.setAttribute('text-anchor', 'start');
+        firstLabel.setAttribute('font-size', '11');
+        firstLabel.setAttribute('fill', 'var(--muted)');
+        firstLabel.textContent = formatCompactDate(points[0].date, !sameYear);
+        svg.appendChild(firstLabel);
+
+        const lastLabel = document.createElementNS(NS, 'text');
+        lastLabel.setAttribute('x', VIEW_W - MARGIN.right);
+        lastLabel.setAttribute('y', VIEW_H - 6);
+        lastLabel.setAttribute('text-anchor', 'end');
+        lastLabel.setAttribute('font-size', '11');
+        lastLabel.setAttribute('fill', 'var(--muted)');
+        lastLabel.textContent = formatCompactDate(points[points.length - 1].date, !sameYear);
+        svg.appendChild(lastLabel);
+      }
+
+      // The line — straight segments between real points only.
+      if (points.length > 1) {
+        const d = points
+          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(new Date(p.date).getTime())},${yScale(p.value)}`)
+          .join(' ');
+        const path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'var(--accent)');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('stroke-linecap', 'round');
+        svg.appendChild(path);
+      }
+
+      // Dots + tap targets.
+      let activeIndex = null;
+      points.forEach((p, i) => {
+        const cx = xScale(new Date(p.date).getTime());
+        const cy = yScale(p.value);
+
+        const dot = document.createElementNS(NS, 'circle');
+        dot.setAttribute('cx', cx);
+        dot.setAttribute('cy', cy);
+        dot.setAttribute('r', 3.5);
+        dot.setAttribute('fill', 'var(--accent)');
+        dot.setAttribute('stroke', 'var(--surface)');
+        dot.setAttribute('stroke-width', '1.5');
+        svg.appendChild(dot);
+
+        const hit = document.createElementNS(NS, 'circle');
+        hit.setAttribute('cx', cx);
+        hit.setAttribute('cy', cy);
+        hit.setAttribute('r', 12);
+        hit.setAttribute('fill', 'transparent');
+        hit.setAttribute('pointer-events', 'all');
+        hit.style.cursor = 'pointer';
+        hit.setAttribute('tabindex', '0');
+        hit.setAttribute('role', 'button');
+        hit.setAttribute('aria-label', `${describeSet(p.set, type)} on ${formatFullDate(p.date)}`);
+        const toggle = (e) => {
+          e.stopPropagation();
+          if (activeIndex === i) { clearTooltip(); return; }
+          activeIndex = i;
+          showTooltip(cx, cy, [describeSet(p.set, type), formatFullDate(p.date)]);
+        };
+        hit.addEventListener('click', toggle);
+        hit.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
+        });
+        svg.appendChild(hit);
+      });
+
+      function clearTooltip() {
+        activeIndex = null;
+        const existing = svg.querySelector('.chart-tip');
+        if (existing) existing.remove();
+      }
+
+      function showTooltip(cx, cy, lines) {
+        clearTooltip();
+        const g = document.createElementNS(NS, 'g');
+        g.setAttribute('class', 'chart-tip');
+        g.setAttribute('pointer-events', 'none');
+
+        const rect = document.createElementNS(NS, 'rect');
+        rect.setAttribute('rx', 6);
+        rect.setAttribute('fill', 'var(--surface-2)');
+        rect.setAttribute('stroke', 'var(--line)');
+        g.appendChild(rect);
+
+        const text = document.createElementNS(NS, 'text');
+        text.setAttribute('font-size', '11');
+        text.setAttribute('fill', 'var(--text)');
+        lines.forEach((line, i) => {
+          const tspan = document.createElementNS(NS, 'tspan');
+          tspan.setAttribute('x', 0);
+          tspan.setAttribute('dy', i === 0 ? 0 : 13);
+          if (i === 1) tspan.setAttribute('fill', 'var(--muted)');
+          tspan.textContent = line;
+          text.appendChild(tspan);
+        });
+        g.appendChild(text);
+        svg.appendChild(g);
+
+        const bbox = text.getBBox();
+        const padX = 8, padY = 6;
+        const boxW = bbox.width + padX * 2;
+        const boxH = bbox.height + padY * 2;
+
+        let boxX = cx - boxW / 2;
+        boxX = Math.max(2, Math.min(VIEW_W - 2 - boxW, boxX));
+        let boxY = cy - boxH - 12;
+        if (boxY < 2) boxY = cy + 12;
+
+        rect.setAttribute('x', boxX);
+        rect.setAttribute('y', boxY);
+        rect.setAttribute('width', boxW);
+        rect.setAttribute('height', boxH);
+
+        const textX = boxX + padX;
+        const textY = boxY + padY + 9;
+        text.setAttribute('x', textX);
+        text.setAttribute('y', textY);
+        for (const tspan of text.querySelectorAll('tspan')) tspan.setAttribute('x', textX);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    async function loadAll(exerciseId) {
+      const [exerciseRes, setsRes] = await Promise.all([
+        supabase.from('exercises').select('*').eq('id', exerciseId).is('deleted_at', null).maybeSingle(),
+        supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').eq('exercise_id', exerciseId).order('created_at'),
+      ]);
+
+      const err = exerciseRes.error || setsRes.error;
+      if (err) {
+        loading.hidden = true;
+        show(topStatus, 'error', `Could not load this exercise: ${err.message}`);
+        return;
+      }
+      if (!exerciseRes.data) {
+        loading.hidden = true;
+        show(topStatus, 'error', 'Could not find that exercise. It may have been deleted.');
+        return;
+      }
+
+      const exercise = exerciseRes.data;
+      heading.textContent = 'Trend';
+      subtitle.textContent = exercise.name;
+      subtitle.hidden = false;
+      document.title = `Volume — ${exercise.name}`;
+
+      const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
+      const points = computeSessionBests(liveSets, exercise.type);
+
+      loading.hidden = true;
+
+      if (points.length === 0) {
+        emptyState.textContent = `No sets logged for ${exercise.name} yet.`;
+        emptyState.hidden = false;
+        return;
+      }
+
+      if (exercise.type === 'assisted') {
+        const note = document.createElement('p');
+        note.className = 'chart-hint';
+        note.style.marginTop = '0';
+        note.style.marginBottom = '12px';
+        note.textContent = 'Lower is better — less assistance means more strength.';
+        content.insertBefore(note, content.firstChild);
+      }
+
+      content.hidden = false;
+      renderChart(points, exercise.type);
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const exerciseId = params.get('id');
+
+    const user = await requireSession('./index.html');
+    if (user) {
+      if (!exerciseId) {
+        loading.hidden = true;
+        show(topStatus, 'error', 'No exercise specified.');
+      } else {
+        await loadAll(exerciseId);
+      }
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>
