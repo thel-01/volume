@@ -1,0 +1,1641 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Log</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+
+    <!-- Global status: outside every view so a hidden section can't swallow it. -->
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <!-- =================== START VIEW (no active session) =================== -->
+    <section id="start-view" hidden>
+      <div class="page-header">
+        <a href="./app.html" class="icon-link" aria-label="Back">←</a>
+        <h1>Start workout</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <p class="section-label">Session type</p>
+      <div id="category-chips" class="chips" style="margin-bottom:8px;"></div>
+      <button id="category-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Type your own</button>
+      <div class="field" id="category-field" hidden>
+        <label for="category-input">Custom session type</label>
+        <input id="category-input" type="text" autocomplete="off" autocapitalize="words"
+               placeholder="e.g. upper body, full body">
+      </div>
+
+      <button id="start-btn" type="submit">Start workout</button>
+
+      <div id="start-status" class="status" role="status" aria-live="polite" hidden></div>
+
+      <div class="danger-zone">
+        <button id="export-btn" class="secondary" type="button">Export all data (JSON)</button>
+        <p class="muted" style="margin-top:8px;">
+          Downloads every session, exercise and set as one file. Keep it somewhere safe.
+        </p>
+      </div>
+    </section>
+
+    <!-- =================== SESSION VIEW (logging) =================== -->
+    <section id="session-view" hidden>
+      <div class="session-bar">
+        <div class="session-bar-body">
+          <div id="session-category" class="session-bar-category">Workout</div>
+          <div id="session-clock" class="session-bar-clock">—</div>
+        </div>
+        <button id="end-session-btn" class="secondary" type="button"
+                style="width:auto;min-height:40px;padding:0 16px;flex:0 0 auto;">End</button>
+      </div>
+
+      <div id="session-exercises"></div>
+
+      <p id="no-exercises" class="empty-state" hidden>
+        No exercises yet. Add the first one below.
+      </p>
+
+      <button id="add-exercise-btn" type="button" style="margin-top:8px;">+ Add exercise</button>
+    </section>
+
+    <!-- =================== PICKER VIEW (choose / create exercise) =================== -->
+    <section id="picker-view" hidden>
+      <div class="page-header">
+        <button id="picker-back" class="icon-link" type="button" aria-label="Cancel">←</button>
+        <h1>Add exercise</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <div class="field">
+        <input id="picker-search" type="text" autocomplete="off" autocapitalize="words"
+               autocorrect="off" spellcheck="false" placeholder="Search exercises…">
+      </div>
+
+      <div id="picker-list"></div>
+
+      <!-- Appears when the typed name doesn't match anything: create it without
+           leaving the workout, per the CLAUDE.md log-screen exception. -->
+      <div id="picker-create" hidden>
+        <p class="section-label">Create new</p>
+        <div class="field">
+          <label for="new-ex-name">Name</label>
+          <input id="new-ex-name" type="text" autocomplete="off" autocapitalize="words">
+        </div>
+        <div class="field">
+          <label for="new-ex-type">Type</label>
+          <select id="new-ex-type">
+            <option value="weight_reps">Standard</option>
+            <option value="time_based">Time-based</option>
+            <option value="assisted">Assisted</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="new-ex-pattern">Movement pattern (optional)</label>
+          <select id="new-ex-pattern">
+            <option value="">None — uncategorized</option>
+          </select>
+        </div>
+        <button id="create-exercise-btn" type="button">Create &amp; add</button>
+      </div>
+
+      <div id="picker-status" class="status" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <!-- =================== END VIEW (wrap up) =================== -->
+    <section id="end-view" hidden>
+      <div class="page-header">
+        <button id="end-back" class="icon-link" type="button" aria-label="Back to workout">←</button>
+        <h1>Finish workout</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <p id="end-summary-heading" class="subtitle"></p>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div id="end-summary"></div>
+      </div>
+
+      <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add a comment</button>
+      <div class="field" id="session-comment-field" hidden>
+        <label for="session-comment">How did it go?</label>
+        <textarea id="session-comment" placeholder="e.g. didn't eat much today"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button id="end-cancel" class="secondary" type="button">Keep going</button>
+        <button id="end-confirm" type="button">Finish</button>
+      </div>
+
+      <div id="end-status" class="status" role="status" aria-live="polite" hidden></div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+
+    const TYPE_LABELS = {
+      weight_reps: 'Standard',
+      time_based: 'Time-based',
+      assisted: 'Assisted',
+    };
+
+    // Fixed vocabulary. Stored lowercase; capitalised for display.
+    const QUICK_TAGS = [
+      { value: 'easy', label: 'Easy' },
+      { value: 'hard', label: 'Hard' },
+      { value: 'failure', label: 'Failure' },
+    ];
+
+    // Always offered as chips, on top of whatever you've typed before.
+    const DEFAULT_CATEGORIES = ['Push', 'Pull', 'Legs'];
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const startView = document.getElementById('start-view');
+    const sessionView = document.getElementById('session-view');
+    const pickerView = document.getElementById('picker-view');
+    const endView = document.getElementById('end-view');
+
+    const topStatus = document.getElementById('top-status');
+
+    const categoryChips = document.getElementById('category-chips');
+    const categoryToggle = document.getElementById('category-toggle');
+    const categoryField = document.getElementById('category-field');
+    const categoryInput = document.getElementById('category-input');
+    const startBtn = document.getElementById('start-btn');
+    const startStatus = document.getElementById('start-status');
+    const exportBtn = document.getElementById('export-btn');
+
+    const sessionCategory = document.getElementById('session-category');
+    const sessionClock = document.getElementById('session-clock');
+    const endSessionBtn = document.getElementById('end-session-btn');
+    const sessionExercisesEl = document.getElementById('session-exercises');
+    const noExercises = document.getElementById('no-exercises');
+    const addExerciseBtn = document.getElementById('add-exercise-btn');
+
+    const pickerBack = document.getElementById('picker-back');
+    const pickerSearch = document.getElementById('picker-search');
+    const pickerList = document.getElementById('picker-list');
+    const pickerCreate = document.getElementById('picker-create');
+    const newExName = document.getElementById('new-ex-name');
+    const newExType = document.getElementById('new-ex-type');
+    const newExPattern = document.getElementById('new-ex-pattern');
+    const createExerciseBtn = document.getElementById('create-exercise-btn');
+    const pickerStatus = document.getElementById('picker-status');
+
+    const endBack = document.getElementById('end-back');
+    const endSummaryHeading = document.getElementById('end-summary-heading');
+    const endSummary = document.getElementById('end-summary');
+    const sessionCommentToggle = document.getElementById('session-comment-toggle');
+    const sessionCommentField = document.getElementById('session-comment-field');
+    const sessionCommentInput = document.getElementById('session-comment');
+    const endCancel = document.getElementById('end-cancel');
+    const endConfirm = document.getElementById('end-confirm');
+    const endStatus = document.getElementById('end-status');
+
+    // ------------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------------
+    let user = null;
+    let session = null;          // the active sessions row, or null
+    let allExercises = [];       // live exercises, for the picker
+    let allPatterns = [];        // live movement patterns, for inline create
+    let patternsById = new Map();
+    let pastCategories = [];
+    let lastCategoryExercises = []; // exercises logged last time this session's category ran
+
+    // One entry per exercise in this session, in the order they were added.
+    // { exercise, sessionExerciseId, comment, sets[], history, expanded, stickyWeight }
+    let entries = [];
+
+    let clockTimer = null;
+    let selectedCategory = null;
+
+    // ------------------------------------------------------------------
+    // Small shared helpers (same shape as exercises.html)
+    // ------------------------------------------------------------------
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function hide(el) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+    function flash(message, kind = 'ok', ms = 3000) {
+      show(topStatus, kind, message);
+      setTimeout(() => hide(topStatus), ms);
+    }
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    function showView(view) {
+      startView.hidden = view !== 'start';
+      sessionView.hidden = view !== 'session';
+      pickerView.hidden = view !== 'picker';
+      endView.hidden = view !== 'end';
+    }
+
+    // Trims trailing zeros so 30.00 reads as "30" but 32.50 reads as "32.5".
+    function formatWeight(value) {
+      if (value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+
+    function formatDuration(seconds) {
+      if (seconds === null || seconds === undefined) return '';
+      const s = Number(seconds);
+      if (s < 60) return `${s}s`;
+      const mins = Math.floor(s / 60);
+      const rest = s % 60;
+      return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
+    }
+
+    /** "30 kg × 12" / "45s" / "20 kg assist × 10" — one set, for display. */
+    function describeSet(set, type) {
+      if (type === 'time_based') return formatDuration(set.duration_seconds);
+      const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
+      const suffix = type === 'assisted' ? ' assist' : '';
+      const parts = [];
+      if (weight) parts.push(weight + suffix);
+      if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}`);
+      return parts.join(' ') || '—';
+    }
+
+    // Single-letter shorthand for a set's quick tag, e.g. "14f" = 14 reps to failure.
+    function tagLetter(quickTag) {
+      if (quickTag === 'easy') return 'e';
+      if (quickTag === 'hard') return 'h';
+      if (quickTag === 'failure') return 'f';
+      return '';
+    }
+
+    /**
+     * "30 kg × 12h, 12, 9f" — collapses a run of sets that share a weight so the
+     * reference lines stay readable at a glance mid-workout. Each rep number
+     * carries its quick-tag letter directly, so effort is visible without
+     * expanding anything.
+     */
+    function describeSetGroup(sets, type) {
+      if (sets.length === 0) return '';
+      if (type === 'time_based') {
+        return sets.map((s) => formatDuration(s.duration_seconds) + tagLetter(s.quick_tag)).join(', ');
+      }
+      const chunks = [];
+      let current = null;
+      for (const set of sets) {
+        const key = set.weight === null ? 'none' : formatWeight(set.weight);
+        if (!current || current.key !== key) {
+          current = { key, weight: set.weight, reps: [] };
+          chunks.push(current);
+        }
+        current.reps.push(`${set.reps ?? '—'}${tagLetter(set.quick_tag)}`);
+      }
+      const suffix = type === 'assisted' ? ' assist' : '';
+      return chunks
+        .map((c) => {
+          const w = c.weight === null ? '' : `${formatWeight(c.weight)} kg${suffix} `;
+          return `${w}× ${c.reps.join(', ')}`;
+        })
+        .join(' · ');
+    }
+
+    // ------------------------------------------------------------------
+    // 📌 PIN — provisional "best session" rule.
+    //
+    // Currently: the single heaviest session for this exercise, showing all of
+    // its sets. Scored by the best single set, using each type's own idea of
+    // "best" (assisted inverts — less assistance is better).
+    //
+    // When two sessions tie on weight, reps break the tie: compare rep counts
+    // set-by-set in the order performed, and the first set where one session
+    // did more reps wins the whole comparison — even if a later set favoured
+    // the other session. First set carries the most weight because it's the
+    // freshest, most comparable effort; a stronger fourth set on a lighter
+    // day says less. This also automatically covers outright domination (more
+    // reps at every set), since a dominant session's first difference can
+    // only ever run in its own favour. Only recency breaks a genuine tie
+    // (identical rep sequences).
+    //
+    // This is deliberately simple and NOT the CLAUDE.md PR definition, which
+    // describes a frontier rather than one winner. When that rule gets pinned
+    // down properly, this function is the only place that needs to change.
+    // ------------------------------------------------------------------
+    function findBestSession(history, type) {
+      if (!history || history.length === 0) return null;
+
+      const bySession = new Map();
+      for (const set of history) {
+        const sid = set.session_id;
+        if (!bySession.has(sid)) {
+          bySession.set(sid, { sessionId: sid, startTime: set.sessions?.start_time, sets: [] });
+        }
+        bySession.get(sid).sets.push(set);
+      }
+
+      // Chronological within each session up front — both the score and the
+      // reps tiebreak depend on "the order the sets were actually performed".
+      for (const group of bySession.values()) {
+        group.sets.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      }
+
+      const scoreOf = (sets) => {
+        if (type === 'time_based') {
+          return Math.max(...sets.map((s) => s.duration_seconds ?? -Infinity));
+        }
+        const weights = sets.map((s) => (s.weight === null ? null : Number(s.weight)))
+                            .filter((w) => w !== null);
+        if (weights.length === 0) return null;
+        // assisted: lower is better, so negate to keep "bigger score wins".
+        return type === 'assisted' ? -Math.min(...weights) : Math.max(...weights);
+      };
+
+      // Positive -> `a` wins, negative -> `b` wins, zero -> genuinely tied.
+      const repsTiebreak = (a, b) => {
+        const len = Math.min(a.length, b.length);
+        for (let i = 0; i < len; i++) {
+          const diff = (a[i].reps ?? -Infinity) - (b[i].reps ?? -Infinity);
+          if (diff !== 0) return diff;
+        }
+        return a.length - b.length; // more sets performed edges out a shorter session
+      };
+
+      let best = null;
+      for (const group of bySession.values()) {
+        const score = scoreOf(group.sets);
+        if (score === null || !Number.isFinite(score)) continue;
+
+        if (!best) { best = { ...group, score }; continue; }
+        if (score > best.score) { best = { ...group, score }; continue; }
+        if (score < best.score) continue;
+
+        // Tied on weight/duration.
+        const newer = group.startTime && best.startTime && new Date(group.startTime) > new Date(best.startTime);
+        if (type === 'time_based') {
+          if (newer) best = { ...group, score };
+          continue;
+        }
+        const advantage = repsTiebreak(group.sets, best.sets);
+        if (advantage > 0 || (advantage === 0 && newer)) {
+          best = { ...group, score };
+        }
+      }
+
+      return best;
+    }
+
+    /** Most recent session for this exercise, excluding the one in progress. */
+    function findLastSession(history, currentSessionId) {
+      if (!history || history.length === 0) return null;
+
+      const bySession = new Map();
+      for (const set of history) {
+        if (set.session_id === currentSessionId) continue;
+        const sid = set.session_id;
+        if (!bySession.has(sid)) {
+          bySession.set(sid, { sessionId: sid, startTime: set.sessions?.start_time, sets: [] });
+        }
+        bySession.get(sid).sets.push(set);
+      }
+
+      let latest = null;
+      for (const group of bySession.values()) {
+        if (!latest || new Date(group.startTime) > new Date(latest.startTime)) latest = group;
+      }
+      if (!latest) return null;
+      latest.sets = [...latest.sets].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      return latest;
+    }
+
+    /**
+     * The weight to prefill. Sets logged in this session win (set 2 assumes
+     * set 1's weight); otherwise fall back to the last weight you actually
+     * used the previous time you did this movement.
+     *
+     * Deliberately ordered by when the *workout happened* (via findLastSession)
+     * rather than by row creation time, so a session logged out of order can't
+     * hand back a weight from the wrong day.
+     *
+     * Reps are never carried — they're the thing being tracked.
+     */
+    function pickStickyWeight(entry, currentSessionId) {
+      const lastWeightIn = (sets) => {
+        for (let i = sets.length - 1; i >= 0; i--) {
+          const w = sets[i].weight;
+          if (w !== null && w !== undefined) return formatWeight(w);
+        }
+        return null;
+      };
+
+      if (entry.sets.length > 0) {
+        const fromThisSession = lastWeightIn(entry.sets);
+        if (fromThisSession !== null) return fromThisSession;
+      }
+
+      const previous = findLastSession(entry.history, currentSessionId);
+      if (previous) {
+        const fromLastTime = lastWeightIn(previous.sets);
+        if (fromLastTime !== null) return fromLastTime;
+      }
+      return '';
+    }
+
+    // ------------------------------------------------------------------
+    // Error messages
+    // ------------------------------------------------------------------
+    function describeSetError(error) {
+      if (error.message?.includes('sets_reps_sane')) return 'Reps must be a whole number above 0.';
+      if (error.message?.includes('sets_duration_sane')) return 'Duration must be above 0 seconds.';
+      if (error.message?.includes('sets_weight_sane')) return "Weight can't be negative.";
+      if (error.message?.includes('sets_not_empty')) return 'Enter at least a weight, reps, or a duration.';
+      if (error.message === 'Failed to fetch') return "Couldn't reach the server — check your signal and tap again.";
+      return `Could not save the set: ${error.message}`;
+    }
+    function describeExerciseCreateError(error, name) {
+      if (error.code === '23505') return `You already have an exercise named "${name}". Search for it instead.`;
+      if (error.message?.includes('exercises_name_not_blank')) return "Name can't be blank.";
+      return `Could not create the exercise: ${error.message}`;
+    }
+
+    // ------------------------------------------------------------------
+    // Start view
+    // ------------------------------------------------------------------
+    function renderCategoryChips() {
+      categoryChips.innerHTML = '';
+      if (pastCategories.length === 0) {
+        categoryChips.hidden = true;
+        return;
+      }
+      categoryChips.hidden = false;
+      for (const cat of pastCategories) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip' + (selectedCategory === cat ? ' selected' : '');
+        chip.textContent = cat;
+        chip.addEventListener('click', () => {
+          // Tap again to clear, so a mis-tap isn't sticky.
+          selectedCategory = selectedCategory === cat ? null : cat;
+          if (selectedCategory) categoryInput.value = '';
+          renderCategoryChips();
+        });
+        categoryChips.appendChild(chip);
+      }
+    }
+
+    categoryInput.addEventListener('input', () => {
+      if (categoryInput.value.trim()) {
+        selectedCategory = null;
+        renderCategoryChips();
+      }
+    });
+    categoryToggle.addEventListener('click', () => {
+      categoryField.hidden = !categoryField.hidden;
+      categoryToggle.textContent = categoryField.hidden ? '+ Type your own' : '− Hide';
+      if (!categoryField.hidden) categoryInput.focus();
+    });
+
+    startBtn.addEventListener('click', async () => {
+      hide(startStatus);
+      const category = (categoryInput.value.trim() || selectedCategory || '').trim() || null;
+
+      startBtn.disabled = true;
+      startBtn.textContent = 'Starting…';
+
+      const { data, error } = await supabase
+        .from('sessions')
+        .insert({ user_id: user.id, category })
+        .select()
+        .single();
+
+      startBtn.disabled = false;
+      startBtn.textContent = 'Start workout';
+
+      if (error) {
+        show(startStatus, 'error', `Could not start the workout: ${error.message}`);
+        return;
+      }
+
+      session = data;
+      entries = [];
+      lastCategoryExercises = await loadLastCategoryExercises(session.category);
+      enterSession();
+    });
+
+    /**
+     * What you logged the last time you did this same session type (Push,
+     * Pull, ...), so the picker can offer it before you've typed anything.
+     * Only completed sessions count, and never the one in progress.
+     */
+    async function loadLastCategoryExercises(category) {
+      if (!category) return [];
+
+      const { data: lastSession, error } = await supabase
+        .from('sessions')
+        .select('id')
+        .is('deleted_at', null)
+        .not('end_time', 'is', null)
+        .ilike('category', category)
+        .neq('id', session.id)
+        .order('start_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error || !lastSession) return [];
+
+      const { data: rows, error: seError } = await supabase
+        .from('session_exercises')
+        .select('exercise_id, created_at, exercises(*)')
+        .eq('session_id', lastSession.id)
+        .order('created_at');
+      if (seError) return [];
+
+      return rows
+        .filter((r) => r.exercises && !r.exercises.deleted_at)
+        .map((r) => r.exercises);
+    }
+
+    // ------------------------------------------------------------------
+    // Session view
+    // ------------------------------------------------------------------
+    function enterSession() {
+      sessionCategory.textContent = session.category || 'Workout';
+      startClock();
+      renderEntries();
+      showView('session');
+    }
+
+    function startClock() {
+      const tick = () => {
+        const ms = Date.now() - new Date(session.start_time).getTime();
+        const mins = Math.floor(ms / 60000);
+        const hrs = Math.floor(mins / 60);
+        const started = new Date(session.start_time)
+          .toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        const elapsed = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+        sessionClock.textContent = `Started ${started} · ${elapsed}`;
+      };
+      tick();
+      if (clockTimer) clearInterval(clockTimer);
+      clockTimer = setInterval(tick, 30000);
+    }
+
+    function renderEntries() {
+      sessionExercisesEl.innerHTML = '';
+      noExercises.hidden = entries.length !== 0;
+      for (const entry of entries) {
+        sessionExercisesEl.appendChild(buildExerciseCard(entry));
+      }
+    }
+
+    function buildExerciseCard(entry) {
+      const card = document.createElement('div');
+      card.className = 'exercise-card' + (entry.expanded ? ' expanded' : '');
+
+      // --- header (always visible, toggles the accordion) ---
+      const header = document.createElement('button');
+      header.type = 'button';
+      header.className = 'exercise-card-header';
+
+      const headerBody = document.createElement('div');
+      headerBody.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = entry.exercise.name;
+      headerBody.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const setCount = document.createElement('span');
+      setCount.textContent = entry.sets.length === 1 ? '1 set' : `${entry.sets.length} sets`;
+      meta.appendChild(setCount);
+      if (entry.sets.length > 0) {
+        const summary = document.createElement('span');
+        summary.className = 'badge';
+        summary.textContent = describeSetGroup(entry.sets, entry.exercise.type);
+        meta.appendChild(summary);
+      }
+      headerBody.appendChild(meta);
+      header.appendChild(headerBody);
+
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.textContent = entry.expanded ? '⌄' : '›';
+      header.appendChild(chevron);
+
+      header.addEventListener('click', () => {
+        const wasExpanded = entry.expanded;
+        for (const e of entries) e.expanded = false;   // accordion: one at a time
+        entry.expanded = !wasExpanded;
+        renderEntries();
+      });
+      card.appendChild(header);
+
+      if (!entry.expanded) return card;
+
+      // --- body ---
+      const body = document.createElement('div');
+      body.className = 'exercise-card-body';
+
+      // Setup info you set once in the exercise library ("ROM -3", "rack
+      // hooks 26") — worth seeing before you touch the weights, so it comes
+      // first and is never hidden behind a tap.
+      if (entry.exercise.persistent_notes) {
+        const notesLine = document.createElement('div');
+        notesLine.className = 'reference-line';
+        const notesLabel = document.createElement('span');
+        notesLabel.className = 'reference-label';
+        notesLabel.textContent = 'Notes:';
+        notesLine.appendChild(notesLabel);
+        const notesValue = document.createElement('span');
+        notesValue.className = 'reference-value';
+        notesValue.textContent = entry.exercise.persistent_notes;
+        notesLine.appendChild(notesValue);
+        body.appendChild(notesLine);
+      }
+
+      body.appendChild(buildReferenceLine('Last session', entry, 'last'));
+      body.appendChild(buildReferenceLine('Best session', entry, 'best'));
+
+      // Tucked behind a tap: every past session for this exercise, not just
+      // the single best one — there for when you're curious, not by default.
+      const bestGroup = findBestSession(entry.history, entry.exercise.type);
+      if (bestGroup) {
+        const seeAllBtn = document.createElement('button');
+        seeAllBtn.type = 'button';
+        seeAllBtn.className = 'link-button';
+        seeAllBtn.style.cssText = 'margin-top:2px;font-size:13px;';
+        seeAllBtn.textContent = entry.historyExpanded ? '− Hide all sessions' : 'See all sessions →';
+        seeAllBtn.addEventListener('click', () => {
+          entry.historyExpanded = !entry.historyExpanded;
+          renderEntries();
+        });
+        body.appendChild(seeAllBtn);
+        if (entry.historyExpanded) body.appendChild(buildFullHistoryList(entry));
+      }
+
+      // Exercise comment for this specific day — collapsed unless it's
+      // already got something in it, same reveal pattern as "+ Add note".
+      const commentToggle = document.createElement('button');
+      commentToggle.type = 'button';
+      commentToggle.className = 'link-button';
+      commentToggle.style.marginTop = '14px';
+      commentToggle.textContent = entry.commentExpanded ? '− Hide note' : '+ Add note for today';
+      body.appendChild(commentToggle);
+
+      const commentField = document.createElement('div');
+      commentField.className = 'field';
+      commentField.style.marginTop = '8px';
+      commentField.hidden = !entry.commentExpanded;
+      const comment = document.createElement('textarea');
+      comment.id = `comment-${entry.exercise.id}`;
+      comment.value = entry.comment || '';
+      comment.placeholder = 'e.g. hamstring felt bad, didn’t go up in weight';
+      comment.style.minHeight = '60px';
+      commentField.appendChild(comment);
+      const commentState = document.createElement('p');
+      commentState.className = 'muted';
+      commentState.style.cssText = 'margin:4px 0 0;min-height:18px;font-size:13px;';
+      commentField.appendChild(commentState);
+      wireCommentAutosave(entry, comment, commentState);
+      body.appendChild(commentField);
+
+      commentToggle.addEventListener('click', () => {
+        entry.commentExpanded = commentField.hidden;
+        commentField.hidden = !commentField.hidden;
+        commentToggle.textContent = commentField.hidden ? '+ Add note for today' : '− Hide note';
+        if (!commentField.hidden) comment.focus();
+      });
+
+      // Sets logged so far this session.
+      if (entry.sets.length > 0) {
+        const label = document.createElement('p');
+        label.className = 'section-label';
+        label.textContent = 'This session';
+        body.appendChild(label);
+        for (let i = 0; i < entry.sets.length; i++) {
+          body.appendChild(buildSetRow(entry, entry.sets[i], i));
+        }
+      }
+
+      body.appendChild(buildEntryBlock(entry));
+      card.appendChild(body);
+      return card;
+    }
+
+    function buildReferenceLine(labelText, entry, which) {
+      const line = document.createElement('div');
+      line.className = 'reference-line';
+
+      const label = document.createElement('span');
+      label.className = 'reference-label';
+      label.textContent = `${labelText}:`;
+      line.appendChild(label);
+
+      const value = document.createElement('span');
+      value.className = 'reference-value';
+
+      const type = entry.exercise.type;
+      const group = which === 'last'
+        ? findLastSession(entry.history, session.id)
+        : findBestSession(entry.history, type);
+
+      if (!group) {
+        value.classList.add('none');
+        value.textContent = which === 'last' ? 'first time doing this' : 'none yet';
+      } else {
+        const when = group.startTime ? formatDate(group.startTime) : '';
+        value.textContent = `${when} — ${describeSetGroup(group.sets, type)}`;
+      }
+      line.appendChild(value);
+      return line;
+    }
+
+    /** Every past session for this exercise, newest first — behind "See all sessions". */
+    function buildFullHistoryList(entry) {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'margin-top:10px;padding-top:10px;border-top:1px solid var(--line);';
+
+      const bySession = new Map();
+      for (const set of entry.history) {
+        if (set.session_id === session.id) continue; // this workout's already shown above
+        const sid = set.session_id;
+        if (!bySession.has(sid)) {
+          bySession.set(sid, { startTime: set.sessions?.start_time, sets: [] });
+        }
+        bySession.get(sid).sets.push(set);
+      }
+      const sorted = [...bySession.values()].sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+
+      if (sorted.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.margin = '0';
+        p.textContent = 'No earlier sessions yet.';
+        wrap.appendChild(p);
+        return wrap;
+      }
+
+      for (const s of sorted) {
+        s.sets.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        const line = document.createElement('div');
+        line.className = 'reference-line';
+        const label = document.createElement('span');
+        label.className = 'reference-label';
+        label.textContent = `${formatDate(s.startTime)}:`;
+        line.appendChild(label);
+        const value = document.createElement('span');
+        value.className = 'reference-value';
+        value.textContent = describeSetGroup(s.sets, entry.exercise.type);
+        line.appendChild(value);
+        wrap.appendChild(line);
+      }
+      return wrap;
+    }
+
+    function buildSetRow(entry, set, index) {
+      const row = document.createElement('div');
+      row.className = 'set-row';
+
+      const idx = document.createElement('span');
+      idx.className = 'set-index';
+      idx.textContent = String(index + 1);
+      row.appendChild(idx);
+
+      const detailWrap = document.createElement('div');
+      detailWrap.className = 'set-detail';
+      const detail = document.createElement('div');
+      detail.textContent = describeSet(set, entry.exercise.type);
+      detailWrap.appendChild(detail);
+      row.appendChild(detailWrap);
+
+      if (set.quick_tag) {
+        const tag = document.createElement('span');
+        tag.className = 'badge';
+        const found = QUICK_TAGS.find((t) => t.value === set.quick_tag);
+        tag.textContent = found ? found.label : set.quick_tag;
+        row.appendChild(tag);
+      }
+
+      // Two-tap delete: × turns into "Delete?" rather than a browser dialog.
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'set-delete';
+      del.textContent = '×';
+      del.setAttribute('aria-label', 'Delete set');
+      let armed = false;
+      let disarmTimer = null;
+      del.addEventListener('click', async () => {
+        if (!armed) {
+          armed = true;
+          del.classList.add('confirming');
+          del.textContent = 'Delete?';
+          disarmTimer = setTimeout(() => {
+            armed = false;
+            del.classList.remove('confirming');
+            del.textContent = '×';
+          }, 4000);
+          return;
+        }
+        clearTimeout(disarmTimer);
+        del.disabled = true;
+        del.textContent = '…';
+        const { error } = await supabase.from('sets').delete().eq('id', set.id);
+        if (error) {
+          del.disabled = false;
+          del.classList.remove('confirming');
+          del.textContent = '×';
+          armed = false;
+          flash(`Could not delete the set: ${error.message}`, 'error', 5000);
+          return;
+        }
+        entry.sets = entry.sets.filter((s) => s.id !== set.id);
+        entry.history = entry.history.filter((s) => s.id !== set.id);
+        renderEntries();
+        flash('Set deleted.');
+      });
+      row.appendChild(del);
+
+      return row;
+    }
+
+    function buildEntryBlock(entry) {
+      const type = entry.exercise.type;
+      const block = document.createElement('div');
+      block.className = 'entry-block';
+
+      const fieldRow = document.createElement('div');
+      fieldRow.className = 'field-row';
+
+      let weightInput = null;
+      let repsInput = null;
+      let durationInput = null;
+
+      if (type === 'time_based') {
+        const f = document.createElement('div');
+        f.className = 'field';
+        const l = document.createElement('label');
+        l.textContent = 'Duration (seconds)';
+        l.htmlFor = `dur-${entry.exercise.id}`;
+        f.appendChild(l);
+        durationInput = document.createElement('input');
+        durationInput.id = `dur-${entry.exercise.id}`;
+        durationInput.type = 'text';
+        durationInput.inputMode = 'numeric';
+        durationInput.autocomplete = 'off';
+        f.appendChild(durationInput);
+        fieldRow.appendChild(f);
+      } else {
+        const wf = document.createElement('div');
+        wf.className = 'field';
+        const wl = document.createElement('label');
+        wl.textContent = type === 'assisted' ? 'Assistance (kg)' : 'Weight (kg)';
+        wl.htmlFor = `w-${entry.exercise.id}`;
+        wf.appendChild(wl);
+        weightInput = document.createElement('input');
+        weightInput.id = `w-${entry.exercise.id}`;
+        weightInput.type = 'text';
+        weightInput.inputMode = 'decimal';
+        weightInput.autocomplete = 'off';
+        // Sticky: carried from the last set, or from last time you did this.
+        weightInput.value = pickStickyWeight(entry, session.id);
+        wf.appendChild(weightInput);
+        fieldRow.appendChild(wf);
+
+        const rf = document.createElement('div');
+        rf.className = 'field';
+        const rl = document.createElement('label');
+        rl.textContent = 'Reps';
+        rl.htmlFor = `r-${entry.exercise.id}`;
+        rf.appendChild(rl);
+        repsInput = document.createElement('input');
+        repsInput.id = `r-${entry.exercise.id}`;
+        repsInput.type = 'text';
+        repsInput.inputMode = 'numeric';
+        repsInput.autocomplete = 'off';
+        // Always empty — reps are the tracked signal, never assumed.
+        rf.appendChild(repsInput);
+        fieldRow.appendChild(rf);
+      }
+      block.appendChild(fieldRow);
+
+      // Quick tags — single select, tap again to clear.
+      let activeTag = null;
+      const chips = document.createElement('div');
+      chips.className = 'chips';
+      chips.style.marginTop = '12px';
+      for (const tag of QUICK_TAGS) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = tag.label;
+        chip.addEventListener('click', () => {
+          activeTag = activeTag === tag.value ? null : tag.value;
+          for (const c of chips.children) c.classList.remove('selected');
+          if (activeTag) chip.classList.add('selected');
+        });
+        chips.appendChild(chip);
+      }
+      block.appendChild(chips);
+
+      const logBtn = document.createElement('button');
+      logBtn.type = 'button';
+      logBtn.textContent = 'Log set';
+      logBtn.style.marginTop = '14px';
+      block.appendChild(logBtn);
+
+      const localStatus = document.createElement('div');
+      localStatus.className = 'status';
+      localStatus.hidden = true;
+      localStatus.setAttribute('role', 'status');
+      block.appendChild(localStatus);
+
+      logBtn.addEventListener('click', async () => {
+        hide(localStatus);
+
+        const payload = { session_id: session.id, exercise_id: entry.exercise.id };
+
+        if (type === 'time_based') {
+          const secs = parseInt(durationInput.value.trim(), 10);
+          if (!Number.isFinite(secs) || secs <= 0) {
+            show(localStatus, 'error', 'Enter a duration in seconds.');
+            durationInput.focus();
+            return;
+          }
+          payload.duration_seconds = secs;
+        } else {
+          const rawWeight = weightInput.value.trim().replace(',', '.');
+          const reps = parseInt(repsInput.value.trim(), 10);
+
+          if (!Number.isFinite(reps) || reps <= 0) {
+            show(localStatus, 'error', 'Enter how many reps you did.');
+            repsInput.focus();
+            return;
+          }
+          if (rawWeight !== '') {
+            const w = parseFloat(rawWeight);
+            if (!Number.isFinite(w) || w < 0) {
+              show(localStatus, 'error', 'Weight must be a number, 0 or more.');
+              weightInput.focus();
+              return;
+            }
+            payload.weight = w;
+          }
+          payload.reps = reps;
+        }
+
+        if (activeTag) payload.quick_tag = activeTag;
+
+        logBtn.disabled = true;
+        logBtn.textContent = 'Logging…';
+
+        const { data, error } = await supabase.from('sets').insert(payload).select().single();
+
+        logBtn.disabled = false;
+        logBtn.textContent = 'Log set';
+
+        if (error) {
+          // Values stay in the fields so the tap can simply be repeated.
+          show(localStatus, 'error', describeSetError(error));
+          return;
+        }
+
+        entry.sets.push(data);
+        entry.history.unshift({ ...data, sessions: { id: session.id, start_time: session.start_time } });
+        renderEntries();
+        flash('Set logged.', 'ok', 1800);
+      });
+
+      return block;
+    }
+
+    // ------------------------------------------------------------------
+    // Exercise comment autosave
+    // ------------------------------------------------------------------
+    function wireCommentAutosave(entry, textarea, stateEl) {
+      let timer = null;
+      let lastSaved = entry.comment || '';
+
+      const save = async () => {
+        const value = textarea.value.trim();
+        entry.comment = value;
+        if (value === lastSaved) return;
+
+        stateEl.textContent = 'Saving…';
+        const { error } = await supabase
+          .from('session_exercises')
+          .update({ comment: value || null })
+          .eq('id', entry.sessionExerciseId);
+
+        if (error) {
+          stateEl.textContent = `Not saved — ${error.message}`;
+          return;
+        }
+        lastSaved = value;
+        stateEl.textContent = 'Saved';
+        setTimeout(() => {
+          if (stateEl.textContent === 'Saved') stateEl.textContent = '';
+        }, 2000);
+      };
+
+      textarea.addEventListener('input', () => {
+        entry.comment = textarea.value;
+        stateEl.textContent = '';
+        clearTimeout(timer);
+        timer = setTimeout(save, 800);
+      });
+      textarea.addEventListener('blur', () => {
+        clearTimeout(timer);
+        save();
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // Picker: choose or create an exercise
+    // ------------------------------------------------------------------
+    addExerciseBtn.addEventListener('click', () => {
+      pickerSearch.value = '';
+      newExName.value = '';
+      newExType.value = 'weight_reps';
+      newExPattern.value = '';
+      hide(pickerStatus);
+      renderPatternOptions();
+      renderPickerList();
+      showView('picker');
+      pickerSearch.focus();
+    });
+
+    pickerBack.addEventListener('click', () => showView('session'));
+    pickerSearch.addEventListener('input', renderPickerList);
+
+    function renderPatternOptions() {
+      newExPattern.innerHTML = '';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'None — uncategorized';
+      newExPattern.appendChild(none);
+      for (const p of allPatterns) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        newExPattern.appendChild(opt);
+      }
+    }
+
+    function renderPickerList() {
+      const query = pickerSearch.value.trim().toLowerCase();
+      const alreadyAdded = new Set(entries.map((e) => e.exercise.id));
+
+      pickerList.innerHTML = '';
+      if (query) {
+        renderPickerSearchResults(query, alreadyAdded);
+      } else {
+        renderPickerDefault(alreadyAdded);
+      }
+
+      // Offer inline creation whenever there's no exact name match.
+      const exactExists = allExercises.some(
+        (ex) => ex.name.trim().toLowerCase() === query
+      );
+      if (query && !exactExists) {
+        pickerCreate.hidden = false;
+        newExName.value = pickerSearch.value.trim();
+      } else {
+        pickerCreate.hidden = true;
+      }
+    }
+
+    function renderPickerSearchResults(query, alreadyAdded) {
+      const matches = allExercises.filter(
+        (ex) => !alreadyAdded.has(ex.id) && ex.name.toLowerCase().includes(query)
+      );
+      appendPickerSection(null, matches);
+    }
+
+    /**
+     * Before you've typed anything: what you did last time this session type
+     * ran, then everything else grouped by movement pattern — patterns tagged
+     * for this session type first, then the rest, then anything with no
+     * pattern at all.
+     */
+    function renderPickerDefault(alreadyAdded) {
+      const shown = new Set();
+      const category = (session.category || '').trim().toLowerCase();
+
+      const lastTime = lastCategoryExercises.filter((ex) => !alreadyAdded.has(ex.id));
+      if (lastTime.length > 0) {
+        appendPickerSection(`Last ${session.category} session`, lastTime);
+        for (const ex of lastTime) shown.add(ex.id);
+      }
+
+      const remaining = allExercises.filter((ex) => !alreadyAdded.has(ex.id) && !shown.has(ex.id));
+
+      const byPattern = new Map(); // pattern id -> exercises[]
+      const uncategorized = [];
+      for (const ex of remaining) {
+        if (ex.movement_pattern_id && patternsById.has(ex.movement_pattern_id)) {
+          if (!byPattern.has(ex.movement_pattern_id)) byPattern.set(ex.movement_pattern_id, []);
+          byPattern.get(ex.movement_pattern_id).push(ex);
+        } else {
+          uncategorized.push(ex);
+        }
+      }
+
+      const groups = [...byPattern.entries()].map(([id, exs]) => ({
+        pattern: patternsById.get(id),
+        exercises: exs.sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+
+      // Patterns tagged for this session type sort first; ties broken alphabetically.
+      groups.sort((a, b) => {
+        const aMatch = category && (a.pattern.category || '').trim().toLowerCase() === category;
+        const bMatch = category && (b.pattern.category || '').trim().toLowerCase() === category;
+        if (aMatch !== bMatch) return aMatch ? -1 : 1;
+        return a.pattern.name.localeCompare(b.pattern.name);
+      });
+
+      for (const group of groups) {
+        // The pattern name is already the heading, so no need to repeat it
+        // as a badge on every row underneath.
+        appendPickerSection(group.pattern.name, group.exercises, true);
+      }
+      if (uncategorized.length > 0) {
+        appendPickerSection('Uncategorized', uncategorized.sort((a, b) => a.name.localeCompare(b.name)));
+      }
+
+      if (pickerList.children.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty-state';
+        p.textContent = 'Every exercise you have is already in this workout.';
+        pickerList.appendChild(p);
+      }
+    }
+
+    function appendPickerSection(label, exercises, hidePatternBadge = false) {
+      if (label) {
+        const heading = document.createElement('p');
+        heading.className = 'section-label';
+        heading.textContent = label;
+        pickerList.appendChild(heading);
+      }
+      const ul = document.createElement('ul');
+      ul.className = 'list';
+      for (const ex of exercises) ul.appendChild(buildPickerRow(ex, hidePatternBadge));
+      pickerList.appendChild(ul);
+    }
+
+    function buildPickerRow(ex, hidePatternBadge = false) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = ex.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      if (!hidePatternBadge) {
+        const pattern = ex.movement_pattern_id ? patternsById.get(ex.movement_pattern_id) : null;
+        if (pattern) {
+          const patBadge = document.createElement('span');
+          patBadge.className = 'badge';
+          patBadge.textContent = pattern.name;
+          meta.appendChild(patBadge);
+        }
+      }
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.textContent = '›';
+      li.appendChild(chevron);
+
+      const pick = () => addExerciseToSession(ex);
+      li.addEventListener('click', pick);
+      li.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+      });
+      return li;
+    }
+
+    createExerciseBtn.addEventListener('click', async () => {
+      hide(pickerStatus);
+      const name = newExName.value.trim();
+      if (!name) {
+        show(pickerStatus, 'error', 'Enter a name for the new exercise.');
+        newExName.focus();
+        return;
+      }
+
+      createExerciseBtn.disabled = true;
+      createExerciseBtn.textContent = 'Creating…';
+
+      const { data, error } = await supabase
+        .from('exercises')
+        .insert({
+          user_id: user.id,
+          name,
+          type: newExType.value,
+          movement_pattern_id: newExPattern.value || null,
+        })
+        .select()
+        .single();
+
+      createExerciseBtn.disabled = false;
+      createExerciseBtn.textContent = 'Create & add';
+
+      if (error) {
+        show(pickerStatus, 'error', describeExerciseCreateError(error, name));
+        return;
+      }
+
+      allExercises.push(data);
+      allExercises.sort((a, b) => a.name.localeCompare(b.name));
+      await addExerciseToSession(data);
+    });
+
+    /**
+     * Adds an exercise to the session: creates the session_exercises row
+     * (which is both the comment holder and the "was part of this workout"
+     * record), then loads that exercise's history for the reference lines.
+     */
+    async function addExerciseToSession(exercise) {
+      hide(pickerStatus);
+      show(pickerStatus, 'info', `Adding ${exercise.name}…`);
+
+      const { data: se, error: seError } = await supabase
+        .from('session_exercises')
+        .insert({ session_id: session.id, exercise_id: exercise.id })
+        .select()
+        .single();
+
+      let sessionExerciseId = se?.id;
+      let comment = se?.comment ?? '';
+
+      if (seError) {
+        if (seError.code === '23505') {
+          // Already added earlier (e.g. a retry after a dropped connection).
+          const { data: existing, error: fetchError } = await supabase
+            .from('session_exercises')
+            .select('*')
+            .eq('session_id', session.id)
+            .eq('exercise_id', exercise.id)
+            .maybeSingle();
+          if (fetchError || !existing) {
+            show(pickerStatus, 'error', `Could not add ${exercise.name}: ${(fetchError || seError).message}`);
+            return;
+          }
+          sessionExerciseId = existing.id;
+          comment = existing.comment ?? '';
+        } else {
+          show(pickerStatus, 'error', `Could not add ${exercise.name}: ${seError.message}`);
+          return;
+        }
+      }
+
+      const { history, error: historyError } = await loadExerciseHistory(exercise.id);
+      if (historyError) {
+        // Non-fatal: you can still log sets, you just lose the reference lines.
+        flash(`Added, but couldn't load past history: ${historyError.message}`, 'error', 5000);
+      }
+
+      const setsThisSession = history
+        .filter((s) => s.session_id === session.id)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+      for (const e of entries) e.expanded = false;
+      entries.push({
+        exercise,
+        sessionExerciseId,
+        comment,
+        sets: setsThisSession,
+        history,
+        expanded: true,
+        commentExpanded: !!comment,
+        historyExpanded: false,
+      });
+
+      hide(pickerStatus);
+      renderEntries();
+      showView('session');
+    }
+
+    async function loadExerciseHistory(exerciseId) {
+      const { data, error } = await supabase
+        .from('sets')
+        .select('*, sessions(id, start_time)')
+        .eq('exercise_id', exerciseId)
+        .order('created_at', { ascending: false });
+      return { history: data || [], error };
+    }
+
+    // ------------------------------------------------------------------
+    // End session
+    // ------------------------------------------------------------------
+    sessionCommentToggle.addEventListener('click', () => {
+      sessionCommentField.hidden = !sessionCommentField.hidden;
+      sessionCommentToggle.textContent = sessionCommentField.hidden ? '+ Add a comment' : '− Hide';
+      if (!sessionCommentField.hidden) sessionCommentInput.focus();
+    });
+
+    endSessionBtn.addEventListener('click', () => {
+      hide(endStatus);
+      const existingComment = session.comment || '';
+      sessionCommentInput.value = existingComment;
+      // Don't hide a comment you already wrote (e.g. you backed out via
+      // "Keep going" after typing one, then came back to Finish).
+      sessionCommentField.hidden = !existingComment;
+      sessionCommentToggle.textContent = existingComment ? '− Hide' : '+ Add a comment';
+
+      // An exercise with no sets logged against it isn't kept — see endConfirm.
+      const keptEntries = entries.filter((e) => e.sets.length > 0);
+      const totalSets = keptEntries.reduce((sum, e) => sum + e.sets.length, 0);
+
+      endSummaryHeading.textContent = keptEntries.length === 0
+        ? 'Nothing logged — finishing will discard this workout.'
+        : `${totalSets} ${totalSets === 1 ? 'set' : 'sets'} across ${keptEntries.length} ${keptEntries.length === 1 ? 'exercise' : 'exercises'}.`;
+
+      endSummary.innerHTML = '';
+      if (entries.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.margin = '0';
+        p.textContent = 'Nothing was added to this workout.';
+        endSummary.appendChild(p);
+      } else {
+        for (const entry of entries) {
+          const row = document.createElement('div');
+          row.className = 'summary-row';
+          const name = document.createElement('span');
+          name.textContent = entry.exercise.name;
+          row.appendChild(name);
+          const count = document.createElement('span');
+          count.className = 'summary-count';
+          count.textContent = entry.sets.length === 0
+            ? "no sets — won't be saved"
+            : describeSetGroup(entry.sets, entry.exercise.type);
+          row.appendChild(count);
+          endSummary.appendChild(row);
+        }
+      }
+
+      endConfirm.textContent = keptEntries.length === 0 ? 'Discard workout' : 'Finish';
+      showView('end');
+    });
+
+    endBack.addEventListener('click', () => showView('session'));
+    endCancel.addEventListener('click', () => showView('session'));
+
+    /** Shared cleanup after a finish or a discard — back to a fresh start screen. */
+    async function returnToStart() {
+      if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+      session = null;
+      entries = [];
+      selectedCategory = null;
+      categoryInput.value = '';
+      categoryField.hidden = true;
+      categoryToggle.textContent = '+ Type your own';
+      await loadCategories();
+      renderCategoryChips();
+      showView('start');
+    }
+
+    endConfirm.addEventListener('click', async () => {
+      hide(endStatus);
+      const keptEntries = entries.filter((e) => e.sets.length > 0);
+      const droppedEntries = entries.filter((e) => e.sets.length === 0);
+
+      // Nothing real was logged at all — there's nothing worth saving, so the
+      // whole session is dropped rather than recorded as a completed workout.
+      if (keptEntries.length === 0) {
+        endConfirm.disabled = true;
+        endConfirm.textContent = 'Discarding…';
+
+        const { error } = await supabase.from('sessions').delete().eq('id', session.id);
+
+        endConfirm.disabled = false;
+        endConfirm.textContent = 'Discard workout';
+
+        if (error) {
+          show(endStatus, 'error', `Could not discard the workout: ${error.message}`);
+          return;
+        }
+
+        await returnToStart();
+        flash('Nothing was logged, so the workout was discarded.', 'info', 4000);
+        return;
+      }
+
+      endConfirm.disabled = true;
+      endConfirm.textContent = 'Finishing…';
+
+      // An exercise you added but never actually logged a set for doesn't
+      // get kept — drop its session_exercises row before finishing.
+      if (droppedEntries.length > 0) {
+        const dropIds = droppedEntries.map((e) => e.sessionExerciseId);
+        const { error: dropError } = await supabase.from('session_exercises').delete().in('id', dropIds);
+        if (dropError) {
+          endConfirm.disabled = false;
+          endConfirm.textContent = 'Finish';
+          show(endStatus, 'error', `Could not finish the workout: ${dropError.message}`);
+          return;
+        }
+      }
+
+      const comment = sessionCommentInput.value.trim() || null;
+      const { error } = await supabase
+        .from('sessions')
+        .update({ end_time: new Date().toISOString(), comment })
+        .eq('id', session.id);
+
+      endConfirm.disabled = false;
+      endConfirm.textContent = 'Finish';
+
+      if (error) {
+        show(endStatus, 'error', `Could not finish the workout: ${error.message}`);
+        return;
+      }
+
+      const finishedCategory = session.category;
+      await returnToStart();
+
+      const droppedNote = droppedEntries.length > 0
+        ? ` (${droppedEntries.length} exercise${droppedEntries.length === 1 ? '' : 's'} with no sets removed)`
+        : '';
+      flash((finishedCategory ? `${finishedCategory} workout saved.` : 'Workout saved.') + droppedNote, 'ok', 4500);
+    });
+
+    // ------------------------------------------------------------------
+    // Export — full backup of every table
+    // ------------------------------------------------------------------
+    exportBtn.addEventListener('click', async () => {
+      hide(startStatus);
+      exportBtn.disabled = true;
+      exportBtn.textContent = 'Preparing…';
+
+      const [sessions, patterns, exercises, sessionExercises, sets] = await Promise.all([
+        supabase.from('sessions').select('*').order('start_time'),
+        supabase.from('movement_patterns').select('*').order('name'),
+        supabase.from('exercises').select('*').order('name'),
+        supabase.from('session_exercises').select('*').order('created_at'),
+        supabase.from('sets').select('*').order('created_at'),
+      ]);
+
+      exportBtn.disabled = false;
+      exportBtn.textContent = 'Export all data (JSON)';
+
+      const failed = [sessions, patterns, exercises, sessionExercises, sets].find((r) => r.error);
+      if (failed) {
+        show(startStatus, 'error', `Export failed: ${failed.error.message}`);
+        return;
+      }
+
+      const payload = {
+        exported_at: new Date().toISOString(),
+        app: 'volume',
+        sessions: sessions.data,
+        movement_patterns: patterns.data,
+        exercises: exercises.data,
+        session_exercises: sessionExercises.data,
+        sets: sets.data,
+      };
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `volume-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      show(startStatus, 'ok', `Exported ${sets.data.length} sets across ${sessions.data.length} sessions.`);
+    });
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    async function loadCategories() {
+      // Always available regardless of history, so day one isn't a blank text box.
+      const seen = [...DEFAULT_CATEGORIES];
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('category')
+        .is('deleted_at', null)
+        .not('category', 'is', null)
+        .order('start_time', { ascending: false })
+        .limit(200);
+      if (!error) {
+        for (const row of data) {
+          const c = (row.category || '').trim();
+          if (c && !seen.some((s) => s.toLowerCase() === c.toLowerCase())) seen.push(c);
+        }
+      }
+      pastCategories = seen.slice(0, 12);
+    }
+
+    /** Rebuilds in-session state after a reload / phone lock. */
+    async function restoreSessionEntries() {
+      const [seRes, setsRes] = await Promise.all([
+        supabase.from('session_exercises')
+          .select('*, exercises(*)')
+          .eq('session_id', session.id)
+          .order('created_at'),
+        supabase.from('sets')
+          .select('*')
+          .eq('session_id', session.id)
+          .order('created_at'),
+      ]);
+
+      if (seRes.error || setsRes.error) {
+        const err = seRes.error || setsRes.error;
+        flash(`Could not restore the workout in progress: ${err.message}`, 'error', 6000);
+        return;
+      }
+
+      const rows = seRes.data.filter((row) => row.exercises);
+      const histories = await Promise.all(
+        rows.map((row) => loadExerciseHistory(row.exercise_id))
+      );
+
+      entries = rows.map((row, i) => ({
+        exercise: row.exercises,
+        sessionExerciseId: row.id,
+        comment: row.comment || '',
+        sets: setsRes.data.filter((s) => s.exercise_id === row.exercise_id),
+        history: histories[i].history,
+        expanded: false,
+        commentExpanded: !!(row.comment && row.comment.trim()),
+        historyExpanded: false,
+      }));
+      if (entries.length > 0) entries[entries.length - 1].expanded = true;
+    }
+
+    user = await requireSession('./index.html');
+
+    if (user) {
+      const [openSession, exercisesRes, patternsRes] = await Promise.all([
+        supabase.from('sessions').select('*')
+          .is('deleted_at', null)
+          .is('end_time', null)
+          .order('start_time', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
+        supabase.from('movement_patterns').select('*').is('deleted_at', null).order('name'),
+      ]);
+
+      if (exercisesRes.error || patternsRes.error) {
+        const err = exercisesRes.error || patternsRes.error;
+        show(topStatus, 'error', `Could not load your exercises: ${err.message}`);
+      }
+      allExercises = exercisesRes.data || [];
+      allPatterns = patternsRes.data || [];
+      patternsById = new Map(allPatterns.map((p) => [p.id, p]));
+
+      if (openSession.error) {
+        show(topStatus, 'error', `Could not check for a workout in progress: ${openSession.error.message}`);
+      }
+
+      if (openSession.data) {
+        // Pick up exactly where the phone lock / reload left off.
+        session = openSession.data;
+        const [, lastCat] = await Promise.all([
+          restoreSessionEntries(),
+          loadLastCategoryExercises(session.category),
+        ]);
+        lastCategoryExercises = lastCat;
+        enterSession();
+        flash('Picked up your workout in progress.', 'info', 4000);
+      } else {
+        await loadCategories();
+        renderCategoryChips();
+        showView('start');
+      }
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

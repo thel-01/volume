@@ -287,14 +287,6 @@ button.danger.secondary {
   color: var(--muted);
   font-size: 13px;
 }
-.list-item-notes {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .list-item-chevron { flex: 0 0 auto; color: var(--muted); }
 
 .badge {
@@ -339,3 +331,182 @@ button.danger.secondary {
   letter-spacing: 0.04em;
 }
 .section-label:first-of-type { margin-top: 0; }
+
+/* ---------------------------------------------------------------------
+   Log screen (log.html) — live workout logging.
+   Built for one thumb at a gym: big targets, nothing precise required.
+   --------------------------------------------------------------------- */
+
+/* Tappable pills — reused for both split categories and set quick-tags. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  width: auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.chip.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Session header: category + running clock + End button on one row. */
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.session-bar-body { flex: 1; min-width: 0; }
+.session-bar-category {
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-bar-clock {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One exercise inside the session. Collapsed = header only. */
+.exercise-card {
+  margin-bottom: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.exercise-card.expanded { border-color: var(--accent); }
+
+.exercise-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.exercise-card-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* "Last session: 12 Jul — 30 kg × 12, 12, 12" reference lines. */
+.reference-line {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.reference-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+.reference-value { color: var(--text); }
+.reference-value.none { color: var(--muted); font-style: italic; }
+
+/* Sets already logged this session. */
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.set-row:last-child { border-bottom: 0; }
+.set-index {
+  flex: 0 0 24px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.set-detail { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+
+/* Small round × on a logged set. Hard delete, per CLAUDE.md. */
+.set-delete {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+.set-delete.confirming {
+  width: auto;
+  padding: 0 12px;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Weight + reps side by side. */
+.field-row {
+  display: flex;
+  gap: 12px;
+}
+.field-row .field { flex: 1; margin-bottom: 0; }
+
+.entry-block { margin-top: 16px; }
+
+/* "+ Add note" reveal — keeps the common path uncluttered. */
+.link-button {
+  width: auto;
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* End-of-session summary rows. */
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.summary-row:last-child { border-bottom: 0; }
+.summary-count { color: var(--muted); white-space: nowrap; }

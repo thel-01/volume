@@ -83,6 +83,20 @@
           <input id="pattern-name" type="text" autocomplete="off" autocapitalize="words"
                  placeholder="e.g. Horizontal Press" required>
         </div>
+
+        <p class="section-label">Session type (optional)</p>
+        <div id="pattern-category-chips" class="chips" style="margin-bottom:8px;"></div>
+        <button id="pattern-category-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Type your own</button>
+        <div class="field" id="pattern-category-field" hidden>
+          <label for="pattern-category-input">Custom session type</label>
+          <input id="pattern-category-input" type="text" autocomplete="off" autocapitalize="words"
+                 placeholder="e.g. push, pull, legs">
+        </div>
+        <p class="muted" style="margin:-8px 0 16px;">
+          When you start a workout of this type on the Log screen, exercises in this
+          pattern show up first.
+        </p>
+
         <button id="pattern-save-btn" type="submit">Save</button>
       </form>
 
@@ -118,7 +132,7 @@
           <label for="ex-type">Type</label>
           <select id="ex-type" required>
             <option value="" disabled selected>Select type…</option>
-            <option value="weight_reps">Weight × reps</option>
+            <option value="weight_reps">Standard</option>
             <option value="time_based">Time-based</option>
             <option value="assisted">Assisted</option>
           </select>
@@ -135,8 +149,9 @@
           </select>
         </div>
 
-        <div class="field">
-          <label for="ex-notes">Notes (optional)</label>
+        <button id="ex-notes-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add notes</button>
+        <div class="field" id="ex-notes-field" hidden>
+          <label for="ex-notes">Notes</label>
           <textarea id="ex-notes" placeholder="e.g. smith machine = 10kg resistance"></textarea>
         </div>
 
@@ -166,10 +181,13 @@
     import { supabase, requireSession } from './supabase-client.js';
 
     const TYPE_LABELS = {
-      weight_reps: 'Weight × reps',
+      weight_reps: 'Standard',
       time_based: 'Time-based',
       assisted: 'Assisted',
     };
+
+    // Always offered as chips on the pattern form, same defaults as the Log screen.
+    const DEFAULT_CATEGORIES = ['Push', 'Pull', 'Legs'];
 
     // ------------------------------------------------------------------
     // Element refs
@@ -208,6 +226,10 @@
     const patternFormTitle = document.getElementById('pattern-form-title');
     const patternForm = document.getElementById('pattern-form');
     const patternNameInput = document.getElementById('pattern-name');
+    const patternCategoryChips = document.getElementById('pattern-category-chips');
+    const patternCategoryToggle = document.getElementById('pattern-category-toggle');
+    const patternCategoryField = document.getElementById('pattern-category-field');
+    const patternCategoryInput = document.getElementById('pattern-category-input');
     const patternSaveBtn = document.getElementById('pattern-save-btn');
     const patternFormStatus = document.getElementById('pattern-form-status');
     const patternDeleteZone = document.getElementById('pattern-delete-zone');
@@ -224,6 +246,8 @@
     const exTypeSelect = document.getElementById('ex-type');
     const exTypeLockedNote = document.getElementById('ex-type-locked-note');
     const exPatternSelect = document.getElementById('ex-pattern');
+    const exNotesToggle = document.getElementById('ex-notes-toggle');
+    const exNotesField = document.getElementById('ex-notes-field');
     const exNotesInput = document.getElementById('ex-notes');
     const exSaveBtn = document.getElementById('ex-save-btn');
     const exerciseFormStatus = document.getElementById('exercise-form-status');
@@ -242,6 +266,8 @@
     let deletedPatterns = [];
     let liveExercises = [];
     let deletedExercises = [];
+    let pastCategories = [];       // for the pattern-form chips: defaults + previously used
+    let selectedPatternCategory = null;
 
     // undefined = patterns-view is active; null = viewing "Uncategorized";
     // a string = viewing that movement pattern's id.
@@ -313,6 +339,25 @@
       return liveExercises.filter((e) => e.movement_pattern_id === patternId).length;
     }
 
+    /** Session types for the pattern-form chips: the defaults plus whatever you've actually used. */
+    async function loadCategories() {
+      const seen = [...DEFAULT_CATEGORIES];
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('category')
+        .is('deleted_at', null)
+        .not('category', 'is', null)
+        .order('start_time', { ascending: false })
+        .limit(200);
+      if (!error) {
+        for (const row of data) {
+          const c = (row.category || '').trim();
+          if (c && !seen.some((s) => s.toLowerCase() === c.toLowerCase())) seen.push(c);
+        }
+      }
+      pastCategories = seen.slice(0, 12);
+    }
+
     // ------------------------------------------------------------------
     // Patterns tab (home)
     // ------------------------------------------------------------------
@@ -352,6 +397,12 @@
       badge.className = 'badge';
       badge.textContent = count === 1 ? '1 exercise' : `${count} exercises`;
       meta.appendChild(badge);
+      if (pattern.category) {
+        const catBadge = document.createElement('span');
+        catBadge.className = 'badge';
+        catBadge.textContent = pattern.category;
+        meta.appendChild(catBadge);
+      }
       body.appendChild(meta);
 
       li.appendChild(body);
@@ -464,10 +515,6 @@
 
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = TYPE_LABELS[ex.type] || ex.type;
-      meta.appendChild(badge);
       const when = document.createElement('span');
       when.textContent = `Deleted ${formatDate(ex.deleted_at)}`;
       meta.appendChild(when);
@@ -617,21 +664,6 @@
       name.textContent = ex.name;
       body.appendChild(name);
 
-      const meta = document.createElement('div');
-      meta.className = 'list-item-meta';
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = TYPE_LABELS[ex.type] || ex.type;
-      meta.appendChild(badge);
-      body.appendChild(meta);
-
-      if (ex.persistent_notes) {
-        const notes = document.createElement('div');
-        notes.className = 'list-item-notes';
-        notes.textContent = ex.persistent_notes;
-        body.appendChild(notes);
-      }
-
       li.appendChild(body);
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
@@ -661,10 +693,42 @@
     // ------------------------------------------------------------------
     // Pattern form: create / rename / delete
     // ------------------------------------------------------------------
+    function renderPatternCategoryChips() {
+      patternCategoryChips.innerHTML = '';
+      for (const cat of pastCategories) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip' + (selectedPatternCategory === cat ? ' selected' : '');
+        chip.textContent = cat;
+        chip.addEventListener('click', () => {
+          // Tap again to clear, so a mis-tap isn't sticky.
+          selectedPatternCategory = selectedPatternCategory === cat ? null : cat;
+          if (selectedPatternCategory) patternCategoryInput.value = '';
+          renderPatternCategoryChips();
+        });
+        patternCategoryChips.appendChild(chip);
+      }
+    }
+    patternCategoryInput.addEventListener('input', () => {
+      if (patternCategoryInput.value.trim()) {
+        selectedPatternCategory = null;
+        renderPatternCategoryChips();
+      }
+    });
+    patternCategoryToggle.addEventListener('click', () => {
+      patternCategoryField.hidden = !patternCategoryField.hidden;
+      patternCategoryToggle.textContent = patternCategoryField.hidden ? '+ Type your own' : '− Hide';
+      if (!patternCategoryField.hidden) patternCategoryInput.focus();
+    });
+
     function openCreatePatternForm() {
       editingPatternId = null;
       patternFormTitle.textContent = 'New movement pattern';
       patternForm.reset();
+      selectedPatternCategory = null;
+      patternCategoryField.hidden = true;
+      patternCategoryToggle.textContent = '+ Type your own';
+      renderPatternCategoryChips();
       patternDeleteZone.hidden = true;
       patternDeleteConfirm.hidden = true;
       patternDeleteBtn.hidden = false;
@@ -678,6 +742,18 @@
       patternFormTitle.textContent = 'Rename movement pattern';
       patternForm.reset();
       patternNameInput.value = pattern.name;
+      // Pre-select the existing category: as a chip if it's one of the known
+      // ones, otherwise fall back to the free-text field so nothing's lost.
+      const existing = pattern.category || null;
+      const matchesChip = existing && pastCategories.some((c) => c.toLowerCase() === existing.toLowerCase());
+      selectedPatternCategory = matchesChip ? pastCategories.find((c) => c.toLowerCase() === existing.toLowerCase()) : null;
+      const customValue = existing && !matchesChip ? existing : '';
+      patternCategoryInput.value = customValue;
+      // Only reveal the free-text field if it's actually holding something
+      // you'd otherwise lose sight of.
+      patternCategoryField.hidden = !customValue;
+      patternCategoryToggle.textContent = customValue ? '− Hide' : '+ Type your own';
+      renderPatternCategoryChips();
       hide(patternFormStatus);
       patternDeleteConfirm.hidden = true;
       patternDeleteBtn.hidden = false;
@@ -722,13 +798,14 @@
         show(patternFormStatus, 'error', 'Enter a name for this movement pattern.');
         return;
       }
+      const category = patternCategoryInput.value.trim() || selectedPatternCategory || null;
 
       patternSaveBtn.disabled = true;
       patternSaveBtn.textContent = 'Saving…';
 
       const result = editingPatternId
-        ? await supabase.from('movement_patterns').update({ name }).eq('id', editingPatternId).select().single()
-        : await supabase.from('movement_patterns').insert({ user_id: user.id, name }).select().single();
+        ? await supabase.from('movement_patterns').update({ name, category }).eq('id', editingPatternId).select().single()
+        : await supabase.from('movement_patterns').insert({ user_id: user.id, name, category }).select().single();
 
       patternSaveBtn.disabled = false;
       patternSaveBtn.textContent = 'Save';
@@ -835,16 +912,24 @@
       exPatternSelect.value = selectedId || '';
     }
 
+    exNotesToggle.addEventListener('click', () => {
+      exNotesField.hidden = !exNotesField.hidden;
+      exNotesToggle.textContent = exNotesField.hidden ? '+ Add notes' : '− Hide notes';
+      if (!exNotesField.hidden) exNotesInput.focus();
+    });
+
     function openCreateExerciseForm(presetPatternId) {
       editingExerciseId = null;
       editingExerciseLocked = false;
 
       exerciseFormTitle.textContent = 'New exercise';
       exerciseForm.reset();
+      exNotesField.hidden = true;
+      exNotesToggle.textContent = '+ Add notes';
       exTypeSelect.disabled = false;
       exTypeSelect.innerHTML = `
         <option value="" disabled selected>Select type…</option>
-        <option value="weight_reps">Weight × reps</option>
+        <option value="weight_reps">Standard</option>
         <option value="time_based">Time-based</option>
         <option value="assisted">Assisted</option>
       `;
@@ -866,6 +951,11 @@
       exerciseForm.reset();
       exNameInput.value = ex.name;
       exNotesInput.value = ex.persistent_notes || '';
+      // Don't hide notes you already wrote — only rarely-used *empty* fields
+      // start collapsed.
+      const hasNotes = !!(ex.persistent_notes && ex.persistent_notes.trim());
+      exNotesField.hidden = !hasNotes;
+      exNotesToggle.textContent = hasNotes ? '− Hide notes' : '+ Add notes';
       hide(exerciseFormStatus);
       exerciseDeleteConfirm.hidden = true;
       exerciseDeleteBtn.hidden = false;
@@ -904,7 +994,7 @@
       } else {
         exTypeSelect.disabled = false;
         exTypeSelect.innerHTML = `
-          <option value="weight_reps">Weight × reps</option>
+          <option value="weight_reps">Standard</option>
           <option value="time_based">Time-based</option>
           <option value="assisted">Assisted</option>
         `;
@@ -1042,7 +1132,7 @@
     // ------------------------------------------------------------------
     user = await requireSession('./index.html');
     if (user) {
-      await loadAll();
+      await Promise.all([loadAll(), loadCategories()]);
     }
   </script>
 

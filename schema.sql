@@ -76,14 +76,28 @@ create table if not exists public.movement_patterns (
 
   name        text not null,
 
+  -- Which session type this box belongs to, e.g. "Push". Free text, same as
+  -- sessions.category — matched case-insensitively against it so the Log
+  -- screen can show "your Push patterns" first when you start a Push
+  -- session. Nullable: a pattern doesn't have to be tied to a session type.
+  category    text,
+
   deleted_at  timestamptz,
   created_at  timestamptz not null default now(),
 
   constraint movement_patterns_name_not_blank check (length(btrim(name)) > 0)
 );
 
+-- Brings an already-existing movement_patterns table up to the current
+-- shape. No-op on a brand new database.
+alter table public.movement_patterns add column if not exists category text;
+
 create index if not exists movement_patterns_user_idx
   on public.movement_patterns (user_id);
+
+create index if not exists movement_patterns_category_idx
+  on public.movement_patterns (user_id, lower(btrim(category)))
+  where category is not null and deleted_at is null;
 
 -- Same reasoning as the exercise name index below: no two live boxes with
 -- the same name, but a deleted one frees the name back up.
