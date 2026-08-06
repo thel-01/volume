@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Log in</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="">
+      <div>
+        <h1>Volume</h1>
+        <p>Workout tracker</p>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" inputmode="email"
+               autocomplete="username" autocapitalize="none" autocorrect="off"
+               spellcheck="false" required>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password"
+               autocomplete="current-password" required>
+      </div>
+
+      <button id="submit" type="submit">Log in</button>
+    </form>
+
+    <!-- Every outcome lands here: loading, success, or a readable error. -->
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div class="spacer"></div>
+
+    <p class="muted">This app has one account. New accounts are created by hand in Supabase.</p>
+  </main>
+
+  <script type="module">
+    import { supabase, describeAuthError } from './supabase-client.js';
+
+    const form = document.getElementById('login-form');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    const submit = document.getElementById('submit');
+    const status = document.getElementById('status');
+
+    const HOME = './app.html';
+
+    function show(kind, message) {
+      status.className = `status ${kind}`;
+      status.textContent = message;
+      status.hidden = false;
+    }
+
+    function clearStatus() {
+      status.hidden = true;
+      status.textContent = '';
+    }
+
+    function setBusy(busy, label) {
+      submit.disabled = busy;
+      emailInput.disabled = busy;
+      passwordInput.disabled = busy;
+      submit.textContent = label;
+    }
+
+    // Already logged in from a previous visit? Skip straight through.
+    (async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        show('error', describeAuthError(error));
+        return;
+      }
+      if (data.session) {
+        show('info', 'Already logged in — taking you through…');
+        window.location.replace(HOME);
+      }
+    })();
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearStatus();
+
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      if (!email || !password) {
+        show('error', 'Enter both your email and your password.');
+        return;
+      }
+
+      setBusy(true, 'Logging in…');
+
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+        if (error) {
+          show('error', describeAuthError(error));
+          setBusy(false, 'Log in');
+          return;
+        }
+
+        if (!data.session) {
+          show('error', 'Supabase accepted the login but returned no session. Check that the user is confirmed in the Supabase dashboard.');
+          setBusy(false, 'Log in');
+          return;
+        }
+
+        show('ok', 'Logged in — loading…');
+        window.location.replace(HOME);
+      } catch (err) {
+        // Network failures and anything unexpected surface here rather than
+        // leaving the button stuck on "Logging in…".
+        console.error(err);
+        show('error', describeAuthError(err));
+        setBusy(false, 'Log in');
+      }
+    });
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

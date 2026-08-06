@@ -1,0 +1,87 @@
+// ---------------------------------------------------------------------------
+// Service worker.
+//
+// BUMP THIS VERSION whenever you change any file in APP_SHELL.
+// The cache name is built from it, so a new version means a brand-new cache
+// and the old one is thrown away — that's what stops the phone from serving
+// a stale copy of the app forever.
+// ---------------------------------------------------------------------------
+
+const VERSION = 'v1.0.0';
+const CACHE = `volume-${VERSION}`;
+
+const APP_SHELL = [
+  './',
+  './index.html',
+  './app.html',
+  './styles.css',
+  './supabase-client.js',
+  './register-sw.js',
+  './manifest.json',
+  './vendor/supabase.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-512.png',
+  './icons/apple-touch-icon.png',
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((cache) => cache.addAll(APP_SHELL))
+      // Don't sit around waiting for every tab to close before activating.
+      .then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((names) => Promise.all(
+        names.filter((n) => n !== CACHE).map((n) => caches.delete(n))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+
+  // Only ever touch our own files, and only plain page loads.
+  // Everything else — above all the calls to Supabase — goes straight to the
+  // network untouched. Caching a login response would be a bad day.
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Pages: try the network first so a freshly deployed version wins,
+  // and fall back to the cached copy when offline.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request).then((hit) => hit || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Everything else (CSS, JS, icons): serve from the cache for speed, and
+  // fetch it if this version's cache hasn't seen it yet.
+  event.respondWith(
+    caches.match(request).then((hit) => {
+      if (hit) return hit;
+      return fetch(request).then((response) => {
+        if (response.ok && response.type === 'basic') {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      });
+    })
+  );
+});
