@@ -5,104 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Volume</title>
 
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#0f1115">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Volume">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="icon" href="icons/icon-192.png">
+  <!-- ---------------------------------------------------------------------
+       This used to be the home screen. Everything on it moved to the
+       dashboard (which is now the landing page) and to Settings.
 
+       It stays as a forwarder rather than being deleted, because plenty of
+       things can still point here long after the change: a cached copy of an
+       old page whose back arrow said ./app.html, an installed home-screen
+       shortcut, browser history, a bookmark. Deleting the file turns every
+       one of those into a 404; forwarding turns them into a shrug.
+
+       No auth check needed — dashboard.html guards itself.
+       --------------------------------------------------------------------- -->
+  <meta http-equiv="refresh" content="0; url=./dashboard.html">
+  <link rel="canonical" href="./dashboard.html">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="screen">
-    <div class="brand">
-      <img src="icons/icon-192.png" alt="">
-      <div>
-        <h1>Volume</h1>
-        <p>Workout tracker</p>
-      </div>
-    </div>
-
-    <div class="spacer"></div>
-
-    <!-- Placeholder for packet 1. Real screens come in later packets. -->
-    <div class="card">
-      <h2 style="margin:0 0 8px;font-size:22px;">Logged in ✅</h2>
-      <p class="muted" id="who">Checking your session…</p>
-      <p class="muted" id="mode"></p>
-    </div>
-
-    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
-
-    <div class="spacer"></div>
-
-    <a href="./log.html" style="text-decoration:none;">
-      <button type="button">Start / resume workout</button>
-    </a>
-    <div style="height:12px;"></div>
-    <a href="./dashboard.html" style="text-decoration:none;">
-      <button class="secondary" type="button">Dashboard</button>
-    </a>
-    <div style="height:12px;"></div>
-    <a href="./exercises.html" style="text-decoration:none;">
-      <button class="secondary" type="button">Manage exercises</button>
-    </a>
-    <div style="height:12px;"></div>
-    <a href="./history.html" style="text-decoration:none;">
-      <button class="secondary" type="button">History</button>
-    </a>
-    <div style="height:12px;"></div>
-    <a href="./settings.html" style="text-decoration:none;">
-      <button class="secondary" type="button">Settings</button>
-    </a>
-    <div style="height:12px;"></div>
-    <button id="logout" class="secondary" type="button">Log out</button>
+    <p class="muted">Taking you to Volume…</p>
+    <noscript><a href="./dashboard.html" style="color:var(--accent);">Continue to Volume</a></noscript>
   </main>
-
-  <script type="module">
-    import { supabase, requireSession, describeAuthError } from './supabase-client.js';
-
-    const who = document.getElementById('who');
-    const mode = document.getElementById('mode');
-    const logout = document.getElementById('logout');
-    const status = document.getElementById('status');
-
-    function show(kind, message) {
-      status.className = `status ${kind}`;
-      status.textContent = message;
-      status.hidden = false;
-    }
-
-    // Redirects to the login page if there's no saved session.
-    const user = await requireSession('./index.html');
-
-    if (user) {
-      who.textContent = `Signed in as ${user.email}`;
-
-      // Handy confirmation that "Add to Home Screen" actually took effect.
-      const standalone = window.matchMedia('(display-mode: standalone)').matches
-        || window.navigator.standalone === true;
-      mode.textContent = standalone
-        ? 'Running as an installed app.'
-        : 'Running in the browser.';
-    }
-
-    logout.addEventListener('click', async () => {
-      logout.disabled = true;
-      logout.textContent = 'Logging out…';
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        show('error', describeAuthError(error));
-        logout.disabled = false;
-        logout.textContent = 'Log out';
-        return;
-      }
-      window.location.replace('./index.html');
-    });
-  </script>
-
-  <script src="register-sw.js"></script>
+  <script>window.location.replace('./dashboard.html');</script>
 </body>
 </html>

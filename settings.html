@@ -26,12 +26,18 @@
          redesign of this page. -->
     <section id="home-view">
       <div class="page-header">
-        <a href="./app.html" class="icon-link" aria-label="Back">←</a>
+        <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
         <h1>Settings</h1>
         <span class="icon-link" style="visibility:hidden">←</span>
       </div>
 
       <ul class="list">
+        <li class="list-item" id="exercises-link" tabindex="0" role="button">
+          <div class="list-item-body">
+            <div class="list-item-name">Manage exercises</div>
+          </div>
+          <span class="list-item-chevron">›</span>
+        </li>
         <li class="list-item" id="recently-deleted-link" tabindex="0" role="button">
           <div class="list-item-body">
             <div class="list-item-name">Recently Deleted</div>
@@ -39,6 +45,20 @@
           <span class="list-item-chevron">›</span>
         </li>
       </ul>
+
+      <p class="section-label" style="margin-top:28px;">Account</p>
+      <div class="card">
+        <div class="reference-line" style="margin-top:0;">
+          <span class="reference-label">Signed in as:</span>
+          <span class="reference-value" id="account-email">…</span>
+        </div>
+        <div class="reference-line">
+          <span class="reference-label">Running:</span>
+          <span class="reference-value" id="account-mode">…</span>
+        </div>
+      </div>
+      <div style="height:12px;"></div>
+      <button id="logout" class="secondary" type="button">Log out</button>
     </section>
 
     <!-- =================== RECENTLY DELETED =================== -->
@@ -396,9 +416,45 @@
     }
 
     // ------------------------------------------------------------------
+    // Account
+    // ------------------------------------------------------------------
+    function renderAccount(signedInUser) {
+      document.getElementById('account-email').textContent = signedInUser?.email || 'Unknown';
+      // Quickest way to tell why a change hasn't shown up yet: an installed
+      // copy serves from its own cache until the service worker updates.
+      const standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+      document.getElementById('account-mode').textContent = standalone
+        ? 'Installed app'
+        : 'Browser tab';
+    }
+
+    const exercisesLink = document.getElementById('exercises-link');
+    const openExercises = () => { window.location.href = './exercises.html'; };
+    exercisesLink.addEventListener('click', openExercises);
+    exercisesLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openExercises(); }
+    });
+
+    const logoutBtn = document.getElementById('logout');
+    logoutBtn.addEventListener('click', async () => {
+      logoutBtn.disabled = true;
+      logoutBtn.textContent = 'Logging out…';
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        show(topStatus, 'error', `Could not log out: ${error.message}`);
+        logoutBtn.disabled = false;
+        logoutBtn.textContent = 'Log out';
+        return;
+      }
+      window.location.replace('./index.html');
+    });
+
+    // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
     user = await requireSession('./index.html');
+    if (user) renderAccount(user);
   </script>
 
   <script src="register-sw.js"></script>

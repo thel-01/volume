@@ -37,6 +37,8 @@
     .index-delta { font-size: 14px; color: var(--muted); }
     .index-delta.up { color: var(--ok); }
     .index-delta.down { color: var(--danger); }
+    /* Starting a workout is the primary action, so it gets the wider half. */
+    .grow-2 { flex: 2; }
   </style>
 </head>
 <body>
@@ -45,9 +47,20 @@
     <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
 
     <div class="page-header">
-      <a href="./app.html" class="icon-link" aria-label="Back">←</a>
-      <h1>Dashboard</h1>
+      <!-- No back arrow: this is the app's root. The blank keeps the title centred. -->
       <span class="icon-link" style="visibility:hidden">←</span>
+      <h1>Volume</h1>
+      <a href="./settings.html" class="icon-link" aria-label="Settings">⚙</a>
+    </div>
+
+    <!-- The two things you actually open the app to do. -->
+    <div class="btn-row" style="margin-bottom:24px;">
+      <a href="./log.html" class="grow-2" style="text-decoration:none;display:flex;">
+        <button type="button" id="workout-btn" style="width:100%;">Start workout</button>
+      </a>
+      <a href="./history.html" style="text-decoration:none;display:flex;flex:1;">
+        <button class="secondary" type="button" style="width:100%;">History</button>
+      </a>
     </div>
 
     <p id="loading" class="muted">Loading…</p>
@@ -102,6 +115,7 @@
     const topStatus = document.getElementById('top-status');
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
+    const workoutBtn = document.getElementById('workout-btn');
 
     const indexSection = document.getElementById('index-section');
     const indexValue = document.getElementById('index-value');
@@ -206,14 +220,25 @@
       loading.hidden = false;
       content.hidden = true;
 
-      const [exercisesRes, setsRes, sessionsRes] = await Promise.all([
+      const [exercisesRes, setsRes, sessionsRes, openRes] = await Promise.all([
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
         supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
         supabase.from('sessions').select('id, category, start_time')
           .is('deleted_at', null)
           .not('end_time', 'is', null)
           .order('start_time', { ascending: false }),
+        // A workout left open, so the button can say "Resume" instead of
+        // making you tap through to find out.
+        supabase.from('sessions').select('id, start_time')
+          .is('deleted_at', null)
+          .is('end_time', null)
+          .order('start_time', { ascending: false })
+          .limit(1),
       ]);
+
+      // An open session is a nicety, not the point of the page — if only that
+      // lookup fails the button just stays on its default wording.
+      renderWorkoutButton(openRes.error ? null : (openRes.data && openRes.data[0]));
 
       const err = exercisesRes.error || setsRes.error || sessionsRes.error;
       if (err) {
@@ -233,6 +258,20 @@
       renderStrengthIndex(exercisesRes.data, liveSets);
       renderPrs(exercisesRes.data, liveSets);
       renderCategories(sessionsRes.data);
+    }
+
+    /** Compact elapsed time for a workout already under way: "23m", "1h 40m". */
+    function elapsedSince(iso) {
+      const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+      if (mins < 60) return `${mins}m`;
+      const rest = mins % 60;
+      return rest === 0 ? `${Math.floor(mins / 60)}h` : `${Math.floor(mins / 60)}h ${rest}m`;
+    }
+
+    function renderWorkoutButton(openSession) {
+      workoutBtn.textContent = openSession
+        ? `Resume · ${elapsedSince(openSession.start_time)}`
+        : 'Start workout';
     }
 
     // ------------------------------------------------------------------

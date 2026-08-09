@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.11.0';
+const VERSION = 'v1.13.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -69,8 +69,14 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
+          // Only ever store a real page. This used to cache whatever came
+          // back, so hitting a page that had been moved or renamed pinned its
+          // 404 into the cache — and it kept being served from there long
+          // after the address was fine again.
+          if (response.ok && response.type === 'basic') {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
         .catch(() => caches.match(request).then((hit) => hit || caches.match('./index.html')))
