@@ -457,6 +457,67 @@
     }
 
     // ------------------------------------------------------------------
+    // Warm-up ladder
+    // ------------------------------------------------------------------
+    /**
+     * How coarsely to round a warm-up weight, scaled to what you're lifting.
+     * 5kg jumps are right for a squat and absurd for a curl, so the step grows
+     * with the working weight rather than being one fixed number.
+     */
+    function warmupStep(weight) {
+      if (weight < 10) return 0.5;
+      if (weight < 20) return 1;
+      if (weight < 60) return 2.5;
+      return 5;
+    }
+
+    /**
+     * 50 / 75 / 90% of the weight you actually worked up to last time.
+     *
+     * Averaged over your last two sessions, so one bad day doesn't drag the
+     * whole ladder down with it.
+     *
+     * Weight × reps only. On an assisted machine the number recorded is how
+     * much help the machine gave, so a "lighter" warm-up would mean *less*
+     * assistance — harder, not easier. And a time-based hold has no weight to
+     * scale in the first place.
+     */
+    function computeWarmup(entry, currentSessionId) {
+      if (entry.exercise.type !== 'weight_reps') return null;
+
+      // Heaviest weight touched in each past session.
+      const bySession = new Map();
+      for (const set of entry.history || []) {
+        if (set.session_id === currentSessionId) continue;
+        const w = Number(set.weight);
+        if (!(w > 0)) continue;
+        const seen = bySession.get(set.session_id);
+        if (!seen) {
+          bySession.set(set.session_id, { start: set.sessions?.start_time, top: w });
+        } else if (w > seen.top) {
+          seen.top = w;
+        }
+      }
+
+      const recent = [...bySession.values()]
+        .sort((a, b) => new Date(b.start) - new Date(a.start))
+        .slice(0, 2);
+      if (recent.length === 0) return null;
+
+      const target = recent.reduce((sum, s) => sum + s.top, 0) / recent.length;
+      const step = warmupStep(target);
+
+      const ladder = [];
+      for (const pct of [0.5, 0.75, 0.9]) {
+        const w = parseFloat((Math.round((target * pct) / step) * step).toFixed(2));
+        // Never suggest a "warm-up" at or above the working weight, and skip a
+        // rung that rounded onto the one below it.
+        if (w > 0 && w < target && !ladder.includes(w)) ladder.push(w);
+      }
+      return ladder.length > 0 ? ladder : null;
+    }
+
+    // ------------------------------------------------------------------
     // Error messages
     // ------------------------------------------------------------------
     function describeSetError(error) {
@@ -671,6 +732,25 @@
       body.appendChild(buildReferenceLine('Last session', entry, 'last'));
       body.appendChild(buildReferenceLine('Best session', entry, 'best'));
 
+      // Only worth showing before you've started — once set 1 is in, you're
+      // warm and it's just clutter.
+      if (entry.sets.length === 0) {
+        const ladder = computeWarmup(entry, session.id);
+        if (ladder) {
+          const line = document.createElement('div');
+          line.className = 'reference-line';
+          const label = document.createElement('span');
+          label.className = 'reference-label';
+          label.textContent = 'Warm-up:';
+          line.appendChild(label);
+          const value = document.createElement('span');
+          value.className = 'reference-value';
+          value.textContent = `${ladder.map(formatWeight).join(' · ')} kg`;
+          line.appendChild(value);
+          body.appendChild(line);
+        }
+      }
+
       // Tucked behind a tap: every past session for this exercise, not just
       // the single best one — there for when you're curious, not by default.
       const bestGroup = findBestSession(entry.history, entry.exercise.type);
@@ -678,7 +758,8 @@
         const seeAllBtn = document.createElement('button');
         seeAllBtn.type = 'button';
         seeAllBtn.className = 'link-button';
-        seeAllBtn.style.cssText = 'margin-top:2px;font-size:13px;';
+        // display:block so it doesn't sit on the same line as "+ Add note".
+        seeAllBtn.style.cssText = 'display:block;margin-top:2px;font-size:13px;';
         seeAllBtn.textContent = entry.historyExpanded ? '− Hide all sessions' : 'See all sessions →';
         seeAllBtn.addEventListener('click', () => {
           entry.historyExpanded = !entry.historyExpanded;
@@ -693,6 +774,7 @@
       const commentToggle = document.createElement('button');
       commentToggle.type = 'button';
       commentToggle.className = 'link-button';
+      commentToggle.style.display = 'block';
       commentToggle.style.marginTop = '14px';
       commentToggle.textContent = entry.commentExpanded ? '− Hide note' : '+ Add note for today';
       body.appendChild(commentToggle);
