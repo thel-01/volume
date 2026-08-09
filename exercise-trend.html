@@ -22,11 +22,21 @@
       padding: 12px 8px 6px;
     }
     .chart-card svg { display: block; width: 100%; height: auto; }
-    .chart-hint {
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 14px;
       margin-top: 10px;
-      text-align: center;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i {
+      width: 14px;
+      height: 3px;
+      border-radius: 2px;
+      display: inline-block;
     }
   </style>
 </head>
@@ -37,18 +47,23 @@
 
     <div class="page-header">
       <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
-      <h1>Trend</h1>
+      <h1 id="heading">…</h1>
       <span class="icon-link" style="visibility:hidden">←</span>
     </div>
-    <p id="subtitle" class="subtitle" hidden></p>
 
     <p id="loading" class="muted">Loading…</p>
 
     <div id="content" hidden>
+      <p class="section-label" id="index-label">Strength index</p>
       <div class="chart-card">
-        <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Trend over time"></svg>
+        <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Strength index over time"></svg>
       </div>
-      <p class="chart-hint">Tap a point for details.</p>
+      <div id="legend" class="legend" hidden></div>
+
+      <p class="section-label" style="margin-top:24px;">Top set weight</p>
+      <div class="chart-card">
+        <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Top set weight over time"></svg>
+      </div>
     </div>
 
     <p id="empty-state" class="empty-state" hidden></p>
@@ -57,22 +72,30 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
+    import { renderLineChart } from './chart.js';
+    import { sessionCapacities, displayDepths } from './strength-index.js';
 
-    const NS = 'http://www.w3.org/2000/svg';
-    const VIEW_W = 340;
-    const VIEW_H = 180;
-    const MARGIN = { top: 16, right: 16, bottom: 26, left: 40 };
+    // Set 1 is the loudest, deeper sets recede — they are context for it, not
+    // competing series.
+    const DEPTH_STYLE = [
+      { color: 'var(--accent)', width: '2.2' },
+      { color: '#e0805a', width: '1.9' },
+      { color: '#9aa6b8', width: '1.6' },
+      { color: '#6c7788', width: '1.4' },
+    ];
 
     // ------------------------------------------------------------------
     // Element refs
     // ------------------------------------------------------------------
     const topStatus = document.getElementById('top-status');
-    const heading = document.querySelector('.page-header h1');
-    const subtitle = document.getElementById('subtitle');
+    const heading = document.getElementById('heading');
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
     const emptyState = document.getElementById('empty-state');
     const svg = document.getElementById('chart');
+    const indexChart = document.getElementById('index-chart');
+    const indexLabel = document.getElementById('index-label');
+    const legend = document.getElementById('legend');
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
@@ -119,69 +142,8 @@
       const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
     }
-
-    // ------------------------------------------------------------------
-    // "Nice" round numbers for axis ticks (Heckbert's algorithm), capped
-    // at 2–3 labels total. Picked to look clean, not to hit the data's
-    // exact min/max — this is a trend visualizer, not a precise readout.
-    // ------------------------------------------------------------------
-    function niceNum(range, round) {
-      if (range <= 0) return 1;
-      const exponent = Math.floor(Math.log10(range));
-      const fraction = range / Math.pow(10, exponent);
-      let niceFraction;
-      if (round) {
-        if (fraction < 1.5) niceFraction = 1;
-        else if (fraction < 3) niceFraction = 2;
-        else if (fraction < 7) niceFraction = 5;
-        else niceFraction = 10;
-      } else {
-        if (fraction <= 1) niceFraction = 1;
-        else if (fraction <= 2) niceFraction = 2;
-        else if (fraction <= 5) niceFraction = 5;
-        else niceFraction = 10;
-      }
-      return niceFraction * Math.pow(10, exponent);
-    }
-
-    function computeYAxis(values) {
-      const dataMin = Math.min(...values);
-      const dataMax = Math.max(...values);
-      let lo = dataMin;
-      let hi = dataMax;
-
-      if (lo === hi) {
-        // Flat or single-point series — fabricate a small window so the
-        // point sits mid-chart instead of on a zero-height axis.
-        const pad = Math.max(1, Math.round(Math.abs(lo) * 0.1));
-        lo -= pad;
-        hi += pad;
-      } else {
-        // Headroom so the line and dots get room to breathe, not hug the edges.
-        const pad = (hi - lo) * 0.18;
-        lo -= pad;
-        hi += pad;
-      }
-      if (lo < 0 && dataMin >= 0) lo = 0; // don't invent negative territory that was never real
-
-      // Grow the step (rather than slicing an uneven set of ticks down to
-      // size) so whatever labels remain stay evenly spaced.
-      let step = niceNum((hi - lo) / 2, true);
-      let niceMin, niceMax, ticks;
-      for (let guard = 0; guard < 10; guard++) {
-        niceMin = Math.floor(lo / step) * step;
-        niceMax = Math.ceil(hi / step) * step;
-        ticks = [];
-        for (let v = niceMin; v <= niceMax + step * 1e-6; v += step) ticks.push(Math.round(v));
-        if (ticks.length <= 3) break;
-        step = niceNum(step * 1.5, true);
-      }
-
-      return { min: niceMin, max: niceMax, ticks };
-    }
-
-    // `useMinutes` is decided once per axis (from its max, not each tick)
-    // so ticks never mix units — no axis showing "0s" next to "2m".
+    // `useMinutes` is decided once per axis (from its max, not each tick) so
+    // ticks never mix units — no axis showing "0s" next to "2m".
     function formatAxisValue(value, type, useMinutes) {
       if (type === 'time_based') {
         return useMinutes ? `${Math.round(value / 60)}m` : `${Math.round(value)}s`;
@@ -190,11 +152,15 @@
     }
 
     // ------------------------------------------------------------------
-    // One point per workout — the heaviest (or longest / least-assisted)
-    // set logged in that session, not just the sessions that happened to
-    // set an all-time record. This also means a single session's own
-    // warm-up-to-top-set climb collapses into one point instead of
-    // several, so it never shows up as its own near-vertical segment.
+    // One point per workout — the heaviest (or longest / least-assisted) set
+    // logged in that session, not just the sessions that happened to set an
+    // all-time record. This also means a single session's own
+    // warm-up-to-top-set climb collapses into one point instead of several,
+    // so it never shows up as its own near-vertical segment.
+    //
+    // Deliberately NOT the same "best" the strength index uses: this ranks by
+    // weight then reps, the index ranks by estimated 1RM. Each is right for
+    // the question it answers.
     // ------------------------------------------------------------------
     function computeSessionBests(sets, type) {
       const bySession = new Map();
@@ -231,186 +197,70 @@
     }
 
     // ------------------------------------------------------------------
-    // Chart rendering — plain SVG, no library. Straight-line segments
-    // between each workout's point, dots only on the real points, tap for
-    // a tooltip. No grid lines; axis is deliberately sparse.
+    // Drawing
     // ------------------------------------------------------------------
-    function renderChart(points, type) {
-      svg.innerHTML = '';
-      const plotW = VIEW_W - MARGIN.left - MARGIN.right;
-      const plotH = VIEW_H - MARGIN.top - MARGIN.bottom;
+    /**
+     * One line per set: your top set, then what you held for two sets, three,
+     * and so on — all indexed so the first session's top set is 100.
+     *
+     * Everything is scaled against that ONE baseline rather than each line
+     * against its own, so the later sets start below 100 and visibly climb to
+     * meet set 1 as their reps come up. Then the whole fan steps up together
+     * when the weight finally goes up. Indexing each line separately would
+     * start them all at 100 and throw that story away.
+     *
+     * The underlying number is an estimated 1RM, but that never surfaces —
+     * it's a backend detail, not something to think in.
+     */
+    function drawIndex(points, depths) {
+      const base = points[0].caps[0];
+      if (!(base > 0)) return;
 
-      const minT = new Date(points[0].date).getTime();
-      const maxT = new Date(points[points.length - 1].date).getTime();
-      const values = points.map((p) => p.value);
-      const axis = computeYAxis(values);
-      const useMinutes = type === 'time_based' && axis.max >= 60;
-
-      const xScale = (t) => (maxT === minT
-        ? MARGIN.left + plotW / 2
-        : MARGIN.left + ((t - minT) / (maxT - minT)) * plotW);
-      const yScale = (v) => MARGIN.top + plotH - ((v - axis.min) / (axis.max - axis.min)) * plotH;
-
-      // Invisible full-size backdrop: tapping empty chart space dismisses any open tooltip.
-      const backdrop = document.createElementNS(NS, 'rect');
-      backdrop.setAttribute('x', 0);
-      backdrop.setAttribute('y', 0);
-      backdrop.setAttribute('width', VIEW_W);
-      backdrop.setAttribute('height', VIEW_H);
-      backdrop.setAttribute('fill', 'transparent');
-      backdrop.addEventListener('click', () => clearTooltip());
-      svg.appendChild(backdrop);
-
-      // Y-axis labels only — no tick marks, no grid lines.
-      for (const tickValue of axis.ticks) {
-        const y = yScale(tickValue);
-        const text = document.createElementNS(NS, 'text');
-        text.setAttribute('x', MARGIN.left - 8);
-        text.setAttribute('y', y + 3.5);
-        text.setAttribute('text-anchor', 'end');
-        text.setAttribute('font-size', '11');
-        text.setAttribute('fill', 'var(--muted)');
-        text.textContent = formatAxisValue(tickValue, type, useMinutes);
-        svg.appendChild(text);
+      const series = [];
+      for (let k = depths; k >= 1; k--) { // deepest first, so set 1 draws on top
+        const pts = points
+          .filter((p) => p.caps.length >= k)
+          .map((p) => ({ date: p.date, value: (p.caps[k - 1] / base) * 100, session: p, depth: k }));
+        if (pts.length === 0) continue;
+        const style = DEPTH_STYLE[Math.min(k, DEPTH_STYLE.length) - 1];
+        series.push({ key: `c${k}`, points: pts, dots: true, tappable: true, ...style });
       }
 
-      // X-axis: first and last day only.
-      const sameYear = new Date(minT).getFullYear() === new Date(maxT).getFullYear();
-      if (maxT === minT) {
-        const text = document.createElementNS(NS, 'text');
-        text.setAttribute('x', xScale(minT));
-        text.setAttribute('y', VIEW_H - 6);
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('font-size', '11');
-        text.setAttribute('fill', 'var(--muted)');
-        text.textContent = formatCompactDate(points[0].date, false);
-        svg.appendChild(text);
-      } else {
-        const firstLabel = document.createElementNS(NS, 'text');
-        firstLabel.setAttribute('x', MARGIN.left);
-        firstLabel.setAttribute('y', VIEW_H - 6);
-        firstLabel.setAttribute('text-anchor', 'start');
-        firstLabel.setAttribute('font-size', '11');
-        firstLabel.setAttribute('fill', 'var(--muted)');
-        firstLabel.textContent = formatCompactDate(points[0].date, !sameYear);
-        svg.appendChild(firstLabel);
-
-        const lastLabel = document.createElementNS(NS, 'text');
-        lastLabel.setAttribute('x', VIEW_W - MARGIN.right);
-        lastLabel.setAttribute('y', VIEW_H - 6);
-        lastLabel.setAttribute('text-anchor', 'end');
-        lastLabel.setAttribute('font-size', '11');
-        lastLabel.setAttribute('fill', 'var(--muted)');
-        lastLabel.textContent = formatCompactDate(points[points.length - 1].date, !sameYear);
-        svg.appendChild(lastLabel);
-      }
-
-      // The line — straight segments between real points only.
-      if (points.length > 1) {
-        const d = points
-          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(new Date(p.date).getTime())},${yScale(p.value)}`)
-          .join(' ');
-        const path = document.createElementNS(NS, 'path');
-        path.setAttribute('d', d);
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', 'var(--accent)');
-        path.setAttribute('stroke-width', '2');
-        path.setAttribute('stroke-linejoin', 'round');
-        path.setAttribute('stroke-linecap', 'round');
-        svg.appendChild(path);
-      }
-
-      // Dots + tap targets.
-      let activeIndex = null;
-      points.forEach((p, i) => {
-        const cx = xScale(new Date(p.date).getTime());
-        const cy = yScale(p.value);
-
-        const dot = document.createElementNS(NS, 'circle');
-        dot.setAttribute('cx', cx);
-        dot.setAttribute('cy', cy);
-        dot.setAttribute('r', 3.5);
-        dot.setAttribute('fill', 'var(--accent)');
-        dot.setAttribute('stroke', 'var(--surface)');
-        dot.setAttribute('stroke-width', '1.5');
-        svg.appendChild(dot);
-
-        const hit = document.createElementNS(NS, 'circle');
-        hit.setAttribute('cx', cx);
-        hit.setAttribute('cy', cy);
-        hit.setAttribute('r', 12);
-        hit.setAttribute('fill', 'transparent');
-        hit.setAttribute('pointer-events', 'all');
-        hit.style.cursor = 'pointer';
-        hit.setAttribute('tabindex', '0');
-        hit.setAttribute('role', 'button');
-        hit.setAttribute('aria-label', `${describeSet(p.set, type)} on ${formatFullDate(p.date)}`);
-        const toggle = (e) => {
-          e.stopPropagation();
-          if (activeIndex === i) { clearTooltip(); return; }
-          activeIndex = i;
-          showTooltip(cx, cy, [describeSet(p.set, type), formatFullDate(p.date)]);
-        };
-        hit.addEventListener('click', toggle);
-        hit.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
-        });
-        svg.appendChild(hit);
+      renderLineChart(indexChart, {
+        series,
+        formatValue: (v) => String(Math.round(v)),
+        formatDate: formatCompactDate,
+        tooltipLines: (p) => [
+          `Set ${p.depth}: ${describeSet(p.session.sets[p.depth - 1], 'weight_reps')}`,
+          `${p.value.toFixed(0)} · ${formatFullDate(p.date)}`,
+        ],
+        ariaLabel: (p) => `Set ${p.depth}, index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
       });
 
-      function clearTooltip() {
-        activeIndex = null;
-        const existing = svg.querySelector('.chart-tip');
-        if (existing) existing.remove();
+      legend.innerHTML = '';
+      for (let k = 1; k <= depths; k++) {
+        const style = DEPTH_STYLE[Math.min(k, DEPTH_STYLE.length) - 1];
+        const item = document.createElement('span');
+        const swatch = document.createElement('i');
+        swatch.style.background = style.color;
+        item.appendChild(swatch);
+        item.appendChild(document.createTextNode(`Set ${k}`));
+        legend.appendChild(item);
       }
+      legend.hidden = depths < 2;
+    }
 
-      function showTooltip(cx, cy, lines) {
-        clearTooltip();
-        const g = document.createElementNS(NS, 'g');
-        g.setAttribute('class', 'chart-tip');
-        g.setAttribute('pointer-events', 'none');
-
-        const rect = document.createElementNS(NS, 'rect');
-        rect.setAttribute('rx', 6);
-        rect.setAttribute('fill', 'var(--surface-2)');
-        rect.setAttribute('stroke', 'var(--line)');
-        g.appendChild(rect);
-
-        const text = document.createElementNS(NS, 'text');
-        text.setAttribute('font-size', '11');
-        text.setAttribute('fill', 'var(--text)');
-        lines.forEach((line, i) => {
-          const tspan = document.createElementNS(NS, 'tspan');
-          tspan.setAttribute('x', 0);
-          tspan.setAttribute('dy', i === 0 ? 0 : 13);
-          if (i === 1) tspan.setAttribute('fill', 'var(--muted)');
-          tspan.textContent = line;
-          text.appendChild(tspan);
-        });
-        g.appendChild(text);
-        svg.appendChild(g);
-
-        const bbox = text.getBBox();
-        const padX = 8, padY = 6;
-        const boxW = bbox.width + padX * 2;
-        const boxH = bbox.height + padY * 2;
-
-        let boxX = cx - boxW / 2;
-        boxX = Math.max(2, Math.min(VIEW_W - 2 - boxW, boxX));
-        let boxY = cy - boxH - 12;
-        if (boxY < 2) boxY = cy + 12;
-
-        rect.setAttribute('x', boxX);
-        rect.setAttribute('y', boxY);
-        rect.setAttribute('width', boxW);
-        rect.setAttribute('height', boxH);
-
-        const textX = boxX + padX;
-        const textY = boxY + padY + 9;
-        text.setAttribute('x', textX);
-        text.setAttribute('y', textY);
-        for (const tspan of text.querySelectorAll('tspan')) tspan.setAttribute('x', textX);
-      }
+    /** Assisted and time-based exercises have no 1RM, so they keep a plain top-set line. */
+    function drawTopSet(points, type) {
+      const useMinutes = type === 'time_based'
+        && Math.max(...points.map((p) => p.value)) >= 60;
+      renderLineChart(svg, {
+        series: [{ points, dots: true, tappable: true }],
+        formatValue: (v) => formatAxisValue(v, type, useMinutes),
+        formatDate: formatCompactDate,
+        tooltipLines: (p) => [describeSet(p.set, type), formatFullDate(p.date)],
+        ariaLabel: (p) => `${describeSet(p.set, type)} on ${formatFullDate(p.date)}`,
+      });
     }
 
     // ------------------------------------------------------------------
@@ -435,33 +285,35 @@
       }
 
       const exercise = exerciseRes.data;
-      heading.textContent = 'Trend';
-      subtitle.textContent = exercise.name;
-      subtitle.hidden = false;
+      heading.textContent = exercise.name;
+      // Long names would otherwise crowd the back arrow on a phone.
+      if (exercise.name.length > 22) heading.style.fontSize = '18px';
       document.title = `Volume — ${exercise.name}`;
 
       const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
-      const points = computeSessionBests(liveSets, exercise.type);
+      const topSetPoints = computeSessionBests(liveSets, exercise.type);
 
       loading.hidden = true;
 
-      if (points.length === 0) {
+      if (topSetPoints.length === 0) {
         emptyState.textContent = `No sets logged for ${exercise.name} yet.`;
         emptyState.hidden = false;
         return;
       }
 
-      if (exercise.type === 'assisted') {
-        const note = document.createElement('p');
-        note.className = 'chart-hint';
-        note.style.marginTop = '0';
-        note.style.marginBottom = '12px';
-        note.textContent = 'Lower is better — less assistance means more strength.';
-        content.insertBefore(note, content.firstChild);
+      content.hidden = false;
+
+      // The index needs an estimated 1RM, which only weight × reps sets carry.
+      // Assisted and time-based exercises get the weight chart alone.
+      const capacity = sessionCapacities(liveSets, [exercise]).get(exercise.id);
+      if (capacity && capacity.length > 0) {
+        drawIndex(capacity, displayDepths(capacity));
+      } else {
+        indexLabel.hidden = true;
+        indexChart.closest('.chart-card').hidden = true;
       }
 
-      content.hidden = false;
-      renderChart(points, exercise.type);
+      drawTopSet(topSetPoints, exercise.type);
     }
 
     const params = new URLSearchParams(window.location.search);

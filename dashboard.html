@@ -14,6 +14,30 @@
   <link rel="icon" href="icons/icon-192.png">
 
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 8px 6px;
+    }
+    .chart-card svg { display: block; width: 100%; height: auto; }
+    .index-headline {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .index-value {
+      font-size: 34px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .index-delta { font-size: 14px; color: var(--muted); }
+    .index-delta.up { color: var(--ok); }
+    .index-delta.down { color: var(--danger); }
+  </style>
 </head>
 <body>
   <main class="screen">
@@ -29,6 +53,18 @@
     <p id="loading" class="muted">Loading…</p>
 
     <div id="content" hidden>
+
+      <div id="index-section" hidden>
+        <p class="section-label">Composite strength index</p>
+        <div class="index-headline">
+          <span class="index-value" id="index-value"></span>
+          <span class="index-delta" id="index-delta"></span>
+        </div>
+        <div class="chart-card">
+          <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
+        </div>
+        <div style="height:24px;"></div>
+      </div>
 
       <p class="section-label">This week</p>
       <div class="card" style="margin-bottom:24px;">
@@ -57,6 +93,8 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
+    import { renderLineChart } from './chart.js';
+    import { epley, compositeIndexSeries } from './strength-index.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -64,6 +102,11 @@
     const topStatus = document.getElementById('top-status');
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
+
+    const indexSection = document.getElementById('index-section');
+    const indexValue = document.getElementById('index-value');
+    const indexDelta = document.getElementById('index-delta');
+    const indexChart = document.getElementById('index-chart');
 
     const volumeThisWeek = document.getElementById('volume-this-week');
     const volumeAverage = document.getElementById('volume-average');
@@ -125,6 +168,15 @@
       if (quickTag === 'failure') return -1;
       return 1; // no tag — the baseline
     }
+    function formatFullDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    /** Compact axis label: "Aug 5", or "Aug 5 '25" if it needs disambiguating from the other end. */
+    function formatCompactDate(iso, showYear) {
+      const d = new Date(iso);
+      const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
+    }
     /** Midnight local time on the Monday of the week containing `date`. */
     function mondayOf(date) {
       const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -178,8 +230,50 @@
       content.hidden = false;
 
       renderVolume(liveSets);
+      renderStrengthIndex(exercisesRes.data, liveSets);
       renderPrs(exercisesRes.data, liveSets);
       renderCategories(sessionsRes.data);
+    }
+
+    // ------------------------------------------------------------------
+    // Strength index — one number for "am I getting stronger", chained
+    // across movement patterns. See strength-index.js for the reasoning.
+    // ------------------------------------------------------------------
+    function renderStrengthIndex(exercises, liveSets) {
+      const series = compositeIndexSeries(liveSets, exercises);
+
+      // A single point is a flat line at 100, which tells you nothing.
+      if (series.length < 2) {
+        indexSection.hidden = true;
+        return;
+      }
+      indexSection.hidden = false;
+
+      const latest = series[series.length - 1].value;
+      indexValue.textContent = latest.toFixed(0);
+
+      // Compared against roughly a month back, so the number next to it isn't
+      // just the last session's noise. Shown as a percentage: the index has no
+      // unit, so "+15 points" means nothing on its own.
+      const monthAgo = Date.now() - 28 * 86400000;
+      const earlier = [...series].reverse().find((p) => new Date(p.date).getTime() <= monthAgo);
+      if (earlier && earlier.value > 0) {
+        const pct = (latest / earlier.value - 1) * 100;
+        const sign = pct >= 0 ? '+' : '−';
+        indexDelta.textContent = `${sign}${Math.abs(pct).toFixed(1)}% vs 4 weeks ago`;
+        indexDelta.className = `index-delta ${pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : ''}`;
+      } else {
+        indexDelta.textContent = '';
+        indexDelta.className = 'index-delta';
+      }
+
+      renderLineChart(indexChart, {
+        series: [{ points: series, dots: true, tappable: true }],
+        formatValue: (v) => String(Math.round(v)),
+        formatDate: formatCompactDate,
+        tooltipLines: (p) => [p.value.toFixed(1), formatFullDate(p.date)],
+        ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
+      });
     }
 
     // ------------------------------------------------------------------
@@ -206,46 +300,64 @@
     }
 
     // ------------------------------------------------------------------
-    // PRs — one per exercise: the single best set ever (highest weight for
-    // standard, lowest assistance for assisted, longest duration for
-    // time-based). Ties on weight (or duration) are broken by more reps;
-    // ties on BOTH weight and reps are broken by tag quality (a clean set
-    // beats one taken to failure); only after all of that does the most
-    // recent occurrence decide. No frontier/dominance logic — just the one
-    // set that was, on its own, the most impressive.
+    // PRs — one per exercise: the single best set ever.
+    //
+    // For weight × reps that means the highest estimated 1RM, which is what
+    // lets 55kg × 10 beat 60kg × 5. The old rule couldn't compare those two
+    // at all — neither is "more weight at equal-or-better reps" — which is
+    // what made it fiddly. Reps are clamped at 15 inside epley() so a long
+    // burnout set can still win on weight but never on reps alone.
+    //
+    // Assisted (least assistance) and time-based (longest duration) keep
+    // their own rules: an estimated 1RM means nothing for either.
+    //
+    // Ties fall through to tag quality — a clean set beats one taken to
+    // failure — and only then to whichever happened most recently.
     // ------------------------------------------------------------------
+    /** Ranking key for a set, biggest-wins, compared left to right. */
+    function prScore(set, type) {
+      if (type === 'time_based') {
+        if (set.duration_seconds === null) return null;
+        return [Number(set.duration_seconds)];
+      }
+      if (type === 'assisted') {
+        if (set.weight === null || set.reps === null) return null;
+        // Less help is better, so flip it into biggest-wins terms; reps still
+        // break a tie at the same assistance, exactly as before.
+        return [-Number(set.weight), Number(set.reps)];
+      }
+      const e = epley(set.weight, set.reps);
+      return e === null ? null : [e];
+    }
+
+    function compareScores(a, b) {
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
+      }
+      return 0;
+    }
+
     function findPr(sets, type) {
       if (sets.length === 0) return null;
-      const isBetterWeight = (a, b) => (type === 'assisted' ? a < b : a > b);
       let best = null;
+      let bestScore = null;
 
       for (const s of sets) {
-        if (type === 'time_based') {
-          if (s.duration_seconds === null) continue;
-          const beats = !best
-            || s.duration_seconds > best.duration_seconds
-            || (s.duration_seconds === best.duration_seconds && (
-                  tagQuality(s.quick_tag) > tagQuality(best.quick_tag)
-                  || (tagQuality(s.quick_tag) === tagQuality(best.quick_tag)
-                      && new Date(s.sessions.start_time) >= new Date(best.sessions.start_time))
-                ));
-          if (beats) best = s;
-        } else {
-          if (s.weight === null || s.reps === null) continue;
-          const w = Number(s.weight);
-          if (!best) { best = s; continue; }
-          const bw = Number(best.weight);
-          const beats = isBetterWeight(w, bw)
-            || (w === bw && s.reps > best.reps)
-            || (w === bw && s.reps === best.reps && (
-                  tagQuality(s.quick_tag) > tagQuality(best.quick_tag)
-                  || (tagQuality(s.quick_tag) === tagQuality(best.quick_tag)
-                      && new Date(s.sessions.start_time) >= new Date(best.sessions.start_time))
-                ));
-          if (beats) best = s;
-        }
+        const score = prScore(s, type);
+        if (score === null) continue;
+
+        const cmp = best ? compareScores(score, bestScore) : 1;
+        const beats = cmp > 0
+          || (cmp === 0 && (
+                tagQuality(s.quick_tag) > tagQuality(best.quick_tag)
+                || (tagQuality(s.quick_tag) === tagQuality(best.quick_tag)
+                    && new Date(s.sessions.start_time) >= new Date(best.sessions.start_time))
+              ));
+        if (beats) { best = s; bestScore = score; }
       }
+
       if (!best) return null;
+      // Always shows the real set. The estimate ranks; it is never displayed.
       return { description: describeSet(best, type), date: best.sessions.start_time };
     }
 
