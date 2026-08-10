@@ -2,7 +2,7 @@
   "name": "Volume — Workout Tracker",
   "short_name": "Volume",
   "description": "Personal workout tracker.",
-  "start_url": "./index.html",
+  "start_url": "./dashboard.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
