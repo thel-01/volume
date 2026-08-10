@@ -39,6 +39,12 @@
     .index-delta.down { color: var(--danger); }
     /* Starting a workout is the primary action, so it gets the wider half. */
     .grow-2 { flex: 2; }
+    .weight-sub {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
@@ -103,8 +109,9 @@
       <p class="section-label" style="margin-top:28px;">Bodyweight</p>
       <div class="index-headline">
         <span class="index-value" id="weight-value">—</span>
-        <span class="index-delta" id="weight-delta"></span>
+        <span class="index-delta">latest reading</span>
       </div>
+      <p class="weight-sub" id="weight-sub"></p>
       <div class="chart-card" id="weight-card" hidden>
         <svg id="weight-chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
       </div>
@@ -151,7 +158,7 @@
     const emptyCategories = document.getElementById('empty-categories');
 
     const weightValue = document.getElementById('weight-value');
-    const weightDelta = document.getElementById('weight-delta');
+    const weightSub = document.getElementById('weight-sub');
     const weightCard = document.getElementById('weight-card');
     const weightChart = document.getElementById('weight-chart');
     const weightEmpty = document.getElementById('weight-empty');
@@ -313,7 +320,7 @@
       // if its table isn't there yet, the rest of the dashboard carries on.
       if (error || !data || data.length === 0) {
         weightValue.textContent = '—';
-        weightDelta.textContent = '';
+        weightSub.textContent = '';
         weightCard.hidden = true;
         weightEmpty.hidden = false;
         return;
@@ -327,18 +334,19 @@
       const now = Date.now();
       const avgNow = windowMean(data, now, AVERAGE_DAYS);
       const avgThen = windowMean(data, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
-      if (avgNow !== null && avgThen !== null) {
+      // Says out loud that the comparison is between averages, not between
+      // the big number and something else. Left uncoloured on purpose:
+      // gaining weight isn't inherently bad.
+      if (avgNow === null) {
+        weightSub.textContent = '';
+      } else if (avgThen === null) {
+        weightSub.textContent = `${AVERAGE_DAYS}-day average: ${avgNow.toFixed(1)} kg`;
+      } else {
         const diff = avgNow - avgThen;
         const sign = diff >= 0 ? '+' : '−';
-        weightDelta.textContent = Math.abs(diff) < 0.05
-          ? `steady vs ${COMPARE_DAYS} days ago`
-          : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
-        // Gaining isn't inherently bad, so this stays neutral rather than
-        // colouring one direction green and the other red.
-        weightDelta.className = 'index-delta';
-      } else {
-        weightDelta.textContent = '';
-        weightDelta.className = 'index-delta';
+        const change = Math.abs(diff) < 0.05 ? 'steady' : `${sign}${Math.abs(diff).toFixed(1)} kg`;
+        weightSub.textContent =
+          `${AVERAGE_DAYS}-day average: ${avgNow.toFixed(1)} kg · ${change} vs ${COMPARE_DAYS} days ago`;
       }
 
       const readings = data.map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
@@ -352,7 +360,9 @@
       renderLineChart(weightChart, {
         series: [
           { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
-          { key: 'raw', points: readings, color: '#9aa6b8', width: '1.2', dots: true, tappable: true },
+          // Scatter: joining noisy readings invents a shape and steals
+          // attention from the average, which is the real signal.
+          { key: 'raw', points: readings, color: '#9aa6b8', line: false, dots: true, tappable: true },
         ],
         formatValue: (v) => `${Math.round(v)} kg`,
         formatDate: formatCompactDate,

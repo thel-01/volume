@@ -80,8 +80,9 @@ function text(x, y, anchor, size, fill, content) {
  *
  * @param {SVGElement} svg
  * @param {object}   opts
- * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, tappable }]
+ * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, tappable, line }]
  *                                      Axes span every series; only `tappable` ones get tooltips.
+ *                                      `line: false` draws the points alone, with no segments joining them.
  * @param {Function} opts.formatValue   (value) => y-axis label
  * @param {Function} opts.formatDate    (iso, showYear) => x-axis label
  * @param {Function} opts.tooltipLines  (point) => [primary, secondary]
@@ -147,6 +148,11 @@ export function renderLineChart(svg, opts) {
 
   // Lines first, so dots and tooltips always sit on top.
   for (const s of drawn) {
+    // `line: false` plots the points as a scatter. Joining up noisy readings
+    // draws a shape that isn't really there — the connecting segments are an
+    // invention, and they compete with whatever smoothed line is the actual
+    // signal.
+    if (s.line === false) continue;
     if (s.points.length < 2) continue;
     const d = s.points
       .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(new Date(p.date).getTime())},${yScale(p.value)}`)

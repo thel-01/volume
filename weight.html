@@ -35,8 +35,14 @@
       font-variant-numeric: tabular-nums;
     }
     .headline-delta { font-size: 14px; color: var(--muted); }
-    .headline-delta.up { color: var(--danger); }
-    .headline-delta.down { color: var(--ok); }
+    /* Deliberately uncoloured: gaining weight isn't inherently bad, so
+       painting one direction green and the other red would editorialise. */
+    .headline-sub {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -48,6 +54,8 @@
     }
     .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+    /* The readings are drawn as points now, so their key is a point too. */
+    .legend i.dot { width: 7px; height: 7px; border-radius: 50%; }
     .entry-weight {
       font-variant-numeric: tabular-nums;
       font-weight: 600;
@@ -72,8 +80,9 @@
 
       <div class="headline">
         <span class="headline-value" id="current-weight"></span>
-        <span class="headline-delta" id="trend-delta"></span>
+        <span class="headline-delta">latest reading</span>
       </div>
+      <p class="headline-sub" id="trend-line"></p>
 
       <div class="chart-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
@@ -112,8 +121,10 @@
         <div id="add-status" class="status" role="status" aria-live="polite" hidden></div>
       </div>
 
-      <p class="section-label" style="margin-top:28px;">All entries</p>
-      <ul id="entry-list" class="list"></ul>
+      <!-- Bucket headings ("This week", "Earlier", "2025") do the labelling
+           here, exactly as in the session history — a second "All entries"
+           heading above them would just stack two labels. -->
+      <div id="entry-list" style="margin-top:28px;"></div>
       <p id="empty-entries" class="empty-state" hidden>No weight logged yet.</p>
 
     </div>
@@ -139,7 +150,7 @@
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
     const currentWeight = document.getElementById('current-weight');
-    const trendDelta = document.getElementById('trend-delta');
+    const trendLine = document.getElementById('trend-line');
     const chart = document.getElementById('chart');
     const legend = document.getElementById('legend');
     const addToggle = document.getElementById('add-toggle');
@@ -181,6 +192,58 @@
       // anyway would be presenting a guess as a fact.
       if (!entry.time_known) return date;
       return `${date}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    }
+
+    /** Midnight local on the Monday of the week containing `date`. */
+    function mondayOf(date) {
+      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const day = d.getDay(); // 0 = Sunday
+      d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+      return d;
+    }
+
+    /** Same buckets the session history uses, so the two lists read alike. */
+    function bucketEntries(list) {
+      const now = new Date();
+      const thisMonday = mondayOf(now);
+      const thisWeekEnd = new Date(thisMonday);
+      thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+      const lastMonday = new Date(thisMonday);
+      lastMonday.setDate(lastMonday.getDate() - 7);
+      const thisYear = now.getFullYear();
+
+      const labelFor = (e) => {
+        const d = new Date(e.measured_at);
+        if (d >= thisMonday && d < thisWeekEnd) return 'This week';
+        if (d >= lastMonday && d < thisMonday) return 'Last week';
+        if (d.getFullYear() === thisYear) return 'Earlier';
+        return String(d.getFullYear());
+      };
+
+      const buckets = [];
+      const byLabel = new Map();
+      for (const e of list) {
+        const label = labelFor(e);
+        if (!byLabel.has(label)) {
+          const bucket = { label, entries: [] };
+          byLabel.set(label, bucket);
+          buckets.push(bucket);
+        }
+        byLabel.get(label).entries.push(e);
+      }
+      return buckets;
+    }
+
+    /** Inside this/last week the heading already says which week, so drop the date. */
+    function formatEntryInBucket(entry, bucketLabel) {
+      const d = new Date(entry.measured_at);
+      let when;
+      if (bucketLabel === 'This week') when = d.toLocaleDateString('en-US', { weekday: 'long' });
+      else if (bucketLabel === 'Last week') when = `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
+      else when = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+      if (!entry.time_known) return when;
+      return `${when}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
     }
     function formatCompactDate(iso, showYear) {
       const d = new Date(iso);
@@ -233,7 +296,7 @@
     function render() {
       if (entries.length === 0) {
         currentWeight.textContent = '—';
-        trendDelta.textContent = '';
+        trendLine.textContent = '';
         chart.innerHTML = '';
         legend.hidden = true;
         entryList.hidden = true;
@@ -250,19 +313,24 @@
       // Compare like with like: the current 7-day mean against the 7-day mean
       // as it stood a fortnight ago. Comparing single readings would mostly
       // measure what you ate yesterday.
+      // Spelled out, because the big number is a single reading while the
+      // comparison is between averages — without saying so the two look like
+      // they should add up, and they don't.
       const now = Date.now();
       const avgNow = windowMean(ascending, now, AVERAGE_DAYS);
       const avgThen = windowMean(ascending, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
-      if (avgNow !== null && avgThen !== null) {
+      if (avgNow === null) {
+        trendLine.textContent = '';
+      } else if (avgThen === null) {
+        trendLine.textContent = `${AVERAGE_DAYS}-day average: ${fmtKg(avgNow)} kg`;
+      } else {
         const diff = avgNow - avgThen;
         const sign = diff >= 0 ? '+' : '−';
-        trendDelta.textContent = Math.abs(diff) < 0.05
-          ? `steady vs ${COMPARE_DAYS} days ago`
-          : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
-        trendDelta.className = `headline-delta ${diff > 0.05 ? 'up' : diff < -0.05 ? 'down' : ''}`;
-      } else {
-        trendDelta.textContent = '';
-        trendDelta.className = 'headline-delta';
+        const change = Math.abs(diff) < 0.05
+          ? 'steady'
+          : `${sign}${Math.abs(diff).toFixed(1)} kg`;
+        trendLine.textContent =
+          `${AVERAGE_DAYS}-day average: ${fmtKg(avgNow)} kg · ${change} vs ${COMPARE_DAYS} days ago`;
       }
 
       const readings = ascending.map((e) => ({
@@ -273,7 +341,10 @@
       renderLineChart(chart, {
         series: [
           { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
-          { key: 'raw', points: readings, color: '#9aa6b8', width: '1.2', dots: true, tappable: true },
+          // Scatter, not a line: joining the raw readings drew a jagged shape
+          // that isn't real and pulled the eye away from the average, which is
+          // the honest interpolation between them.
+          { key: 'raw', points: readings, color: '#9aa6b8', line: false, dots: true, tappable: true },
         ],
         formatValue: (v) => `${Math.round(v)} kg`,
         formatDate: formatCompactDate,
@@ -283,7 +354,7 @@
 
       legend.innerHTML = `
         <span><i style="background:var(--accent)"></i>${AVERAGE_DAYS}-day average</span>
-        <span><i style="background:#9aa6b8"></i>Reading</span>`;
+        <span><i class="dot" style="background:#9aa6b8"></i>Reading</span>`;
       legend.hidden = average.length === 0;
 
       renderEntries();
@@ -291,12 +362,24 @@
 
     function renderEntries() {
       entryList.innerHTML = '';
-      for (const entry of entries) {
-        entryList.appendChild(entry.id === editingId ? buildEditRow(entry) : buildEntryRow(entry));
+      for (const bucket of bucketEntries(entries)) {
+        const heading = document.createElement('p');
+        heading.className = 'section-label';
+        heading.textContent = bucket.label;
+        entryList.appendChild(heading);
+
+        const ul = document.createElement('ul');
+        ul.className = 'list';
+        for (const entry of bucket.entries) {
+          ul.appendChild(entry.id === editingId
+            ? buildEditRow(entry)
+            : buildEntryRow(entry, bucket.label));
+        }
+        entryList.appendChild(ul);
       }
     }
 
-    function buildEntryRow(entry) {
+    function buildEntryRow(entry, bucketLabel) {
       const li = document.createElement('li');
       li.className = 'list-item';
       li.tabIndex = 0;
@@ -315,7 +398,7 @@
       body.appendChild(name);
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      meta.textContent = formatEntryWhen(entry);
+      meta.textContent = formatEntryInBucket(entry, bucketLabel);
       body.appendChild(meta);
       li.appendChild(body);
 
