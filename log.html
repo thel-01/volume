@@ -31,23 +31,13 @@
 
       <p class="section-label">Session type</p>
       <div id="category-chips" class="chips" style="margin-bottom:8px;"></div>
-      <button id="category-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Type your own</button>
-      <div class="field" id="category-field" hidden>
-        <label for="category-input">Custom session type</label>
-        <input id="category-input" type="text" autocomplete="off" autocapitalize="words"
-               placeholder="e.g. upper body, full body">
-      </div>
+      <p id="no-category-types" class="muted" style="margin:-4px 0 16px;" hidden>
+        No session types yet — add some in Settings, or pick Other for now.
+      </p>
 
-      <button id="start-btn" type="submit">Start workout</button>
+      <button id="start-btn" type="submit" disabled>Start workout</button>
 
       <div id="start-status" class="status" role="status" aria-live="polite" hidden></div>
-
-      <div class="danger-zone">
-        <button id="export-btn" class="secondary" type="button">Export all data (JSON)</button>
-        <p class="muted" style="margin-top:8px;">
-          Downloads every session, exercise and set as one file. Keep it somewhere safe.
-        </p>
-      </div>
     </section>
 
     <!-- =================== SESSION VIEW (logging) =================== -->
@@ -85,8 +75,13 @@
 
       <div id="picker-list"></div>
 
-      <!-- Appears when the typed name doesn't match anything: create it without
-           leaving the workout, per the CLAUDE.md log-screen exception. -->
+      <!-- A prompt, not an auto-opened form: typing something new asks
+           first rather than dropping you straight into a 3-field form. -->
+      <p id="picker-no-match-text" class="muted" hidden style="margin:8px 0 10px;"></p>
+      <button id="picker-create-toggle" type="button" class="secondary" hidden style="margin-bottom:12px;"></button>
+
+      <!-- Revealed by the toggle above: create the exercise without leaving
+           the workout, per the CLAUDE.md log-screen exception. -->
       <div id="picker-create" hidden>
         <p class="section-label">Create new</p>
         <div class="field">
@@ -159,9 +154,6 @@
       { value: 'failure', label: 'Failure' },
     ];
 
-    // Always offered as chips, on top of whatever you've typed before.
-    const DEFAULT_CATEGORIES = ['Push', 'Pull', 'Legs'];
-
     // ------------------------------------------------------------------
     // Element refs
     // ------------------------------------------------------------------
@@ -173,12 +165,9 @@
     const topStatus = document.getElementById('top-status');
 
     const categoryChips = document.getElementById('category-chips');
-    const categoryToggle = document.getElementById('category-toggle');
-    const categoryField = document.getElementById('category-field');
-    const categoryInput = document.getElementById('category-input');
+    const noCategoryTypes = document.getElementById('no-category-types');
     const startBtn = document.getElementById('start-btn');
     const startStatus = document.getElementById('start-status');
-    const exportBtn = document.getElementById('export-btn');
 
     const sessionCategory = document.getElementById('session-category');
     const sessionClock = document.getElementById('session-clock');
@@ -190,6 +179,8 @@
     const pickerBack = document.getElementById('picker-back');
     const pickerSearch = document.getElementById('picker-search');
     const pickerList = document.getElementById('picker-list');
+    const pickerNoMatchText = document.getElementById('picker-no-match-text');
+    const pickerCreateToggle = document.getElementById('picker-create-toggle');
     const pickerCreate = document.getElementById('picker-create');
     const newExName = document.getElementById('new-ex-name');
     const newExType = document.getElementById('new-ex-type');
@@ -215,7 +206,7 @@
     let allExercises = [];       // live exercises, for the picker
     let allPatterns = [];        // live movement patterns, for inline create
     let patternsById = new Map();
-    let pastCategories = [];
+    let sessionTypeNames = [];   // your Settings-managed session_types, by name
     let lastCategoryExercises = []; // exercises logged last time this session's category ran
 
     // One entry per exercise in this session, in the order they were added.
@@ -536,49 +527,36 @@
 
     // ------------------------------------------------------------------
     // Start view
+    //
+    // Chips come from Settings' managed session_types list, plus "Other" —
+    // always last, never stored as a row, always available even with an
+    // empty list so a fresh account isn't blocked from logging anything.
+    // Picking one is required: no more free-typed categories that could
+    // drift into a different casing from everything before them.
     // ------------------------------------------------------------------
+    const OTHER_CATEGORY = 'Other';
+
     function renderCategoryChips() {
       categoryChips.innerHTML = '';
-      if (pastCategories.length === 0) {
-        categoryChips.hidden = true;
-        return;
-      }
-      categoryChips.hidden = false;
-      for (const cat of pastCategories) {
+      noCategoryTypes.hidden = sessionTypeNames.length > 0;
+      const options = [...sessionTypeNames, OTHER_CATEGORY];
+      for (const cat of options) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'chip' + (selectedCategory === cat ? ' selected' : '');
         chip.textContent = cat;
         chip.addEventListener('click', () => {
-          // Tap again to clear, so a mis-tap isn't sticky.
-          selectedCategory = selectedCategory === cat ? null : cat;
-          if (selectedCategory) categoryInput.value = '';
+          selectedCategory = cat;
           renderCategoryChips();
+          startBtn.disabled = !selectedCategory;
         });
         categoryChips.appendChild(chip);
       }
     }
 
-    categoryInput.addEventListener('input', () => {
-      if (categoryInput.value.trim()) {
-        selectedCategory = null;
-        renderCategoryChips();
-      }
-    });
-    categoryToggle.addEventListener('click', () => {
-      categoryField.hidden = !categoryField.hidden;
-      categoryToggle.textContent = categoryField.hidden ? '+ Type your own' : '− Hide';
-      if (!categoryField.hidden) categoryInput.focus();
-    });
-
     startBtn.addEventListener('click', async () => {
       hide(startStatus);
-      // Typing "push" by hand when every prior session says "Push" must not
-      // create a second, differently-cased category — it'd split "time since
-      // last session" into two rows that each think the other never happened.
-      const typed = categoryInput.value.trim();
-      const known = typed && pastCategories.find((c) => c.toLowerCase() === typed.toLowerCase());
-      const category = (known || typed || selectedCategory || '').trim() || null;
+      const category = selectedCategory;
 
       startBtn.disabled = true;
       startBtn.textContent = 'Starting…';
@@ -1194,17 +1172,34 @@
         renderPickerDefault(alreadyAdded);
       }
 
-      // Offer inline creation whenever there's no exact name match.
+      // A prompt, not an auto-opened form — every new search collapses the
+      // form back down and asks again rather than assuming you still want
+      // to create whatever the previous keystroke suggested.
+      pickerCreate.hidden = true;
       const exactExists = allExercises.some(
         (ex) => ex.name.trim().toLowerCase() === query
       );
       if (query && !exactExists) {
-        pickerCreate.hidden = false;
-        newExName.value = pickerSearch.value.trim();
+        const typed = pickerSearch.value.trim();
+        const hasPartialMatches = allExercises.some(
+          (ex) => !alreadyAdded.has(ex.id) && ex.name.toLowerCase().includes(query)
+        );
+        pickerNoMatchText.hidden = hasPartialMatches;
+        pickerNoMatchText.textContent = `No exercises match "${typed}".`;
+        pickerCreateToggle.hidden = false;
+        pickerCreateToggle.textContent = `+ Create "${typed}"`;
+        newExName.value = typed;
       } else {
-        pickerCreate.hidden = true;
+        pickerNoMatchText.hidden = true;
+        pickerCreateToggle.hidden = true;
       }
     }
+
+    pickerCreateToggle.addEventListener('click', () => {
+      pickerCreateToggle.hidden = true;
+      pickerNoMatchText.hidden = true;
+      pickerCreate.hidden = false;
+    });
 
     function renderPickerSearchResults(query, alreadyAdded) {
       const matches = allExercises.filter(
@@ -1499,9 +1494,7 @@
       session = null;
       entries = [];
       selectedCategory = null;
-      categoryInput.value = '';
-      categoryField.hidden = true;
-      categoryToggle.textContent = '+ Type your own';
+      startBtn.disabled = true;
       await loadCategories();
       renderCategoryChips();
       showView('start');
@@ -1573,73 +1566,16 @@
     });
 
     // ------------------------------------------------------------------
-    // Export — full backup of every table
-    // ------------------------------------------------------------------
-    exportBtn.addEventListener('click', async () => {
-      hide(startStatus);
-      exportBtn.disabled = true;
-      exportBtn.textContent = 'Preparing…';
-
-      const [sessions, patterns, exercises, sessionExercises, sets] = await Promise.all([
-        supabase.from('sessions').select('*').order('start_time'),
-        supabase.from('movement_patterns').select('*').order('name'),
-        supabase.from('exercises').select('*').order('name'),
-        supabase.from('session_exercises').select('*').order('created_at'),
-        supabase.from('sets').select('*').order('created_at'),
-      ]);
-
-      exportBtn.disabled = false;
-      exportBtn.textContent = 'Export all data (JSON)';
-
-      const failed = [sessions, patterns, exercises, sessionExercises, sets].find((r) => r.error);
-      if (failed) {
-        show(startStatus, 'error', `Export failed: ${failed.error.message}`);
-        return;
-      }
-
-      const payload = {
-        exported_at: new Date().toISOString(),
-        app: 'volume',
-        sessions: sessions.data,
-        movement_patterns: patterns.data,
-        exercises: exercises.data,
-        session_exercises: sessionExercises.data,
-        sets: sets.data,
-      };
-
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `volume-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      show(startStatus, 'ok', `Exported ${sets.data.length} sets across ${sessions.data.length} sessions.`);
-    });
-
-    // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
     async function loadCategories() {
-      // Always available regardless of history, so day one isn't a blank text box.
-      const seen = [...DEFAULT_CATEGORIES];
       const { data, error } = await supabase
-        .from('sessions')
-        .select('category')
-        .is('deleted_at', null)
-        .not('category', 'is', null)
-        .order('start_time', { ascending: false })
-        .limit(200);
-      if (!error) {
-        for (const row of data) {
-          const c = (row.category || '').trim();
-          if (c && !seen.some((s) => s.toLowerCase() === c.toLowerCase())) seen.push(c);
-        }
-      }
-      pastCategories = seen.slice(0, 12);
+        .from('session_types')
+        .select('name')
+        .order('created_at');
+      // A load failure here shouldn't block starting a workout — Other still
+      // works. It just means the chip row is short until the next reload.
+      sessionTypeNames = error ? [] : data.map((row) => row.name);
     }
 
     /** Rebuilds in-session state after a reload / phone lock. */

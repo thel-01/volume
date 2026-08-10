@@ -26,7 +26,7 @@
     <section id="patterns-view">
       <div class="page-header">
         <a href="./settings.html" class="icon-link" aria-label="Back">←</a>
-        <h1>Exercises</h1>
+        <h1>Movement Patterns</h1>
         <button id="new-pattern-btn" class="icon-btn" type="button" aria-label="New movement pattern">+</button>
       </div>
 
@@ -49,6 +49,9 @@
         <h1 id="detail-title">Pattern name</h1>
         <button id="detail-edit-btn" class="icon-link" type="button" style="width:auto;padding:0 12px;font-size:14px;">Edit</button>
       </div>
+      <!-- The name alone reads just like an exercise's own detail view —
+           this is the one thing that tells them apart. -->
+      <p class="subtitle">Movement pattern</p>
 
       <button id="add-exercise-btn" type="button" style="margin-bottom:16px;">+ Add exercise</button>
 
@@ -71,20 +74,18 @@
                  placeholder="e.g. Horizontal Press" required>
         </div>
 
-        <p class="section-label">Session type (optional)</p>
+        <p class="section-label">Session type</p>
         <div id="pattern-category-chips" class="chips" style="margin-bottom:8px;"></div>
-        <button id="pattern-category-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Type your own</button>
-        <div class="field" id="pattern-category-field" hidden>
-          <label for="pattern-category-input">Custom session type</label>
-          <input id="pattern-category-input" type="text" autocomplete="off" autocapitalize="words"
-                 placeholder="e.g. push, pull, legs">
-        </div>
-        <p class="muted" style="margin:-8px 0 16px;">
+        <p id="pattern-category-orphan" class="muted" style="margin:-4px 0 8px;" hidden></p>
+        <p id="pattern-no-category-types" class="muted" style="margin:-4px 0 8px;" hidden>
+          No session types yet — add some in Settings, or pick Other for now.
+        </p>
+        <p class="muted" style="margin:0 0 16px;">
           When you start a workout of this type on the Log screen, exercises in this
           pattern show up first.
         </p>
 
-        <button id="pattern-save-btn" type="submit">Save</button>
+        <button id="pattern-save-btn" type="submit" disabled>Save</button>
       </form>
 
       <div id="pattern-form-status" class="status" role="status" aria-live="polite" hidden></div>
@@ -117,8 +118,7 @@
 
         <div class="field">
           <label for="ex-type">Type</label>
-          <select id="ex-type" required>
-            <option value="" disabled selected>Select type…</option>
+          <select id="ex-type">
             <option value="weight_reps">Standard</option>
             <option value="time_based">Time-based</option>
             <option value="assisted">Assisted</option>
@@ -173,9 +173,6 @@
       assisted: 'Assisted',
     };
 
-    // Always offered as chips on the pattern form, same defaults as the Log screen.
-    const DEFAULT_CATEGORIES = ['Push', 'Pull', 'Legs'];
-
     // ------------------------------------------------------------------
     // Element refs
     // ------------------------------------------------------------------
@@ -204,9 +201,8 @@
     const patternForm = document.getElementById('pattern-form');
     const patternNameInput = document.getElementById('pattern-name');
     const patternCategoryChips = document.getElementById('pattern-category-chips');
-    const patternCategoryToggle = document.getElementById('pattern-category-toggle');
-    const patternCategoryField = document.getElementById('pattern-category-field');
-    const patternCategoryInput = document.getElementById('pattern-category-input');
+    const patternCategoryOrphan = document.getElementById('pattern-category-orphan');
+    const patternNoCategoryTypes = document.getElementById('pattern-no-category-types');
     const patternSaveBtn = document.getElementById('pattern-save-btn');
     const patternFormStatus = document.getElementById('pattern-form-status');
     const patternDeleteZone = document.getElementById('pattern-delete-zone');
@@ -241,7 +237,7 @@
     let user = null;
     let livePatterns = [];
     let liveExercises = [];
-    let pastCategories = [];       // for the pattern-form chips: defaults + previously used
+    let sessionTypeNames = [];     // your Settings-managed session_types, by name
     let selectedPatternCategory = null;
 
     // undefined = patterns-view is active; null = viewing "Uncategorized";
@@ -298,23 +294,13 @@
       return liveExercises.filter((e) => e.movement_pattern_id === patternId).length;
     }
 
-    /** Session types for the pattern-form chips: the defaults plus whatever you've actually used. */
+    /** Session types for the pattern-form chips — your Settings-managed list. */
     async function loadCategories() {
-      const seen = [...DEFAULT_CATEGORIES];
       const { data, error } = await supabase
-        .from('sessions')
-        .select('category')
-        .is('deleted_at', null)
-        .not('category', 'is', null)
-        .order('start_time', { ascending: false })
-        .limit(200);
-      if (!error) {
-        for (const row of data) {
-          const c = (row.category || '').trim();
-          if (c && !seen.some((s) => s.toLowerCase() === c.toLowerCase())) seen.push(c);
-        }
-      }
-      pastCategories = seen.slice(0, 12);
+        .from('session_types')
+        .select('name')
+        .order('created_at');
+      sessionTypeNames = error ? [] : data.map((row) => row.name);
     }
 
     // ------------------------------------------------------------------
@@ -459,42 +445,52 @@
     // ------------------------------------------------------------------
     // Pattern form: create / rename / delete
     // ------------------------------------------------------------------
-    function renderPatternCategoryChips() {
+    const OTHER_CATEGORY = 'Other';
+
+    // Chips are your Settings-managed session_types plus the built-in Other —
+    // nothing else. `orphanCategory` is a pattern's already-stored value that
+    // no longer matches any current chip (e.g. it was tagged "Push" before
+    // that type existed here, or after it was removed from Settings) — shown
+    // as a note rather than silently dropped, since the stored text itself
+    // is untouched either way.
+    function renderPatternCategoryChips(orphanCategory) {
       patternCategoryChips.innerHTML = '';
-      for (const cat of pastCategories) {
+      patternNoCategoryTypes.hidden = sessionTypeNames.length > 0;
+
+      const options = [...sessionTypeNames, OTHER_CATEGORY];
+      for (const cat of options) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'chip' + (selectedPatternCategory === cat ? ' selected' : '');
         chip.textContent = cat;
         chip.addEventListener('click', () => {
-          // Tap again to clear, so a mis-tap isn't sticky.
-          selectedPatternCategory = selectedPatternCategory === cat ? null : cat;
-          if (selectedPatternCategory) patternCategoryInput.value = '';
+          selectedPatternCategory = cat;
           renderPatternCategoryChips();
+          updatePatternSaveEnabled();
         });
         patternCategoryChips.appendChild(chip);
       }
-    }
-    patternCategoryInput.addEventListener('input', () => {
-      if (patternCategoryInput.value.trim()) {
-        selectedPatternCategory = null;
-        renderPatternCategoryChips();
+
+      if (orphanCategory) {
+        patternCategoryOrphan.hidden = false;
+        patternCategoryOrphan.textContent =
+          `Currently tagged "${orphanCategory}", which isn't in your session types. Pick one below to change it.`;
+      } else {
+        patternCategoryOrphan.hidden = true;
       }
-    });
-    patternCategoryToggle.addEventListener('click', () => {
-      patternCategoryField.hidden = !patternCategoryField.hidden;
-      patternCategoryToggle.textContent = patternCategoryField.hidden ? '+ Type your own' : '− Hide';
-      if (!patternCategoryField.hidden) patternCategoryInput.focus();
-    });
+    }
+
+    function updatePatternSaveEnabled() {
+      patternSaveBtn.disabled = !selectedPatternCategory;
+    }
 
     function openCreatePatternForm() {
       editingPatternId = null;
       patternFormTitle.textContent = 'New movement pattern';
       patternForm.reset();
       selectedPatternCategory = null;
-      patternCategoryField.hidden = true;
-      patternCategoryToggle.textContent = '+ Type your own';
       renderPatternCategoryChips();
+      updatePatternSaveEnabled();
       patternDeleteZone.hidden = true;
       patternDeleteConfirm.hidden = true;
       patternDeleteBtn.hidden = false;
@@ -508,18 +504,17 @@
       patternFormTitle.textContent = 'Rename movement pattern';
       patternForm.reset();
       patternNameInput.value = pattern.name;
-      // Pre-select the existing category: as a chip if it's one of the known
-      // ones, otherwise fall back to the free-text field so nothing's lost.
+      // Pre-select the existing category if it's still a live chip; otherwise
+      // leave nothing selected and surface it as an orphaned value instead of
+      // silently discarding it.
       const existing = pattern.category || null;
-      const matchesChip = existing && pastCategories.some((c) => c.toLowerCase() === existing.toLowerCase());
-      selectedPatternCategory = matchesChip ? pastCategories.find((c) => c.toLowerCase() === existing.toLowerCase()) : null;
-      const customValue = existing && !matchesChip ? existing : '';
-      patternCategoryInput.value = customValue;
-      // Only reveal the free-text field if it's actually holding something
-      // you'd otherwise lose sight of.
-      patternCategoryField.hidden = !customValue;
-      patternCategoryToggle.textContent = customValue ? '− Hide' : '+ Type your own';
-      renderPatternCategoryChips();
+      const knownOptions = [...sessionTypeNames, OTHER_CATEGORY];
+      const matchesChip = existing && knownOptions.some((c) => c.toLowerCase() === existing.toLowerCase());
+      selectedPatternCategory = matchesChip
+        ? knownOptions.find((c) => c.toLowerCase() === existing.toLowerCase())
+        : null;
+      renderPatternCategoryChips(!matchesChip ? existing : null);
+      updatePatternSaveEnabled();
       hide(patternFormStatus);
       patternDeleteConfirm.hidden = true;
       patternDeleteBtn.hidden = false;
@@ -564,12 +559,11 @@
         show(patternFormStatus, 'error', 'Enter a name for this movement pattern.');
         return;
       }
-      // Same reasoning as log.html's session category: typing "push" by hand
-      // must not create a second, differently-cased category from "Push".
-      const typedCategory = patternCategoryInput.value.trim();
-      const knownCategory = typedCategory
-        && pastCategories.find((c) => c.toLowerCase() === typedCategory.toLowerCase());
-      const category = (knownCategory || typedCategory || selectedPatternCategory || null);
+      if (!selectedPatternCategory) {
+        show(patternFormStatus, 'error', 'Pick a session type — Other if nothing else fits.');
+        return;
+      }
+      const category = selectedPatternCategory;
 
       patternSaveBtn.disabled = true;
       patternSaveBtn.textContent = 'Saving…';
@@ -691,11 +685,11 @@
       exNotesToggle.textContent = '+ Add notes';
       exTypeSelect.disabled = false;
       exTypeSelect.innerHTML = `
-        <option value="" disabled selected>Select type…</option>
         <option value="weight_reps">Standard</option>
         <option value="time_based">Time-based</option>
         <option value="assisted">Assisted</option>
       `;
+      exTypeSelect.value = 'weight_reps';
       exTypeLockedNote.hidden = true;
       populatePatternDropdown(presetPatternId);
       exerciseDeleteZone.hidden = true;

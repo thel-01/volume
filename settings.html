@@ -38,6 +38,12 @@
           </div>
           <span class="list-item-chevron">›</span>
         </li>
+        <li class="list-item" id="session-types-link" tabindex="0" role="button">
+          <div class="list-item-body">
+            <div class="list-item-name">Session types</div>
+          </div>
+          <span class="list-item-chevron">›</span>
+        </li>
         <li class="list-item" id="recently-deleted-link" tabindex="0" role="button">
           <div class="list-item-body">
             <div class="list-item-name">Recently Deleted</div>
@@ -59,6 +65,42 @@
       </div>
       <div style="height:12px;"></div>
       <button id="logout" class="secondary" type="button">Log out</button>
+
+      <p class="section-label" style="margin-top:28px;">Backup</p>
+      <button id="export-btn" class="secondary" type="button">Export all data (JSON)</button>
+      <p class="muted" style="margin-top:8px;">
+        Downloads every session, exercise and set as one file. Keep it somewhere safe.
+      </p>
+      <div id="export-status" class="status" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <!-- =================== SESSION TYPES =================== -->
+    <section id="session-types-view" hidden>
+      <div class="page-header">
+        <button id="st-back" class="icon-link" type="button" aria-label="Back to settings">←</button>
+        <h1>Session Types</h1>
+        <span class="icon-link" style="visibility:hidden">←</span>
+      </div>
+
+      <p class="muted" style="margin:-8px 0 20px;">
+        These show up when starting a workout and when assigning a movement
+        pattern to a split. "Other" is always available too, for anything
+        that doesn't fit — a deadhang, a PT exercise.
+      </p>
+
+      <ul id="session-type-list" class="list"></ul>
+      <p id="empty-session-types" class="empty-state" hidden>No session types yet — add one below.</p>
+
+      <button id="st-add-toggle" type="button" class="link-button" style="display:block;margin-top:16px;">+ Add session type</button>
+      <div id="st-add-panel" hidden style="margin-top:12px;">
+        <div id="st-suggestion-chips" class="chips" style="margin-bottom:12px;"></div>
+        <div class="field">
+          <label for="st-custom-input">Custom</label>
+          <input id="st-custom-input" type="text" autocomplete="off" autocapitalize="words" placeholder="e.g. Arms, PT">
+        </div>
+        <button id="st-custom-add-btn" type="button" class="secondary">Add</button>
+      </div>
+      <div id="st-status" class="status" role="status" aria-live="polite" hidden></div>
     </section>
 
     <!-- =================== RECENTLY DELETED =================== -->
@@ -99,6 +141,18 @@
     const recentlyDeletedLink = document.getElementById('recently-deleted-link');
     const rdBack = document.getElementById('rd-back');
 
+    const sessionTypesView = document.getElementById('session-types-view');
+    const sessionTypesLink = document.getElementById('session-types-link');
+    const stBack = document.getElementById('st-back');
+    const sessionTypeListEl = document.getElementById('session-type-list');
+    const emptySessionTypes = document.getElementById('empty-session-types');
+    const stAddToggle = document.getElementById('st-add-toggle');
+    const stAddPanel = document.getElementById('st-add-panel');
+    const stSuggestionChips = document.getElementById('st-suggestion-chips');
+    const stCustomInput = document.getElementById('st-custom-input');
+    const stCustomAddBtn = document.getElementById('st-custom-add-btn');
+    const stStatus = document.getElementById('st-status');
+
     const topStatus = document.getElementById('top-status');
     const loading = document.getElementById('loading');
     const lists = document.getElementById('lists');
@@ -118,6 +172,14 @@
     let deletedExercises = [];
     let deletedSessions = [];
     let loaded = false;
+
+    let sessionTypes = [];
+    let sessionTypesLoaded = false;
+
+    // Offered as tap-to-add shortcuts in Settings only — never stored, never
+    // shown in the logger or pattern editor. Once added they're just a normal
+    // row and drop off this suggestion list.
+    const DEFAULT_SESSION_TYPES = ['Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Full Body'];
 
     function show(el, kind, message) {
       el.className = `status ${kind}`;
@@ -142,6 +204,7 @@
     function showView(view) {
       homeView.hidden = view !== 'home';
       recentlyDeletedView.hidden = view !== 'recently-deleted';
+      sessionTypesView.hidden = view !== 'session-types';
     }
 
     // ------------------------------------------------------------------
@@ -156,6 +219,16 @@
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRecentlyDeleted(); }
     });
     rdBack.addEventListener('click', () => showView('home'));
+
+    function openSessionTypes() {
+      showView('session-types');
+      if (!sessionTypesLoaded) loadSessionTypes();
+    }
+    sessionTypesLink.addEventListener('click', openSessionTypes);
+    sessionTypesLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSessionTypes(); }
+    });
+    stBack.addEventListener('click', () => showView('home'));
 
     // ------------------------------------------------------------------
     // Loading
@@ -416,6 +489,155 @@
     }
 
     // ------------------------------------------------------------------
+    // Session types
+    //
+    // This list — plus the built-in "Other" — is the ENTIRE set of chips
+    // log.html and exercises.html now offer. Nothing here is a foreign key:
+    // sessions.category / movement_patterns.category are plain text, copied
+    // at selection time, so deleting a type below can never rewrite or
+    // orphan a session or pattern that already used it. Old history keeps
+    // showing whatever split was current when it was logged.
+    // ------------------------------------------------------------------
+    async function loadSessionTypes() {
+      hide(stStatus);
+      const { data, error } = await supabase
+        .from('session_types')
+        .select('*')
+        .order('created_at');
+
+      if (error) {
+        show(stStatus, 'error', `Could not load session types: ${error.message}`);
+        return;
+      }
+      sessionTypesLoaded = true;
+      sessionTypes = data;
+      renderSessionTypes();
+    }
+
+    function renderSessionTypes() {
+      sessionTypeListEl.innerHTML = '';
+      if (sessionTypes.length === 0) {
+        sessionTypeListEl.hidden = true;
+        emptySessionTypes.hidden = false;
+      } else {
+        emptySessionTypes.hidden = true;
+        sessionTypeListEl.hidden = false;
+        for (const t of sessionTypes) sessionTypeListEl.appendChild(buildSessionTypeItem(t));
+      }
+
+      // Suggestions are whichever defaults aren't already an active type —
+      // add "Push" and it drops off here, since offering it again would be
+      // redundant with the row that now exists above.
+      stSuggestionChips.innerHTML = '';
+      const remaining = DEFAULT_SESSION_TYPES.filter(
+        (name) => !sessionTypes.some((t) => t.name.toLowerCase() === name.toLowerCase())
+      );
+      for (const name of remaining) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.textContent = name;
+        chip.addEventListener('click', () => addSessionType(name, chip));
+        stSuggestionChips.appendChild(chip);
+      }
+    }
+
+    function buildSessionTypeItem(t) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.style.cursor = 'default';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = t.name;
+      body.appendChild(name);
+      li.appendChild(body);
+
+      // Two-tap inline confirm — same pattern as deleting a weight entry:
+      // a type is trivial to recreate, so a full confirm dialog is more
+      // ceremony than the action deserves.
+      const delBtn = smallButton('Delete');
+      let armed = false;
+      delBtn.addEventListener('click', () => {
+        if (!armed) {
+          armed = true;
+          delBtn.textContent = 'Tap again';
+          setTimeout(() => { if (armed) { armed = false; delBtn.textContent = 'Delete'; } }, 3000);
+          return;
+        }
+        deleteSessionType(t, delBtn);
+      });
+      li.appendChild(delBtn);
+
+      return li;
+    }
+
+    async function addSessionType(rawName, triggerEl) {
+      const name = rawName.trim();
+      if (!name) return;
+      if (sessionTypes.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+        show(stStatus, 'error', `"${name}" is already in your list.`);
+        return;
+      }
+
+      if (triggerEl) triggerEl.disabled = true;
+      hide(stStatus);
+
+      const { data, error } = await supabase
+        .from('session_types')
+        .insert({ user_id: user.id, name })
+        .select()
+        .single();
+
+      if (triggerEl) triggerEl.disabled = false;
+
+      if (error) {
+        show(stStatus, 'error', `Could not add "${name}": ${error.message}`);
+        return;
+      }
+
+      sessionTypes.push(data);
+      renderSessionTypes();
+      show(stStatus, 'ok', `Added "${name}".`);
+      setTimeout(() => hide(stStatus), 2500);
+    }
+
+    async function deleteSessionType(t, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      hide(stStatus);
+
+      const { error } = await supabase.from('session_types').delete().eq('id', t.id);
+
+      if (error) {
+        show(stStatus, 'error', `Could not delete "${t.name}": ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+        return;
+      }
+
+      sessionTypes = sessionTypes.filter((x) => x.id !== t.id);
+      renderSessionTypes();
+      show(stStatus, 'ok', `Deleted "${t.name}". Past sessions and patterns keep showing it.`);
+      setTimeout(() => hide(stStatus), 4000);
+    }
+
+    stAddToggle.addEventListener('click', () => {
+      stAddPanel.hidden = !stAddPanel.hidden;
+      stAddToggle.textContent = stAddPanel.hidden ? '+ Add session type' : '− Hide';
+      if (!stAddPanel.hidden) stCustomInput.focus();
+    });
+    stCustomAddBtn.addEventListener('click', () => {
+      addSessionType(stCustomInput.value, stCustomAddBtn);
+      stCustomInput.value = '';
+    });
+    stCustomInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); stCustomAddBtn.click(); }
+    });
+
+    // ------------------------------------------------------------------
     // Account
     // ------------------------------------------------------------------
     function renderAccount(signedInUser) {
@@ -448,6 +670,62 @@
         return;
       }
       window.location.replace('./index.html');
+    });
+
+    // ------------------------------------------------------------------
+    // Backup — full export of every table, as one JSON file
+    // ------------------------------------------------------------------
+    const exportBtn = document.getElementById('export-btn');
+    const exportStatus = document.getElementById('export-status');
+
+    exportBtn.addEventListener('click', async () => {
+      hide(exportStatus);
+      exportBtn.disabled = true;
+      exportBtn.textContent = 'Preparing…';
+
+      const [sessions, patterns, sessionTypesRes, exercisesRes, sessionExercises, sets, weights] = await Promise.all([
+        supabase.from('sessions').select('*').order('start_time'),
+        supabase.from('movement_patterns').select('*').order('name'),
+        supabase.from('session_types').select('*').order('created_at'),
+        supabase.from('exercises').select('*').order('name'),
+        supabase.from('session_exercises').select('*').order('created_at'),
+        supabase.from('sets').select('*').order('created_at'),
+        supabase.from('body_weights').select('*').order('measured_at'),
+      ]);
+
+      exportBtn.disabled = false;
+      exportBtn.textContent = 'Export all data (JSON)';
+
+      const results = [sessions, patterns, sessionTypesRes, exercisesRes, sessionExercises, sets, weights];
+      const failed = results.find((r) => r.error);
+      if (failed) {
+        show(exportStatus, 'error', `Export failed: ${failed.error.message}`);
+        return;
+      }
+
+      const payload = {
+        exported_at: new Date().toISOString(),
+        app: 'volume',
+        sessions: sessions.data,
+        movement_patterns: patterns.data,
+        session_types: sessionTypesRes.data,
+        exercises: exercisesRes.data,
+        session_exercises: sessionExercises.data,
+        sets: sets.data,
+        body_weights: weights.data,
+      };
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `volume-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      show(exportStatus, 'ok', `Exported ${sets.data.length} sets across ${sessions.data.length} sessions.`);
     });
 
     // ------------------------------------------------------------------

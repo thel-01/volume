@@ -620,24 +620,37 @@
       const withoutPr = stats.filter((s) => !s.pr).sort((a, b) => a.exercise.name.localeCompare(b.exercise.name));
       const ordered = [...withPr, ...withoutPr];
 
-      if (ordered.length === 0) {
+      if (exercises.length === 0) {
         prListEl.hidden = true;
+        emptyPrs.textContent = 'No sets logged yet.';
         emptyPrs.hidden = false;
         prToggle.hidden = true;
         return;
       }
-      emptyPrs.hidden = true;
-      prListEl.hidden = false;
+
+      // Collapsed: real PRs only, up to 3 — a section titled "Recent PRs"
+      // showing "Never logged" rows just because the library has few
+      // exercises would say the opposite of what it means. Expanding is
+      // still how you see the whole library, "Never logged" and all.
+      const collapsedPreview = withPr.slice(0, 3);
 
       let expanded = false;
       const renderList = () => {
         prListEl.innerHTML = '';
-        const visible = expanded ? ordered : ordered.slice(0, 3);
-        for (const stat of visible) prListEl.appendChild(buildPrListItem(stat));
+        const visible = expanded ? ordered : collapsedPreview;
+        if (visible.length === 0) {
+          prListEl.hidden = true;
+          emptyPrs.textContent = 'No PRs yet.';
+          emptyPrs.hidden = false;
+        } else {
+          emptyPrs.hidden = true;
+          prListEl.hidden = false;
+          for (const stat of visible) prListEl.appendChild(buildPrListItem(stat));
+        }
       };
       renderList();
 
-      if (ordered.length > 3) {
+      if (ordered.length > collapsedPreview.length) {
         prToggle.hidden = false;
         prToggle.textContent = `Show all ${ordered.length}`;
         prToggle.onclick = () => {

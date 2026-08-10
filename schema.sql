@@ -146,6 +146,35 @@ create trigger movement_patterns_cascade_delete
 
 
 -- ===========================================================================
+-- 2b. session_types — the managed list of session-type chips, set in
+--     Settings. Deliberately NOT referenced by a foreign key from anywhere:
+--     sessions.category and movement_patterns.category stay plain text,
+--     copied at selection time. Deleting a type here can never rewrite or
+--     orphan a session/pattern that already used it — that's what lets old
+--     history keep showing a split you've since stopped using.
+-- ===========================================================================
+
+create table if not exists public.session_types (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+
+  name        text not null,
+
+  created_at  timestamptz not null default now(),
+
+  constraint session_types_name_not_blank check (length(btrim(name)) > 0)
+);
+
+create index if not exists session_types_user_idx
+  on public.session_types (user_id);
+
+-- One "Push" per user — case-insensitively, same reasoning as
+-- movement_patterns' name uniqueness.
+create unique index if not exists session_types_unique_name
+  on public.session_types (user_id, lower(btrim(name)));
+
+
+-- ===========================================================================
 -- 3. exercises — exercise definitions, independent of any session
 -- ===========================================================================
 
@@ -390,6 +419,7 @@ alter table public.exercises         enable row level security;
 alter table public.session_exercises enable row level security;
 alter table public.sets              enable row level security;
 alter table public.body_weights      enable row level security;
+alter table public.session_types     enable row level security;
 
 
 -- --- grants -----------------------------------------------------------------
@@ -410,6 +440,7 @@ grant select, insert, update, delete on public.exercises         to authenticate
 grant select, insert, update, delete on public.session_exercises to authenticated;
 grant select, insert, update, delete on public.sets              to authenticated;
 grant select, insert, update, delete on public.body_weights      to authenticated;
+grant select, insert, update, delete on public.session_types     to authenticated;
 
 
 -- --- sessions ---------------------------------------------------------------
@@ -667,6 +698,31 @@ create policy body_weights_delete_own on public.body_weights
   using (user_id = (select auth.uid()));
 
 
+-- --- session_types ------------------------------------------------------------
+-- Directly owned, same shape as sessions.
+
+drop policy if exists session_types_select_own on public.session_types;
+create policy session_types_select_own on public.session_types
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists session_types_insert_own on public.session_types;
+create policy session_types_insert_own on public.session_types
+  for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists session_types_update_own on public.session_types;
+create policy session_types_update_own on public.session_types
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists session_types_delete_own on public.session_types;
+create policy session_types_delete_own on public.session_types
+  for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+
 -- ===========================================================================
 -- 8. Health check
 -- ===========================================================================
@@ -683,7 +739,7 @@ create policy body_weights_delete_own on public.body_weights
 -- join pg_namespace n on n.oid = c.relnamespace
 -- left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
 -- where n.nspname = 'public'
---   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights')
+--   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types')
 -- group by c.relname, c.relrowsecurity
 -- order by c.relname;
 
@@ -696,6 +752,6 @@ create policy body_weights_delete_own on public.body_weights
 -- from information_schema.role_table_grants
 -- where table_schema = 'public'
 --   and grantee = 'authenticated'
---   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights')
+--   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types')
 -- group by table_name
 -- order by table_name;
