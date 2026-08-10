@@ -184,6 +184,10 @@ export function renderLineChart(svg, opts) {
       dot.setAttribute('fill', s.color || 'var(--accent)');
       dot.setAttribute('stroke', 'var(--surface)');
       dot.setAttribute('stroke-width', '1.5');
+      // `opacity` dims the whole series, dots included — so a scatter can sit
+      // behind the line that matters without fighting it for attention, and
+      // overlapping readings pile up into something visibly denser.
+      if (s.opacity) dot.setAttribute('opacity', s.opacity);
       svg.appendChild(dot);
 
       if (!s.tappable) return;

@@ -39,10 +39,25 @@
     .index-delta.down { color: var(--danger); }
     /* Starting a workout is the primary action, so it gets the wider half. */
     .grow-2 { flex: 2; }
-    .weight-sub {
-      margin: 0 0 12px;
+    .stat-row {
+      display: flex;
+      gap: 22px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .stat { display: flex; flex-direction: column; gap: 3px; }
+    .stat-value {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-value.accent { color: var(--accent); }
+    .stat-label { font-size: 13px; color: var(--muted); }
+    /* Uncoloured on purpose: gaining weight isn't inherently good or bad. */
+    .stat-change {
+      font-size: 13px;
       color: var(--muted);
-      font-size: 14px;
       font-variant-numeric: tabular-nums;
     }
   </style>
@@ -107,11 +122,23 @@
       <p id="empty-categories" class="empty-state" hidden>No sessions logged yet.</p>
 
       <p class="section-label" style="margin-top:28px;">Bodyweight</p>
-      <div class="index-headline">
-        <span class="index-value" id="weight-value">—</span>
-        <span class="index-delta">latest reading</span>
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-value" id="weight-value">—</span>
+          <span class="stat-label">latest reading</span>
+          <!-- Says whether that number is from this morning or from last week. -->
+          <span class="stat-change" id="weight-when"></span>
+        </div>
+        <div class="stat">
+          <!-- Coloured to match its line on the chart below. -->
+          <span class="stat-value accent" id="weight-average">—</span>
+          <span class="stat-label">7-day average</span>
+          <span class="stat-change" id="weight-change"></span>
+        </div>
       </div>
-      <p class="weight-sub" id="weight-sub"></p>
+      <a href="./weight.html?add=1" style="text-decoration:none;">
+        <div id="stale-notice" class="status info" hidden></div>
+      </a>
       <div class="chart-card" id="weight-card" hidden>
         <svg id="weight-chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
       </div>
@@ -158,8 +185,11 @@
     const emptyCategories = document.getElementById('empty-categories');
 
     const weightValue = document.getElementById('weight-value');
-    const weightSub = document.getElementById('weight-sub');
+    const weightWhen = document.getElementById('weight-when');
+    const weightAverage = document.getElementById('weight-average');
+    const weightChange = document.getElementById('weight-change');
     const weightCard = document.getElementById('weight-card');
+    const staleNotice = document.getElementById('stale-notice');
     const weightChart = document.getElementById('weight-chart');
     const weightEmpty = document.getElementById('weight-empty');
 
@@ -299,6 +329,7 @@
     const AVERAGE_DAYS = 7;
     const COMPARE_DAYS = 14;
     const DAY_MS = 86400000;
+    const STALE_AFTER_DAYS = 7;
 
     function windowMean(list, endMs, days) {
       const startMs = endMs - days * DAY_MS;
@@ -308,6 +339,43 @@
       });
       if (inWindow.length === 0) return null;
       return inWindow.reduce((sum, e) => sum + Number(e.weight_kg), 0) / inWindow.length;
+    }
+
+    /**
+     * "Today", "Yesterday", a bare weekday for the rest of this past week,
+     * "Last {weekday}" for the week before that, then a plain date beyond.
+     */
+    function relativeWhen(entry) {
+      const d = new Date(entry.measured_at);
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfEntryDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const dayDiff = Math.round((startOfToday - startOfEntryDay) / DAY_MS);
+
+      let when;
+      if (dayDiff <= 0) when = 'Today';
+      else if (dayDiff === 1) when = 'Yesterday';
+      else if (dayDiff <= 6) when = d.toLocaleDateString('en-US', { weekday: 'long' });
+      else if (dayDiff <= 13) when = `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
+      else {
+        const sameYear = d.getFullYear() === now.getFullYear();
+        when = d.toLocaleDateString('en-US', sameYear
+          ? { month: 'short', day: 'numeric' }
+          : { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+      if (!entry.time_known) return when;
+      return `${when}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    }
+
+    /** Nudges you to log a fresh reading once the latest one is about a week old. */
+    function renderStaleNotice(latest) {
+      const days = Math.floor((Date.now() - new Date(latest.measured_at).getTime()) / DAY_MS);
+      if (days < STALE_AFTER_DAYS) {
+        staleNotice.hidden = true;
+        return;
+      }
+      staleNotice.textContent = `No reading in ${days} days — tap to log one.`;
+      staleNotice.hidden = false;
     }
 
     async function loadWeight() {
@@ -320,8 +388,11 @@
       // if its table isn't there yet, the rest of the dashboard carries on.
       if (error || !data || data.length === 0) {
         weightValue.textContent = '—';
-        weightSub.textContent = '';
+        weightWhen.textContent = '';
+        weightAverage.textContent = '—';
+        weightChange.textContent = '';
         weightCard.hidden = true;
+        staleNotice.hidden = true;
         weightEmpty.hidden = false;
         return;
       }
@@ -330,23 +401,23 @@
 
       const latest = data[data.length - 1];
       weightValue.textContent = `${Number(latest.weight_kg).toFixed(1)} kg`;
+      weightWhen.textContent = relativeWhen(latest);
+      renderStaleNotice(latest);
 
       const now = Date.now();
       const avgNow = windowMean(data, now, AVERAGE_DAYS);
       const avgThen = windowMean(data, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
-      // Says out loud that the comparison is between averages, not between
-      // the big number and something else. Left uncoloured on purpose:
-      // gaining weight isn't inherently bad.
-      if (avgNow === null) {
-        weightSub.textContent = '';
-      } else if (avgThen === null) {
-        weightSub.textContent = `${AVERAGE_DAYS}-day average: ${avgNow.toFixed(1)} kg`;
+      // The change sits under the average because that's what it measures —
+      // comparing single readings would mostly measure yesterday's dinner.
+      weightAverage.textContent = avgNow === null ? '—' : `${avgNow.toFixed(1)} kg`;
+      if (avgNow === null || avgThen === null) {
+        weightChange.textContent = '';
       } else {
         const diff = avgNow - avgThen;
         const sign = diff >= 0 ? '+' : '−';
-        const change = Math.abs(diff) < 0.05 ? 'steady' : `${sign}${Math.abs(diff).toFixed(1)} kg`;
-        weightSub.textContent =
-          `${AVERAGE_DAYS}-day average: ${avgNow.toFixed(1)} kg · ${change} vs ${COMPARE_DAYS} days ago`;
+        weightChange.textContent = Math.abs(diff) < 0.05
+          ? `steady vs ${COMPARE_DAYS} days ago`
+          : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
       const readings = data.map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
@@ -362,7 +433,7 @@
           { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
           // Scatter: joining noisy readings invents a shape and steals
           // attention from the average, which is the real signal.
-          { key: 'raw', points: readings, color: '#9aa6b8', line: false, dots: true, tappable: true },
+          { key: 'raw', points: readings, color: '#9aa6b8', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
         formatValue: (v) => `${Math.round(v)} kg`,
         formatDate: formatCompactDate,
@@ -632,15 +703,24 @@
     // Time since last session, per category
     // ------------------------------------------------------------------
     function renderCategories(sessions) {
-      const lastByCategory = new Map();
+      // Grouped case-insensitively — "Push" and "push" are the same category
+      // that happened to get typed two different ways, not two categories.
+      // The label shown is whichever casing the most recent session used, so
+      // it tracks your current habit rather than whichever came first.
+      const lastByCategory = new Map(); // lowercase key -> { label, lastStart }
       for (const s of sessions) {
         const cat = (s.category || '').trim();
         if (!cat) continue;
-        const prev = lastByCategory.get(cat);
-        if (!prev || new Date(s.start_time) > new Date(prev)) lastByCategory.set(cat, s.start_time);
+        const key = cat.toLowerCase();
+        const prev = lastByCategory.get(key);
+        if (!prev || new Date(s.start_time) > new Date(prev.lastStart)) {
+          lastByCategory.set(key, { label: cat, lastStart: s.start_time });
+        }
       }
 
-      const rows = [...lastByCategory.entries()].sort((a, b) => new Date(b[1]) - new Date(a[1]));
+      const rows = [...lastByCategory.values()]
+        .map((v) => [v.label, v.lastStart])
+        .sort((a, b) => new Date(b[1]) - new Date(a[1]));
 
       categoryListEl.innerHTML = '';
       if (rows.length === 0) {

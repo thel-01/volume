@@ -573,7 +573,12 @@
 
     startBtn.addEventListener('click', async () => {
       hide(startStatus);
-      const category = (categoryInput.value.trim() || selectedCategory || '').trim() || null;
+      // Typing "push" by hand when every prior session says "Push" must not
+      // create a second, differently-cased category — it'd split "time since
+      // last session" into two rows that each think the other never happened.
+      const typed = categoryInput.value.trim();
+      const known = typed && pastCategories.find((c) => c.toLowerCase() === typed.toLowerCase());
+      const category = (known || typed || selectedCategory || '').trim() || null;
 
       startBtn.disabled = true;
       startBtn.textContent = 'Starting…';

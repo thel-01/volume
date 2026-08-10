@@ -22,25 +22,26 @@
       padding: 12px 8px 6px;
     }
     .chart-card svg { display: block; width: 100%; height: auto; }
-    .headline {
+    .stat-row {
       display: flex;
-      align-items: baseline;
-      gap: 10px;
-      margin-bottom: 10px;
+      gap: 22px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
     }
-    .headline-value {
-      font-size: 34px;
+    .stat { display: flex; flex-direction: column; gap: 3px; }
+    .stat-value {
+      font-size: 30px;
       font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    .headline-delta { font-size: 14px; color: var(--muted); }
+    .stat-value.accent { color: var(--accent); }
+    .stat-label { font-size: 13px; color: var(--muted); }
     /* Deliberately uncoloured: gaining weight isn't inherently bad, so
        painting one direction green and the other red would editorialise. */
-    .headline-sub {
-      margin: 0 0 14px;
+    .stat-change {
+      font-size: 13px;
       color: var(--muted);
-      font-size: 14px;
       font-variant-numeric: tabular-nums;
     }
     .legend {
@@ -78,11 +79,24 @@
 
     <div id="content" hidden>
 
-      <div class="headline">
-        <span class="headline-value" id="current-weight"></span>
-        <span class="headline-delta">latest reading</span>
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-value" id="current-weight">—</span>
+          <span class="stat-label">latest reading</span>
+          <!-- Balances the change line opposite, and earns its place: it says
+               whether that number is from this morning or from last week. -->
+          <span class="stat-change" id="current-when"></span>
+        </div>
+        <div class="stat">
+          <!-- Coloured to match its line on the chart, so the number and the
+               curve are obviously the same thing. -->
+          <span class="stat-value accent" id="average-weight">—</span>
+          <span class="stat-label">7-day average</span>
+          <span class="stat-change" id="trend-change"></span>
+        </div>
       </div>
-      <p class="headline-sub" id="trend-line"></p>
+
+      <div id="stale-notice" class="status info" role="button" tabindex="0" style="cursor:pointer;" hidden></div>
 
       <div class="chart-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
@@ -142,6 +156,9 @@
     const AVERAGE_DAYS = 7;
     const COMPARE_DAYS = 14;
     const DAY_MS = 86400000;
+    // Roughly "about a week", per the standing rule that a stale reading
+    // shouldn't just sit there looking current.
+    const STALE_AFTER_DAYS = 7;
 
     // ------------------------------------------------------------------
     // Element refs
@@ -150,9 +167,12 @@
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
     const currentWeight = document.getElementById('current-weight');
-    const trendLine = document.getElementById('trend-line');
+    const currentWhen = document.getElementById('current-when');
+    const averageWeight = document.getElementById('average-weight');
+    const trendChange = document.getElementById('trend-change');
     const chart = document.getElementById('chart');
     const legend = document.getElementById('legend');
+    const staleNotice = document.getElementById('stale-notice');
     const addToggle = document.getElementById('add-toggle');
     const addForm = document.getElementById('add-form');
     const newWeight = document.getElementById('new-weight');
@@ -192,6 +212,34 @@
       // anyway would be presenting a guess as a fact.
       if (!entry.time_known) return date;
       return `${date}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    }
+
+    /**
+     * "Today", "Yesterday", a bare weekday for the rest of this past week,
+     * "Last {weekday}" for the week before that, then a plain date beyond —
+     * the same escalation phones use for message timestamps, so it needs no
+     * explaining.
+     */
+    function relativeWhen(entry) {
+      const d = new Date(entry.measured_at);
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfEntryDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const dayDiff = Math.round((startOfToday - startOfEntryDay) / DAY_MS);
+
+      let when;
+      if (dayDiff <= 0) when = 'Today';
+      else if (dayDiff === 1) when = 'Yesterday';
+      else if (dayDiff <= 6) when = d.toLocaleDateString('en-US', { weekday: 'long' });
+      else if (dayDiff <= 13) when = `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
+      else {
+        const sameYear = d.getFullYear() === now.getFullYear();
+        when = d.toLocaleDateString('en-US', sameYear
+          ? { month: 'short', day: 'numeric' }
+          : { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+      if (!entry.time_known) return when;
+      return `${when}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
     }
 
     /** Midnight local on the Monday of the week containing `date`. */
@@ -293,12 +341,27 @@
     // ------------------------------------------------------------------
     // Rendering
     // ------------------------------------------------------------------
+    /** Nudges you to log a fresh reading once the latest one is about a week old. */
+    function renderStaleNotice(latest) {
+      const days = Math.floor((Date.now() - new Date(latest.measured_at).getTime()) / DAY_MS);
+      if (days < STALE_AFTER_DAYS) {
+        staleNotice.hidden = true;
+        return;
+      }
+      staleNotice.textContent =
+        `No reading in ${days} days — tap to log one and keep the trend accurate.`;
+      staleNotice.hidden = false;
+    }
+
     function render() {
       if (entries.length === 0) {
         currentWeight.textContent = '—';
-        trendLine.textContent = '';
+        currentWhen.textContent = '';
+        averageWeight.textContent = '—';
+        trendChange.textContent = '';
         chart.innerHTML = '';
         legend.hidden = true;
+        staleNotice.hidden = true;
         entryList.hidden = true;
         emptyEntries.hidden = false;
         return;
@@ -309,28 +372,28 @@
       const ascending = [...entries].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
 
       currentWeight.textContent = `${fmtKg(entries[0].weight_kg)} kg`;
+      currentWhen.textContent = relativeWhen(entries[0]);
+      renderStaleNotice(entries[0]);
 
       // Compare like with like: the current 7-day mean against the 7-day mean
       // as it stood a fortnight ago. Comparing single readings would mostly
       // measure what you ate yesterday.
-      // Spelled out, because the big number is a single reading while the
-      // comparison is between averages — without saying so the two look like
-      // they should add up, and they don't.
+      // The change belongs to the average, not the latest reading, so it sits
+      // under the average — a single reading swings a kilo on lunch alone.
       const now = Date.now();
       const avgNow = windowMean(ascending, now, AVERAGE_DAYS);
       const avgThen = windowMean(ascending, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
-      if (avgNow === null) {
-        trendLine.textContent = '';
-      } else if (avgThen === null) {
-        trendLine.textContent = `${AVERAGE_DAYS}-day average: ${fmtKg(avgNow)} kg`;
+
+      averageWeight.textContent = avgNow === null ? '—' : `${fmtKg(avgNow)} kg`;
+
+      if (avgNow === null || avgThen === null) {
+        trendChange.textContent = '';
       } else {
         const diff = avgNow - avgThen;
         const sign = diff >= 0 ? '+' : '−';
-        const change = Math.abs(diff) < 0.05
-          ? 'steady'
-          : `${sign}${Math.abs(diff).toFixed(1)} kg`;
-        trendLine.textContent =
-          `${AVERAGE_DAYS}-day average: ${fmtKg(avgNow)} kg · ${change} vs ${COMPARE_DAYS} days ago`;
+        trendChange.textContent = Math.abs(diff) < 0.05
+          ? `steady vs ${COMPARE_DAYS} days ago`
+          : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
       const readings = ascending.map((e) => ({
@@ -344,7 +407,7 @@
           // Scatter, not a line: joining the raw readings drew a jagged shape
           // that isn't real and pulled the eye away from the average, which is
           // the honest interpolation between them.
-          { key: 'raw', points: readings, color: '#9aa6b8', line: false, dots: true, tappable: true },
+          { key: 'raw', points: readings, color: '#9aa6b8', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
         formatValue: (v) => `${Math.round(v)} kg`,
         formatDate: formatCompactDate,
@@ -612,6 +675,10 @@
     }
 
     addToggle.addEventListener('click', openAddForm);
+    staleNotice.addEventListener('click', openAddForm);
+    staleNotice.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddForm(); }
+    });
     addCancel.addEventListener('click', closeAddForm);
     addSave.addEventListener('click', saveNew);
     newWeight.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNew(); });

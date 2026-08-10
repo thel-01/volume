@@ -564,7 +564,12 @@
         show(patternFormStatus, 'error', 'Enter a name for this movement pattern.');
         return;
       }
-      const category = patternCategoryInput.value.trim() || selectedPatternCategory || null;
+      // Same reasoning as log.html's session category: typing "push" by hand
+      // must not create a second, differently-cased category from "Push".
+      const typedCategory = patternCategoryInput.value.trim();
+      const knownCategory = typedCategory
+        && pastCategories.find((c) => c.toLowerCase() === typedCategory.toLowerCase());
+      const category = (knownCategory || typedCategory || selectedPatternCategory || null);
 
       patternSaveBtn.disabled = true;
       patternSaveBtn.textContent = 'Saving…';
