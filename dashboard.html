@@ -160,6 +160,7 @@
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { epley, compositeIndexSeries } from './strength-index.js';
+    import { mondayOf, relativeDayLabel } from './date-utils.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -200,6 +201,14 @@
       el.className = `status ${kind}`;
       el.textContent = message;
       el.hidden = false;
+    }
+    function hide(el) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+    function flash(message, kind = 'ok', ms = 3000) {
+      show(topStatus, kind, message);
+      setTimeout(() => hide(topStatus), ms);
     }
     function formatWeight(value) {
       if (value === null || value === undefined) return '';
@@ -251,13 +260,6 @@
       const d = new Date(iso);
       const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
-    }
-    /** Midnight local time on the Monday of the week containing `date`. */
-    function mondayOf(date) {
-      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const day = d.getDay(); // 0 = Sunday .. 6 = Saturday
-      d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-      return d;
     }
     function timeAgo(iso) {
       const diffMs = Date.now() - new Date(iso).getTime();
@@ -341,29 +343,11 @@
       return inWindow.reduce((sum, e) => sum + Number(e.weight_kg), 0) / inWindow.length;
     }
 
-    /**
-     * "Today", "Yesterday", a bare weekday for the rest of this past week,
-     * "Last {weekday}" for the week before that, then a plain date beyond.
-     */
+    /** "Today"/"Yesterday"/weekday/etc, per date-utils, plus the clock time if known. */
     function relativeWhen(entry) {
-      const d = new Date(entry.measured_at);
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfEntryDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const dayDiff = Math.round((startOfToday - startOfEntryDay) / DAY_MS);
-
-      let when;
-      if (dayDiff <= 0) when = 'Today';
-      else if (dayDiff === 1) when = 'Yesterday';
-      else if (dayDiff <= 6) when = d.toLocaleDateString('en-US', { weekday: 'long' });
-      else if (dayDiff <= 13) when = `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
-      else {
-        const sameYear = d.getFullYear() === now.getFullYear();
-        when = d.toLocaleDateString('en-US', sameYear
-          ? { month: 'short', day: 'numeric' }
-          : { month: 'short', day: 'numeric', year: 'numeric' });
-      }
+      const when = relativeDayLabel(entry.measured_at);
       if (!entry.time_known) return when;
+      const d = new Date(entry.measured_at);
       return `${when}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
     }
 
@@ -512,15 +496,26 @@
 
       let thisWeekCount = 0;
       let rollingCount = 0;
+      let earliestStart = null;
       for (const s of liveSets) {
         const start = new Date(s.sessions.start_time);
+        if (earliestStart === null || start < earliestStart) earliestStart = start;
         if (start >= thisMonday && start < thisWeekEnd) thisWeekCount++;
         else if (start >= rollingStart && start < thisMonday) rollingCount++;
       }
 
       volumeThisWeek.textContent = thisWeekCount === 1 ? '1 set' : `${thisWeekCount} sets`;
-      const avg = Math.round(rollingCount / 8);
-      volumeAverage.textContent = `${avg} set${avg === 1 ? '' : 's'}/week`;
+
+      // An "8-week average" over less than 8 weeks of actual history isn't
+      // one — it's a partial window silently passed off as the full one.
+      // Wait until there's enough tracked history to back it up.
+      const enoughHistoryForAverage = earliestStart !== null && earliestStart <= rollingStart;
+      if (!enoughHistoryForAverage) {
+        volumeAverage.textContent = '—';
+      } else {
+        const avg = Math.round(rollingCount / 8);
+        volumeAverage.textContent = `${avg} set${avg === 1 ? '' : 's'}/week`;
+      }
     }
 
     // ------------------------------------------------------------------
@@ -613,7 +608,15 @@
 
       const stats = exercises.map((ex) => {
         const sets = setsByExercise.get(ex.id) || [];
-        return { exercise: ex, pr: findPr(sets, ex.type), trendPoints: countTrendPoints(sets, ex.type) };
+        return {
+          exercise: ex,
+          pr: findPr(sets, ex.type),
+          trendPoints: countTrendPoints(sets, ex.type),
+          // Every set so far comes from the same session — you're still
+          // experimenting with weight the first time you do a move, so
+          // nothing's been beaten yet even if you logged several sets.
+          isFirstLog: sets.length > 0 && new Set(sets.map((s) => s.session_id)).size === 1,
+        };
       });
 
       const withPr = stats.filter((s) => s.pr).sort((a, b) => new Date(b.pr.date) - new Date(a.pr.date));
@@ -700,6 +703,12 @@
         value.textContent = 'Never logged';
       }
       meta.appendChild(value);
+      if (stat.pr && stat.isFirstLog) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = 'First log';
+        meta.appendChild(badge);
+      }
       body.appendChild(meta);
 
       li.appendChild(body);
@@ -768,6 +777,17 @@
     // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
+    // A transient message left by another page (e.g. log.html after ending
+    // a workout) — read it once, then clear it so a refresh doesn't repeat it.
+    const pendingFlash = sessionStorage.getItem('volume:flash');
+    if (pendingFlash) {
+      sessionStorage.removeItem('volume:flash');
+      try {
+        const { kind, message } = JSON.parse(pendingFlash);
+        flash(message, kind);
+      } catch { /* malformed — nothing to show */ }
+    }
+
     const user = await requireSession('./index.html');
     if (user) {
       await loadAll();

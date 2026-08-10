@@ -73,6 +73,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
+    import { mondayOf, relativeDayLabel } from './date-utils.js';
 
     const QUICK_TAGS = [
       { value: 'easy', label: 'Easy' },
@@ -133,13 +134,6 @@
     function formatDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     }
-    /** Midnight local time on the Monday of the week containing `date`. */
-    function mondayOf(date) {
-      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const day = d.getDay(); // 0 = Sunday .. 6 = Saturday
-      d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-      return d;
-    }
     /**
      * Groups sessions (already newest-first) into "This week" / "Last week" /
      * "Earlier" (rest of this year) / one bucket per past year — in that
@@ -177,12 +171,9 @@
       }
       return buckets;
     }
-    /** This/last week show just the weekday — the heading already says which week. */
-    function formatSessionListDate(iso, bucketLabel) {
-      const d = new Date(iso);
-      if (bucketLabel === 'This week') return d.toLocaleDateString('en-US', { weekday: 'long' });
-      if (bucketLabel === 'Last week') return `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
-      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    /** Always the true day-diff-based relative label, regardless of which section it's grouped under. */
+    function formatSessionListDate(iso) {
+      return relativeDayLabel(iso);
     }
     function formatWeight(value) {
       if (value === null || value === undefined) return '';
@@ -302,12 +293,12 @@
 
         const ul = document.createElement('ul');
         ul.className = 'list';
-        for (const s of bucket.sessions) ul.appendChild(buildSessionListItem(s, bucket.label));
+        for (const s of bucket.sessions) ul.appendChild(buildSessionListItem(s));
         sessionListEl.appendChild(ul);
       }
     }
 
-    function buildSessionListItem(s, bucketLabel) {
+    function buildSessionListItem(s) {
       const exerciseCount = allSessionExercises.filter((se) => se.session_id === s.id).length;
       const setCount = allSets.filter((set) => set.session_id === s.id).length;
 
@@ -321,7 +312,7 @@
 
       const name = document.createElement('div');
       name.className = 'list-item-name';
-      name.textContent = formatSessionListDate(s.start_time, bucketLabel);
+      name.textContent = formatSessionListDate(s.start_time);
       body.appendChild(name);
 
       const meta = document.createElement('div');

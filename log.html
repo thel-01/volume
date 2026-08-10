@@ -214,6 +214,7 @@
     let entries = [];
 
     let clockTimer = null;
+    let restGaugeTimer = null;
     let selectedCategory = null;
 
     // ------------------------------------------------------------------
@@ -232,8 +233,20 @@
       show(topStatus, kind, message);
       setTimeout(() => hide(topStatus), ms);
     }
+    /** Ending a workout leaves this page entirely — the dashboard shows the message instead. */
+    function goToDashboardWithFlash(message, kind = 'ok') {
+      sessionStorage.setItem('volume:flash', JSON.stringify({ kind, message }));
+      window.location.href = './dashboard.html';
+    }
     function formatDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+    /** mm:ss, for a ticking elapsed-time gauge. */
+    function formatElapsed(totalSeconds) {
+      const s = Math.max(0, totalSeconds);
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      return `${mins}:${String(secs).padStart(2, '0')}`;
     }
     function showView(view) {
       startView.hidden = view !== 'start';
@@ -644,6 +657,24 @@
       for (const entry of entries) {
         sessionExercisesEl.appendChild(buildExerciseCard(entry));
       }
+      startRestGauge();
+    }
+
+    /** Ticks the expanded card's "time since last set" line, if it has one. */
+    function startRestGauge() {
+      if (restGaugeTimer) { clearInterval(restGaugeTimer); restGaugeTimer = null; }
+      const gaugeEl = document.getElementById('rest-gauge');
+      const expandedEntry = entries.find((e) => e.expanded);
+      if (!gaugeEl || !expandedEntry || expandedEntry.sets.length === 0) return;
+
+      const lastSet = expandedEntry.sets[expandedEntry.sets.length - 1];
+      const lastSetMs = new Date(lastSet.created_at).getTime();
+      const tick = () => {
+        const secs = Math.floor((Date.now() - lastSetMs) / 1000);
+        gaugeEl.textContent = `${formatElapsed(secs)} since last set`;
+      };
+      tick();
+      restGaugeTimer = setInterval(tick, 1000);
     }
 
     function buildExerciseCard(entry) {
@@ -788,6 +819,13 @@
 
       // Sets logged so far this session.
       if (entry.sets.length > 0) {
+        // Not a rest countdown — just how long it's been since the last set
+        // in this exercise, as a live gauge you can glance at while resting.
+        const gauge = document.createElement('p');
+        gauge.id = 'rest-gauge';
+        gauge.className = 'muted';
+        body.appendChild(gauge);
+
         const label = document.createElement('p');
         label.className = 'section-label';
         label.textContent = 'This session';
@@ -1029,6 +1067,21 @@
       localStatus.setAttribute('role', 'status');
       block.appendChild(localStatus);
 
+      // Just closes the card — available with or without sets logged; an
+      // exercise with none is already dropped automatically when the
+      // workout is finished.
+      const finishBtn = document.createElement('button');
+      finishBtn.type = 'button';
+      finishBtn.className = 'secondary';
+      finishBtn.textContent = 'Finish exercise';
+      finishBtn.style.marginTop = '10px';
+      block.appendChild(finishBtn);
+
+      finishBtn.addEventListener('click', () => {
+        entry.expanded = false;
+        renderEntries();
+      });
+
       logBtn.addEventListener('click', async () => {
         hide(localStatus);
 
@@ -1132,7 +1185,7 @@
     // ------------------------------------------------------------------
     // Picker: choose or create an exercise
     // ------------------------------------------------------------------
-    addExerciseBtn.addEventListener('click', () => {
+    function openPicker() {
       pickerSearch.value = '';
       newExName.value = '';
       newExType.value = 'weight_reps';
@@ -1142,7 +1195,8 @@
       renderPickerList();
       showView('picker');
       pickerSearch.focus();
-    });
+    }
+    addExerciseBtn.addEventListener('click', openPicker);
 
     pickerBack.addEventListener('click', () => showView('session'));
     pickerSearch.addEventListener('input', renderPickerList);
@@ -1488,18 +1542,6 @@
     endBack.addEventListener('click', () => showView('session'));
     endCancel.addEventListener('click', () => showView('session'));
 
-    /** Shared cleanup after a finish or a discard — back to a fresh start screen. */
-    async function returnToStart() {
-      if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
-      session = null;
-      entries = [];
-      selectedCategory = null;
-      startBtn.disabled = true;
-      await loadCategories();
-      renderCategoryChips();
-      showView('start');
-    }
-
     endConfirm.addEventListener('click', async () => {
       hide(endStatus);
       const keptEntries = entries.filter((e) => e.sets.length > 0);
@@ -1521,8 +1563,7 @@
           return;
         }
 
-        await returnToStart();
-        flash('Nothing was logged, so the workout was discarded.', 'info', 4000);
+        goToDashboardWithFlash('Nothing was logged, so the workout was discarded.', 'info');
         return;
       }
 
@@ -1557,12 +1598,10 @@
       }
 
       const finishedCategory = session.category;
-      await returnToStart();
-
       const droppedNote = droppedEntries.length > 0
         ? ` (${droppedEntries.length} exercise${droppedEntries.length === 1 ? '' : 's'} with no sets removed)`
         : '';
-      flash((finishedCategory ? `${finishedCategory} workout saved.` : 'Workout saved.') + droppedNote, 'ok', 4500);
+      goToDashboardWithFlash((finishedCategory ? `${finishedCategory} workout saved.` : 'Workout saved.') + droppedNote, 'ok');
     });
 
     // ------------------------------------------------------------------

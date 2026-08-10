@@ -148,6 +148,7 @@
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
+    import { mondayOf, relativeDayLabel } from './date-utils.js';
 
     // Bodyweight swings a kilo or more day to day on food and water alone, so
     // a single reading says very little. A 7-day trailing mean is the usual
@@ -214,40 +215,12 @@
       return `${date}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
     }
 
-    /**
-     * "Today", "Yesterday", a bare weekday for the rest of this past week,
-     * "Last {weekday}" for the week before that, then a plain date beyond —
-     * the same escalation phones use for message timestamps, so it needs no
-     * explaining.
-     */
+    /** "Today"/"Yesterday"/weekday/etc, per date-utils, plus the clock time if known. */
     function relativeWhen(entry) {
-      const d = new Date(entry.measured_at);
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfEntryDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const dayDiff = Math.round((startOfToday - startOfEntryDay) / DAY_MS);
-
-      let when;
-      if (dayDiff <= 0) when = 'Today';
-      else if (dayDiff === 1) when = 'Yesterday';
-      else if (dayDiff <= 6) when = d.toLocaleDateString('en-US', { weekday: 'long' });
-      else if (dayDiff <= 13) when = `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
-      else {
-        const sameYear = d.getFullYear() === now.getFullYear();
-        when = d.toLocaleDateString('en-US', sameYear
-          ? { month: 'short', day: 'numeric' }
-          : { month: 'short', day: 'numeric', year: 'numeric' });
-      }
+      const when = relativeDayLabel(entry.measured_at);
       if (!entry.time_known) return when;
+      const d = new Date(entry.measured_at);
       return `${when}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
-    }
-
-    /** Midnight local on the Monday of the week containing `date`. */
-    function mondayOf(date) {
-      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-      const day = d.getDay(); // 0 = Sunday
-      d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-      return d;
     }
 
     /** Same buckets the session history uses, so the two lists read alike. */
@@ -282,15 +255,11 @@
       return buckets;
     }
 
-    /** Inside this/last week the heading already says which week, so drop the date. */
-    function formatEntryInBucket(entry, bucketLabel) {
-      const d = new Date(entry.measured_at);
-      let when;
-      if (bucketLabel === 'This week') when = d.toLocaleDateString('en-US', { weekday: 'long' });
-      else if (bucketLabel === 'Last week') when = `Last ${d.toLocaleDateString('en-US', { weekday: 'long' })}`;
-      else when = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-
+    /** Per-entry label — always the true day-diff-based relative label, regardless of which section it's grouped under. */
+    function formatEntryInBucket(entry) {
+      const when = relativeDayLabel(entry.measured_at);
       if (!entry.time_known) return when;
+      const d = new Date(entry.measured_at);
       return `${when}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
     }
     function formatCompactDate(iso, showYear) {
@@ -384,9 +353,14 @@
       const avgNow = windowMean(ascending, now, AVERAGE_DAYS);
       const avgThen = windowMean(ascending, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
 
-      averageWeight.textContent = avgNow === null ? '—' : `${fmtKg(avgNow)} kg`;
+      // A "7-day average" over less than 7 days of actual history isn't a
+      // 7-day average — it's a partial window silently passed off as the
+      // full one. Wait until there's enough tracked history to back it up.
+      const enoughHistoryForAverage = now - new Date(ascending[0].measured_at).getTime() >= AVERAGE_DAYS * DAY_MS;
 
-      if (avgNow === null || avgThen === null) {
+      averageWeight.textContent = (!enoughHistoryForAverage || avgNow === null) ? '—' : `${fmtKg(avgNow)} kg`;
+
+      if (!enoughHistoryForAverage || avgNow === null || avgThen === null) {
         trendChange.textContent = '';
       } else {
         const diff = avgNow - avgThen;
@@ -461,7 +435,7 @@
       body.appendChild(name);
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      meta.textContent = formatEntryInBucket(entry, bucketLabel);
+      meta.textContent = formatEntryInBucket(entry);
       body.appendChild(meta);
       li.appendChild(body);
 
