@@ -297,6 +297,43 @@ create index if not exists sets_exercise_idx
 
 
 -- ===========================================================================
+-- 5b. body_weights — bodyweight readings, independent of any workout
+-- ===========================================================================
+-- Hard delete only, same reasoning as sets: a mistyped reading is quicker to
+-- retype than to recover.
+
+create table if not exists public.body_weights (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references auth.users (id) on delete cascade,
+
+  -- Kilograms, always. One decimal is what a bathroom scale actually shows,
+  -- but the column keeps two so a stray 80.55 can't be silently truncated on
+  -- the way in — rounding is the UI's job, not the database's.
+  weight_kg    numeric(5, 2) not null,
+
+  -- Stored UTC, shown local, like every other timestamp here.
+  measured_at  timestamptz not null default now(),
+
+  -- Older readings were written down as a date with no clock time. Rather
+  -- than invent a time and then quietly present the invention as fact, those
+  -- rows are stamped at local midday (far enough from either midnight that no
+  -- timezone shift can roll them onto the wrong day) and flagged here, so the
+  -- UI can show a date alone and mean it.
+  time_known   boolean not null default true,
+
+  created_at   timestamptz not null default now(),
+
+  -- Wide enough for any human, narrow enough to catch a slipped decimal
+  -- point or a reading typed in pounds.
+  constraint body_weights_sane check (weight_kg > 20 and weight_kg < 500)
+);
+
+-- The one access pattern: this user's readings, newest first.
+create index if not exists body_weights_user_measured_idx
+  on public.body_weights (user_id, measured_at desc);
+
+
+-- ===========================================================================
 -- 6. Lock an exercise's type once sets exist
 -- ===========================================================================
 -- Standing rule from CLAUDE.md. Enforced here rather than in the UI because
@@ -352,6 +389,7 @@ alter table public.movement_patterns enable row level security;
 alter table public.exercises         enable row level security;
 alter table public.session_exercises enable row level security;
 alter table public.sets              enable row level security;
+alter table public.body_weights      enable row level security;
 
 
 -- --- grants -----------------------------------------------------------------
@@ -371,6 +409,7 @@ grant select, insert, update, delete on public.movement_patterns to authenticate
 grant select, insert, update, delete on public.exercises         to authenticated;
 grant select, insert, update, delete on public.session_exercises to authenticated;
 grant select, insert, update, delete on public.sets              to authenticated;
+grant select, insert, update, delete on public.body_weights      to authenticated;
 
 
 -- --- sessions ---------------------------------------------------------------
@@ -603,6 +642,31 @@ create policy sets_delete_own on public.sets
   );
 
 
+-- --- body_weights ------------------------------------------------------------
+-- Directly owned, same shape as sessions.
+
+drop policy if exists body_weights_select_own on public.body_weights;
+create policy body_weights_select_own on public.body_weights
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists body_weights_insert_own on public.body_weights;
+create policy body_weights_insert_own on public.body_weights
+  for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists body_weights_update_own on public.body_weights;
+create policy body_weights_update_own on public.body_weights
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists body_weights_delete_own on public.body_weights;
+create policy body_weights_delete_own on public.body_weights
+  for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+
 -- ===========================================================================
 -- 8. Health check
 -- ===========================================================================
@@ -619,7 +683,7 @@ create policy sets_delete_own on public.sets
 -- join pg_namespace n on n.oid = c.relnamespace
 -- left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
 -- where n.nspname = 'public'
---   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets')
+--   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights')
 -- group by c.relname, c.relrowsecurity
 -- order by c.relname;
 
@@ -632,6 +696,6 @@ create policy sets_delete_own on public.sets
 -- from information_schema.role_table_grants
 -- where table_schema = 'public'
 --   and grantee = 'authenticated'
---   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets')
+--   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights')
 -- group by table_name
 -- order by table_name;

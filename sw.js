@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.13.0';
+const VERSION = 'v1.14.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -20,6 +20,7 @@ const APP_SHELL = [
   './settings.html',
   './dashboard.html',
   './exercise-trend.html',
+  './weight.html',
   './styles.css',
   './supabase-client.js',
   './chart.js',

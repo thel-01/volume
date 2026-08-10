@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Weight</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 8px 6px;
+    }
+    .chart-card svg { display: block; width: 100%; height: auto; }
+    .headline {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .headline-value {
+      font-size: 34px;
+      font-weight: 700;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .headline-delta { font-size: 14px; color: var(--muted); }
+    .headline-delta.up { color: var(--danger); }
+    .headline-delta.down { color: var(--ok); }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 14px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+    .entry-weight {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div class="page-header">
+      <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
+      <h1>Weight</h1>
+      <span class="icon-link" style="visibility:hidden">←</span>
+    </div>
+
+    <p id="loading" class="muted">Loading…</p>
+
+    <div id="content" hidden>
+
+      <div class="headline">
+        <span class="headline-value" id="current-weight"></span>
+        <span class="headline-delta" id="trend-delta"></span>
+      </div>
+
+      <div class="chart-card">
+        <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
+      </div>
+      <div id="legend" class="legend" hidden></div>
+
+      <div style="height:20px;"></div>
+      <button id="add-toggle" type="button">+ Log weight</button>
+
+      <!-- Add form. Date and time stay tucked away: the overwhelmingly common
+           case is weighing yourself and logging it there and then. -->
+      <div id="add-form" class="card" style="margin-top:12px;" hidden>
+        <div class="field">
+          <label for="new-weight">Weight (kg)</label>
+          <input id="new-weight" type="text" inputmode="decimal" autocomplete="off" placeholder="80.5">
+        </div>
+
+        <button id="when-toggle" type="button" class="link-button" style="display:block;">+ Change date &amp; time</button>
+        <div id="when-fields" hidden>
+          <div class="field-row" style="margin-top:8px;">
+            <div class="field">
+              <label for="new-date">Date</label>
+              <input id="new-date" type="date">
+            </div>
+            <div class="field">
+              <label for="new-time">Time</label>
+              <input id="new-time" type="time">
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:12px;">
+          <button id="add-cancel" class="secondary" type="button">Cancel</button>
+          <button id="add-save" type="button">Save</button>
+        </div>
+        <div id="add-status" class="status" role="status" aria-live="polite" hidden></div>
+      </div>
+
+      <p class="section-label" style="margin-top:28px;">All entries</p>
+      <ul id="entry-list" class="list"></ul>
+      <p id="empty-entries" class="empty-state" hidden>No weight logged yet.</p>
+
+    </div>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+    import { renderLineChart } from './chart.js';
+
+    // Bodyweight swings a kilo or more day to day on food and water alone, so
+    // a single reading says very little. A 7-day trailing mean is the usual
+    // way to see past that, and 14 days is far enough back for the comparison
+    // to mean something without being ancient history.
+    const AVERAGE_DAYS = 7;
+    const COMPARE_DAYS = 14;
+    const DAY_MS = 86400000;
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const topStatus = document.getElementById('top-status');
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('content');
+    const currentWeight = document.getElementById('current-weight');
+    const trendDelta = document.getElementById('trend-delta');
+    const chart = document.getElementById('chart');
+    const legend = document.getElementById('legend');
+    const addToggle = document.getElementById('add-toggle');
+    const addForm = document.getElementById('add-form');
+    const newWeight = document.getElementById('new-weight');
+    const whenToggle = document.getElementById('when-toggle');
+    const whenFields = document.getElementById('when-fields');
+    const newDate = document.getElementById('new-date');
+    const newTime = document.getElementById('new-time');
+    const addCancel = document.getElementById('add-cancel');
+    const addSave = document.getElementById('add-save');
+    const addStatus = document.getElementById('add-status');
+    const entryList = document.getElementById('entry-list');
+    const emptyEntries = document.getElementById('empty-entries');
+
+    let user = null;
+    let entries = [];          // newest first
+    let editingId = null;
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.textContent = message;
+      el.hidden = false;
+    }
+    function hide(el) { el.hidden = true; }
+    function flash(el, kind, message, ms = 3000) {
+      show(el, kind, message);
+      setTimeout(() => hide(el), ms);
+    }
+    const fmtKg = (v) => Number(v).toFixed(1);
+
+    function formatEntryWhen(entry) {
+      const d = new Date(entry.measured_at);
+      const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      // A reading typed in from an old note has no clock time. Showing one
+      // anyway would be presenting a guess as a fact.
+      if (!entry.time_known) return date;
+      return `${date}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`;
+    }
+    function formatCompactDate(iso, showYear) {
+      const d = new Date(iso);
+      const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
+    }
+
+    /** Local date/time inputs -> a UTC instant. */
+    function toInstant(dateStr, timeStr) {
+      return new Date(`${dateStr}T${timeStr}`);
+    }
+    function localDateValue(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    function localTimeValue(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    /**
+     * Mean of every reading in the `days` window ending at `endMs`.
+     * Time-based rather than "last N readings", because the readings are
+     * irregular — three in one day, then nothing for a week.
+     */
+    function windowMean(list, endMs, days) {
+      const startMs = endMs - days * DAY_MS;
+      const inWindow = list.filter((e) => {
+        const t = new Date(e.measured_at).getTime();
+        return t > startMs && t <= endMs;
+      });
+      if (inWindow.length === 0) return null;
+      return inWindow.reduce((sum, e) => sum + Number(e.weight_kg), 0) / inWindow.length;
+    }
+
+    /** Trailing mean at each reading, for the smoothed overlay line. */
+    function trailingAverageSeries(ascending) {
+      const out = [];
+      for (const e of ascending) {
+        const t = new Date(e.measured_at).getTime();
+        const mean = windowMean(ascending, t, AVERAGE_DAYS);
+        if (mean !== null) out.push({ date: e.measured_at, value: mean });
+      }
+      return out;
+    }
+
+    // ------------------------------------------------------------------
+    // Rendering
+    // ------------------------------------------------------------------
+    function render() {
+      if (entries.length === 0) {
+        currentWeight.textContent = '—';
+        trendDelta.textContent = '';
+        chart.innerHTML = '';
+        legend.hidden = true;
+        entryList.hidden = true;
+        emptyEntries.hidden = false;
+        return;
+      }
+      emptyEntries.hidden = true;
+      entryList.hidden = false;
+
+      const ascending = [...entries].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
+
+      currentWeight.textContent = `${fmtKg(entries[0].weight_kg)} kg`;
+
+      // Compare like with like: the current 7-day mean against the 7-day mean
+      // as it stood a fortnight ago. Comparing single readings would mostly
+      // measure what you ate yesterday.
+      const now = Date.now();
+      const avgNow = windowMean(ascending, now, AVERAGE_DAYS);
+      const avgThen = windowMean(ascending, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
+      if (avgNow !== null && avgThen !== null) {
+        const diff = avgNow - avgThen;
+        const sign = diff >= 0 ? '+' : '−';
+        trendDelta.textContent = Math.abs(diff) < 0.05
+          ? `steady vs ${COMPARE_DAYS} days ago`
+          : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
+        trendDelta.className = `headline-delta ${diff > 0.05 ? 'up' : diff < -0.05 ? 'down' : ''}`;
+      } else {
+        trendDelta.textContent = '';
+        trendDelta.className = 'headline-delta';
+      }
+
+      const readings = ascending.map((e) => ({
+        date: e.measured_at, value: Number(e.weight_kg), entry: e,
+      }));
+      const average = trailingAverageSeries(ascending);
+
+      renderLineChart(chart, {
+        series: [
+          { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
+          { key: 'raw', points: readings, color: '#9aa6b8', width: '1.2', dots: true, tappable: true },
+        ],
+        formatValue: (v) => `${Math.round(v)} kg`,
+        formatDate: formatCompactDate,
+        tooltipLines: (p) => [`${fmtKg(p.value)} kg`, formatEntryWhen(p.entry)],
+        ariaLabel: (p) => `${fmtKg(p.value)} kg on ${formatEntryWhen(p.entry)}`,
+      });
+
+      legend.innerHTML = `
+        <span><i style="background:var(--accent)"></i>${AVERAGE_DAYS}-day average</span>
+        <span><i style="background:#9aa6b8"></i>Reading</span>`;
+      legend.hidden = average.length === 0;
+
+      renderEntries();
+    }
+
+    function renderEntries() {
+      entryList.innerHTML = '';
+      for (const entry of entries) {
+        entryList.appendChild(entry.id === editingId ? buildEditRow(entry) : buildEntryRow(entry));
+      }
+    }
+
+    function buildEntryRow(entry) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+      const open = () => { editingId = entry.id; renderEntries(); };
+      li.addEventListener('click', open);
+      li.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'entry-weight';
+      name.textContent = `${fmtKg(entry.weight_kg)} kg`;
+      body.appendChild(name);
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      meta.textContent = formatEntryWhen(entry);
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.textContent = '›';
+      li.appendChild(chevron);
+      return li;
+    }
+
+    function buildEditRow(entry) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.style.cssText = 'display:block;cursor:default;';
+
+      const when = new Date(entry.measured_at);
+
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      const wField = document.createElement('div');
+      wField.className = 'field';
+      const wLabel = document.createElement('label');
+      wLabel.textContent = 'Weight (kg)';
+      const wInput = document.createElement('input');
+      wInput.type = 'text';
+      wInput.inputMode = 'decimal';
+      wInput.value = fmtKg(entry.weight_kg);
+      wLabel.htmlFor = wInput.id = `w-${entry.id}`;
+      wField.append(wLabel, wInput);
+      row.appendChild(wField);
+      li.appendChild(row);
+
+      const whenRow = document.createElement('div');
+      whenRow.className = 'field-row';
+      const dField = document.createElement('div');
+      dField.className = 'field';
+      const dLabel = document.createElement('label');
+      dLabel.textContent = 'Date';
+      const dInput = document.createElement('input');
+      dInput.type = 'date';
+      dInput.value = localDateValue(when);
+      dLabel.htmlFor = dInput.id = `d-${entry.id}`;
+      dField.append(dLabel, dInput);
+
+      const tField = document.createElement('div');
+      tField.className = 'field';
+      const tLabel = document.createElement('label');
+      tLabel.textContent = 'Time';
+      const tInput = document.createElement('input');
+      tInput.type = 'time';
+      // A blank time keeps the "date only" flag; typing one sets it.
+      tInput.value = entry.time_known ? localTimeValue(when) : '';
+      tLabel.htmlFor = tInput.id = `t-${entry.id}`;
+      tField.append(tLabel, tInput);
+
+      whenRow.append(dField, tField);
+      li.appendChild(whenRow);
+
+      const status = document.createElement('div');
+      status.className = 'status';
+      status.hidden = true;
+      li.appendChild(status);
+
+      const actions = document.createElement('div');
+      actions.className = 'btn-row';
+      actions.style.marginTop = '12px';
+
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'secondary';
+      cancel.textContent = 'Cancel';
+      cancel.addEventListener('click', () => { editingId = null; renderEntries(); });
+
+      const save = document.createElement('button');
+      save.type = 'button';
+      save.textContent = 'Save';
+      save.addEventListener('click', () => saveEdit(entry, wInput, dInput, tInput, save, status));
+
+      actions.append(cancel, save);
+      li.appendChild(actions);
+
+      // Two-tap delete, same as sets elsewhere — no dialog, no undo needed.
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'secondary';
+      del.style.cssText = 'margin-top:10px;color:var(--danger);';
+      del.textContent = 'Delete';
+      let armed = false;
+      del.addEventListener('click', () => {
+        if (!armed) {
+          armed = true;
+          del.textContent = 'Tap again to delete';
+          setTimeout(() => { if (armed) { armed = false; del.textContent = 'Delete'; } }, 3000);
+          return;
+        }
+        removeEntry(entry, del, status);
+      });
+      li.appendChild(del);
+
+      return li;
+    }
+
+    // ------------------------------------------------------------------
+    // Writes
+    // ------------------------------------------------------------------
+    function parseWeight(raw) {
+      const value = Number(String(raw).replace(',', '.').trim());
+      if (!isFinite(value)) return { error: 'Enter a weight, e.g. 80.5' };
+      if (value <= 20 || value >= 500) return { error: 'That does not look like a bodyweight in kg.' };
+      return { value: Math.round(value * 10) / 10 };
+    }
+
+    async function saveNew() {
+      const parsed = parseWeight(newWeight.value);
+      if (parsed.error) { show(addStatus, 'error', parsed.error); return; }
+
+      const dateStr = newDate.value;
+      const timeStr = newTime.value;
+      let measuredAt = new Date();
+      let timeKnown = true;
+      if (dateStr) {
+        // Date given without a time: stamp local midday and say so, rather
+        // than pretending you weighed yourself at midnight.
+        measuredAt = timeStr ? toInstant(dateStr, timeStr) : toInstant(dateStr, '12:00');
+        timeKnown = Boolean(timeStr);
+        if (isNaN(measuredAt.getTime())) { show(addStatus, 'error', 'That date is not valid.'); return; }
+      }
+
+      addSave.disabled = true;
+      addSave.textContent = 'Saving…';
+      const { data, error } = await supabase.from('body_weights').insert({
+        user_id: user.id,
+        weight_kg: parsed.value,
+        measured_at: measuredAt.toISOString(),
+        time_known: timeKnown,
+      }).select().single();
+      addSave.disabled = false;
+      addSave.textContent = 'Save';
+
+      if (error) { show(addStatus, 'error', `Could not save: ${error.message}`); return; }
+
+      entries.push(data);
+      entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+      closeAddForm();
+      render();
+      flash(topStatus, 'ok', `Logged ${fmtKg(data.weight_kg)} kg.`);
+    }
+
+    async function saveEdit(entry, wInput, dInput, tInput, btn, status) {
+      const parsed = parseWeight(wInput.value);
+      if (parsed.error) { show(status, 'error', parsed.error); return; }
+      if (!dInput.value) { show(status, 'error', 'A date is needed.'); return; }
+
+      const timeKnown = Boolean(tInput.value);
+      const measuredAt = toInstant(dInput.value, tInput.value || '12:00');
+      if (isNaN(measuredAt.getTime())) { show(status, 'error', 'That date is not valid.'); return; }
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      const { data, error } = await supabase.from('body_weights').update({
+        weight_kg: parsed.value,
+        measured_at: measuredAt.toISOString(),
+        time_known: timeKnown,
+      }).eq('id', entry.id).select().single();
+      btn.disabled = false;
+      btn.textContent = 'Save';
+
+      if (error) { show(status, 'error', `Could not save: ${error.message}`); return; }
+
+      entries = entries.map((e) => (e.id === entry.id ? data : e));
+      entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+      editingId = null;
+      render();
+      flash(topStatus, 'ok', 'Entry updated.');
+    }
+
+    async function removeEntry(entry, btn, status) {
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      const { error } = await supabase.from('body_weights').delete().eq('id', entry.id);
+      if (error) {
+        show(status, 'error', `Could not delete: ${error.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+        return;
+      }
+      entries = entries.filter((e) => e.id !== entry.id);
+      editingId = null;
+      render();
+      flash(topStatus, 'ok', 'Entry deleted.');
+    }
+
+    // ------------------------------------------------------------------
+    // Add form plumbing
+    // ------------------------------------------------------------------
+    function openAddForm() {
+      const now = new Date();
+      newWeight.value = '';
+      newDate.value = localDateValue(now);
+      newTime.value = localTimeValue(now);
+      whenFields.hidden = true;
+      whenToggle.textContent = '+ Change date & time';
+      hide(addStatus);
+      addForm.hidden = false;
+      addToggle.hidden = true;
+      newWeight.focus();
+    }
+    function closeAddForm() {
+      addForm.hidden = true;
+      addToggle.hidden = false;
+    }
+
+    addToggle.addEventListener('click', openAddForm);
+    addCancel.addEventListener('click', closeAddForm);
+    addSave.addEventListener('click', saveNew);
+    newWeight.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNew(); });
+    whenToggle.addEventListener('click', () => {
+      whenFields.hidden = !whenFields.hidden;
+      whenToggle.textContent = whenFields.hidden ? '+ Change date & time' : '− Use right now';
+      if (whenFields.hidden) {
+        const now = new Date();
+        newDate.value = localDateValue(now);
+        newTime.value = localTimeValue(now);
+      }
+    });
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    async function loadAll() {
+      const { data, error } = await supabase
+        .from('body_weights')
+        .select('*')
+        .order('measured_at', { ascending: false });
+
+      loading.hidden = true;
+      if (error) {
+        show(topStatus, 'error', `Could not load your weight log: ${error.message}`);
+        return;
+      }
+      entries = data || [];
+      content.hidden = false;
+      render();
+
+      // Arrived from the dashboard's "Log weight" shortcut.
+      if (new URLSearchParams(window.location.search).get('add') === '1') openAddForm();
+    }
+
+    user = await requireSession('./index.html');
+    if (user) await loadAll();
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

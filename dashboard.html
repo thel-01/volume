@@ -100,6 +100,24 @@
       <ul id="category-list" class="list" hidden></ul>
       <p id="empty-categories" class="empty-state" hidden>No sessions logged yet.</p>
 
+      <p class="section-label" style="margin-top:28px;">Bodyweight</p>
+      <div class="index-headline">
+        <span class="index-value" id="weight-value">—</span>
+        <span class="index-delta" id="weight-delta"></span>
+      </div>
+      <div class="chart-card" id="weight-card" hidden>
+        <svg id="weight-chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
+      </div>
+      <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
+      <div class="btn-row" style="margin-top:12px;">
+        <a href="./weight.html?add=1" style="text-decoration:none;display:flex;flex:1;">
+          <button type="button" style="width:100%;">Log weight</button>
+        </a>
+        <a href="./weight.html" style="text-decoration:none;display:flex;flex:1;">
+          <button class="secondary" type="button" style="width:100%;">All entries</button>
+        </a>
+      </div>
+
     </div>
 
   </main>
@@ -131,6 +149,12 @@
 
     const categoryListEl = document.getElementById('category-list');
     const emptyCategories = document.getElementById('empty-categories');
+
+    const weightValue = document.getElementById('weight-value');
+    const weightDelta = document.getElementById('weight-delta');
+    const weightCard = document.getElementById('weight-card');
+    const weightChart = document.getElementById('weight-chart');
+    const weightEmpty = document.getElementById('weight-empty');
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
@@ -258,6 +282,86 @@
       renderStrengthIndex(exercisesRes.data, liveSets);
       renderPrs(exercisesRes.data, liveSets);
       renderCategories(sessionsRes.data);
+      loadWeight();
+    }
+
+    // ------------------------------------------------------------------
+    // Bodyweight — the same 7-day mean weight.html uses, so the two pages
+    // can't disagree about which way you're heading.
+    // ------------------------------------------------------------------
+    const AVERAGE_DAYS = 7;
+    const COMPARE_DAYS = 14;
+    const DAY_MS = 86400000;
+
+    function windowMean(list, endMs, days) {
+      const startMs = endMs - days * DAY_MS;
+      const inWindow = list.filter((e) => {
+        const t = new Date(e.measured_at).getTime();
+        return t > startMs && t <= endMs;
+      });
+      if (inWindow.length === 0) return null;
+      return inWindow.reduce((sum, e) => sum + Number(e.weight_kg), 0) / inWindow.length;
+    }
+
+    async function loadWeight() {
+      const { data, error } = await supabase
+        .from('body_weights')
+        .select('weight_kg, measured_at, time_known')
+        .order('measured_at', { ascending: true });
+
+      // Weight is a separate feature bolted onto the bottom of this page —
+      // if its table isn't there yet, the rest of the dashboard carries on.
+      if (error || !data || data.length === 0) {
+        weightValue.textContent = '—';
+        weightDelta.textContent = '';
+        weightCard.hidden = true;
+        weightEmpty.hidden = false;
+        return;
+      }
+      weightEmpty.hidden = true;
+      weightCard.hidden = false;
+
+      const latest = data[data.length - 1];
+      weightValue.textContent = `${Number(latest.weight_kg).toFixed(1)} kg`;
+
+      const now = Date.now();
+      const avgNow = windowMean(data, now, AVERAGE_DAYS);
+      const avgThen = windowMean(data, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
+      if (avgNow !== null && avgThen !== null) {
+        const diff = avgNow - avgThen;
+        const sign = diff >= 0 ? '+' : '−';
+        weightDelta.textContent = Math.abs(diff) < 0.05
+          ? `steady vs ${COMPARE_DAYS} days ago`
+          : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
+        // Gaining isn't inherently bad, so this stays neutral rather than
+        // colouring one direction green and the other red.
+        weightDelta.className = 'index-delta';
+      } else {
+        weightDelta.textContent = '';
+        weightDelta.className = 'index-delta';
+      }
+
+      const readings = data.map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
+      const average = [];
+      for (const e of data) {
+        const t = new Date(e.measured_at).getTime();
+        const mean = windowMean(data, t, AVERAGE_DAYS);
+        if (mean !== null) average.push({ date: e.measured_at, value: mean });
+      }
+
+      renderLineChart(weightChart, {
+        series: [
+          { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
+          { key: 'raw', points: readings, color: '#9aa6b8', width: '1.2', dots: true, tappable: true },
+        ],
+        formatValue: (v) => `${Math.round(v)} kg`,
+        formatDate: formatCompactDate,
+        tooltipLines: (p) => [
+          `${Number(p.value).toFixed(1)} kg`,
+          p.entry.time_known ? formatFullDate(p.date) : `${formatFullDate(p.date)} (no time)`,
+        ],
+        ariaLabel: (p) => `${Number(p.value).toFixed(1)} kg on ${formatFullDate(p.date)}`,
+      });
     }
 
     /** Compact elapsed time for a workout already under way: "23m", "1h 40m". */
