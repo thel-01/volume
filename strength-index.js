@@ -28,13 +28,43 @@ export function epley(weight, reps) {
   return w * (1 + r / 30);
 }
 
+/**
+ * Zero assistance on a legacy 'assisted' exercise isn't an assisted set at
+ * all — it's a plain bodyweight rep that happens to live on an exercise
+ * still locked to the old type. Treated identically to a 'bodyweight' type's
+ * zero-delta set everywhere: display, scoring, the index.
+ */
+export function isBodyweightEquivalent(set, type) {
+  return type === 'bodyweight' || (type === 'assisted' && Number(set.weight || 0) === 0);
+}
+
+/**
+ * The load a set was actually performed against.
+ *
+ * For 'bodyweight' (and a zero-assistance 'assisted' set, see
+ * isBodyweightEquivalent), that's a snapshot of bodyweight at log time plus
+ * a signed delta (assistance subtracts, added weight adds) — one continuous
+ * number that lets the exact same 1RM ranking used for barbell work follow
+ * a single exercise all the way from heavily assisted through unassisted
+ * bodyweight to weighted. Every other type just passes its stored weight
+ * through unchanged. A non-zero 'assisted' set is deliberately NOT given an
+ * inversion here — it stays excluded, exactly as before.
+ */
+export function effectiveLoad(set, type) {
+  if (!isBodyweightEquivalent(set, type)) return set.weight;
+  if (set.bodyweight_kg === null || set.bodyweight_kg === undefined) return null;
+  const delta = set.weight_direction === 'assist' ? -Number(set.weight || 0) : Number(set.weight || 0);
+  return Number(set.bodyweight_kg) + delta;
+}
+
 /** Only weight × reps sets carry a load/rep pair, so only they can be scored. */
 export function isScorable(set, type) {
-  if (type !== 'weight_reps') return false;
-  if (set.weight === null || set.reps === null) return false;
-  // The schema allows weight >= 0. A 0kg set scores 0, which would be a
-  // divide-by-zero waiting to happen downstream.
-  return Number(set.weight) > 0 && Number(set.reps) > 0;
+  if (type !== 'weight_reps' && !isBodyweightEquivalent(set, type)) return false;
+  const load = effectiveLoad(set, type);
+  if (load === null || set.reps === null) return false;
+  // A load at or below zero (e.g. heavily assisted) scores as a divide-by-
+  // zero or a meaningless negative 1RM, same reasoning as a 0kg barbell set.
+  return load > 0 && Number(set.reps) > 0;
 }
 
 function geometricMean(values) {
@@ -66,7 +96,7 @@ export function sessionCapacities(sets, exercises) {
     if (!isScorable(s, type)) continue;
     if (!s.sessions || s.sessions.deleted_at) continue;
 
-    const value = epley(s.weight, s.reps);
+    const value = epley(effectiveLoad(s, type), s.reps);
     if (value === null) continue;
 
     if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, new Map());

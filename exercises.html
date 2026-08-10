@@ -121,7 +121,7 @@
           <select id="ex-type">
             <option value="weight_reps">Standard</option>
             <option value="time_based">Time-based</option>
-            <option value="assisted">Assisted</option>
+            <option value="bodyweight">Bodyweight</option>
           </select>
           <p id="ex-type-locked-note" class="muted" hidden style="margin-top:8px;">
             Locked — sets have already been logged for this exercise. The type can't
@@ -170,6 +170,9 @@
     const TYPE_LABELS = {
       weight_reps: 'Standard',
       time_based: 'Time-based',
+      bodyweight: 'Bodyweight',
+      // Legacy — no longer offered for a new exercise, but existing ones
+      // locked to it still need a label.
       assisted: 'Assisted',
     };
 
@@ -687,7 +690,7 @@
       exTypeSelect.innerHTML = `
         <option value="weight_reps">Standard</option>
         <option value="time_based">Time-based</option>
-        <option value="assisted">Assisted</option>
+        <option value="bodyweight">Bodyweight</option>
       `;
       exTypeSelect.value = 'weight_reps';
       exTypeLockedNote.hidden = true;
@@ -750,10 +753,15 @@
         exTypeLockedNote.hidden = false;
       } else {
         exTypeSelect.disabled = false;
+        // 'assisted' isn't offered for a fresh choice anymore (superseded by
+        // 'bodyweight'), but stays selectable here if that's still this
+        // exercise's current, not-yet-locked value — otherwise the select
+        // would silently lose its value.
         exTypeSelect.innerHTML = `
           <option value="weight_reps">Standard</option>
           <option value="time_based">Time-based</option>
-          <option value="assisted">Assisted</option>
+          <option value="bodyweight">Bodyweight</option>
+          ${ex.type === 'assisted' ? '<option value="assisted">Assisted</option>' : ''}
         `;
         exTypeSelect.value = ex.type;
       }

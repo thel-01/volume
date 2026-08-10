@@ -203,13 +203,22 @@ create table if not exists public.exercises (
   deleted_at            timestamptz,
   created_at            timestamptz not null default now(),
 
-  -- The three allowed types, enforced by the database rather than by trust.
+  -- The allowed types, enforced by the database rather than by trust.
+  -- 'assisted' is legacy-only — no longer offered when creating a new
+  -- exercise (superseded by 'bodyweight', see the sets table below), but an
+  -- exercise already locked to it keeps working exactly as before.
   constraint exercises_type_valid
-    check (type in ('weight_reps', 'time_based', 'assisted')),
+    check (type in ('weight_reps', 'time_based', 'assisted', 'bodyweight')),
 
   constraint exercises_name_not_blank
     check (length(btrim(name)) > 0)
 );
+
+-- Widen an already-existing type constraint to include 'bodyweight'. No-op
+-- on a brand new database, since the create table above already allows it.
+alter table public.exercises drop constraint if exists exercises_type_valid;
+alter table public.exercises add constraint exercises_type_valid
+  check (type in ('weight_reps', 'time_based', 'assisted', 'bodyweight'));
 
 -- Brings an already-existing exercises table (from before movement_patterns
 -- existed) up to the current shape. No-ops on a brand new database, since
@@ -274,6 +283,7 @@ create index if not exists session_exercises_exercise_idx
 --   weight_reps  → weight + reps
 --   assisted     → weight (the assistance) + reps
 --   time_based   → duration_seconds
+--   bodyweight   → weight (delta magnitude) + weight_direction + bodyweight_kg (snapshot) + reps
 -- That pairing isn't enforced by a constraint, because the type lives on
 -- another table; the Log screen is responsible for filling the right fields.
 
@@ -291,12 +301,26 @@ create table if not exists public.sets (
 
   -- Kilograms. Always kg, everywhere, no exceptions.
   -- For 'assisted' this is how much help the machine gave — lower is better.
+  -- For 'bodyweight' this is a delta magnitude (see weight_direction below),
+  -- not the effective load itself.
   weight            numeric(6, 2),
 
   reps              integer,
 
   -- Only used by 'time_based' exercises (planks, dead hangs, …).
   duration_seconds  integer,
+
+  -- 'bodyweight' only: which way `weight` above pushes the effective load —
+  -- 'assist' (less than bodyweight) or 'add' (more than bodyweight). Null
+  -- when weight is 0 (plain bodyweight, direction is meaningless).
+  weight_direction  text,
+
+  -- 'bodyweight' only: a snapshot of the user's bodyweight (from
+  -- body_weights) at the moment this set was logged. Captured once and
+  -- never recomputed, so correcting an old body_weights entry later can't
+  -- silently reshuffle historical PRs. effective load = bodyweight_kg +
+  -- (weight_direction = 'assist' ? -weight : weight).
+  bodyweight_kg     numeric(5, 2),
 
   -- Fixed small vocabulary chosen in the UI: "failed last rep", "grind", …
   -- Text rather than an enum so adding a tag doesn't need a migration.
@@ -309,11 +333,26 @@ create table if not exists public.sets (
   constraint sets_weight_sane   check (weight is null or weight >= 0),
   constraint sets_reps_sane     check (reps is null or reps > 0),
   constraint sets_duration_sane check (duration_seconds is null or duration_seconds > 0),
+  constraint sets_weight_direction_valid
+    check (weight_direction is null or weight_direction in ('assist', 'add')),
+  constraint sets_bodyweight_sane
+    check (bodyweight_kg is null or (bodyweight_kg > 20 and bodyweight_kg < 500)),
 
   -- A set has to record something.
   constraint sets_not_empty
     check (reps is not null or duration_seconds is not null or weight is not null)
 );
+
+-- Brings an already-existing sets table up to the current shape. No-ops on a
+-- brand new database, since the create table above already has these columns.
+alter table public.sets add column if not exists weight_direction text;
+alter table public.sets add column if not exists bodyweight_kg numeric(5, 2);
+alter table public.sets drop constraint if exists sets_weight_direction_valid;
+alter table public.sets add constraint sets_weight_direction_valid
+  check (weight_direction is null or weight_direction in ('assist', 'add'));
+alter table public.sets drop constraint if exists sets_bodyweight_sane;
+alter table public.sets add constraint sets_bodyweight_sane
+  check (bodyweight_kg is null or (bodyweight_kg > 20 and bodyweight_kg < 500));
 
 -- Fetching a session's sets in the order they were logged.
 create index if not exists sets_session_idx

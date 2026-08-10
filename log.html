@@ -140,6 +140,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
+    import { effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
 
     const TYPE_LABELS = {
       weight_reps: 'Standard',
@@ -215,6 +216,8 @@
 
     let clockTimer = null;
     let restGaugeTimer = null;
+    let latestBodyweightKg = null;
+    let bodyweightLoaded = false;
     let selectedCategory = null;
 
     // ------------------------------------------------------------------
@@ -271,15 +274,29 @@
       return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
     }
 
-    /** "30 kg × 12" / "45s" / "20 kg assist × 10" — one set, for display. */
+    /** "30 kg × 12" / "45s" / "20 kg assist × 10" / "BW +10 kg × 8" — one set, for display. */
     function describeSet(set, type) {
       if (type === 'time_based') return formatDuration(set.duration_seconds);
+      // Zero assistance on a legacy 'assisted' exercise isn't assisted at
+      // all — it's a plain bodyweight rep, so it reads as one.
+      if (isBodyweightEquivalent(set, type)) return describeBodyweightSet(set);
       const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
       const suffix = type === 'assisted' ? ' assist' : '';
       const parts = [];
       if (weight) parts.push(weight + suffix);
       if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}`);
       return parts.join(' ') || '—';
+    }
+
+    /** "Bodyweight × 12" / "BW +10 kg × 8" / "BW −15 kg assist × 6". Real numbers, never the effective-load estimate. */
+    function describeBodyweightSet(set) {
+      const magnitude = Number(set.weight || 0);
+      let prefix;
+      if (magnitude === 0) prefix = 'Bodyweight';
+      else if (set.weight_direction === 'assist') prefix = `BW −${formatWeight(magnitude)} kg assist`;
+      else prefix = `BW +${formatWeight(magnitude)} kg`;
+      const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}` : '';
+      return prefix + reps;
     }
 
     // Single-letter shorthand for a set's quick tag, e.g. "14f" = 14 reps to failure.
@@ -304,9 +321,15 @@
       const chunks = [];
       let current = null;
       for (const set of sets) {
-        const key = set.weight === null ? 'none' : formatWeight(set.weight);
+        const bwEquiv = isBodyweightEquivalent(set, type);
+        // Bodyweight (and bodyweight-equivalent) groups on direction too —
+        // same magnitude assisted vs. added is a different effective load,
+        // not the same set repeated. Everything else groups on weight alone.
+        const key = bwEquiv
+          ? `bw:${set.weight_direction ?? ''}:${formatWeight(set.weight ?? 0)}`
+          : (set.weight === null ? 'none' : formatWeight(set.weight));
         if (!current || current.key !== key) {
-          current = { key, weight: set.weight, reps: [] };
+          current = { key, bwEquiv, weight: set.weight, weightDirection: set.weight_direction, reps: [] };
           chunks.push(current);
         }
         current.reps.push(`${set.reps ?? '—'}${tagLetter(set.quick_tag)}`);
@@ -314,6 +337,10 @@
       const suffix = type === 'assisted' ? ' assist' : '';
       return chunks
         .map((c) => {
+          if (c.bwEquiv) {
+            const prefix = describeBodyweightSet({ weight: c.weight, weight_direction: c.weightDirection, reps: null });
+            return `${prefix} × ${c.reps.join(', ')}`;
+          }
           const w = c.weight === null ? '' : `${formatWeight(c.weight)} kg${suffix} `;
           return `${w}× ${c.reps.join(', ')}`;
         })
@@ -362,6 +389,10 @@
       const scoreOf = (sets) => {
         if (type === 'time_based') {
           return Math.max(...sets.map((s) => s.duration_seconds ?? -Infinity));
+        }
+        if (type === 'bodyweight') {
+          const loads = sets.map((s) => effectiveLoad(s, type)).filter((w) => w !== null);
+          return loads.length === 0 ? null : Math.max(...loads);
         }
         const weights = sets.map((s) => (s.weight === null ? null : Number(s.weight)))
                             .filter((w) => w !== null);
@@ -458,6 +489,36 @@
         if (fromLastTime !== null) return fromLastTime;
       }
       return '';
+    }
+
+    /**
+     * The assist/bodyweight/add-weight mode to prefill, same cascade as
+     * pickStickyWeight — this session's own sets first, then last time you
+     * did this movement — falling back to plain bodyweight if there's no
+     * history at all yet.
+     */
+    function pickStickyBodyweightMode(entry, currentSessionId) {
+      const lastModeIn = (sets) => {
+        for (let i = sets.length - 1; i >= 0; i--) {
+          const s = sets[i];
+          if (s.weight !== null && s.weight !== undefined) {
+            return { direction: s.weight_direction ?? 'add', magnitude: formatWeight(s.weight) };
+          }
+        }
+        return null;
+      };
+
+      if (entry.sets.length > 0) {
+        const fromThisSession = lastModeIn(entry.sets);
+        if (fromThisSession !== null) return fromThisSession;
+      }
+
+      const previous = findLastSession(entry.history, currentSessionId);
+      if (previous) {
+        const fromLastTime = lastModeIn(previous.sets);
+        if (fromLastTime !== null) return fromLastTime;
+      }
+      return { direction: 'add', magnitude: '0' };
     }
 
     // ------------------------------------------------------------------
@@ -634,6 +695,21 @@
       startClock();
       renderEntries();
       showView('session');
+      loadLatestBodyweight();
+    }
+
+    /** Fetched once per session — cached, not re-queried per bodyweight exercise. */
+    async function loadLatestBodyweight() {
+      const { data, error } = await supabase
+        .from('body_weights')
+        .select('weight_kg')
+        .order('measured_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      bodyweightLoaded = true;
+      latestBodyweightKg = error || !data ? null : Number(data.weight_kg);
+      if (session) renderEntries();
     }
 
     function startClock() {
@@ -978,6 +1054,14 @@
 
     function buildEntryBlock(entry) {
       const type = entry.exercise.type;
+
+      // Bodyweight logging needs a known bodyweight to snapshot — if none
+      // exists yet, offer a quick way to log one instead of failing silently
+      // at submit time. Nothing else in this card is useful until resolved.
+      if (type === 'bodyweight' && bodyweightLoaded && latestBodyweightKg === null) {
+        return buildBodyweightNudgeBlock(entry);
+      }
+
       const block = document.createElement('div');
       block.className = 'entry-block';
 
@@ -987,6 +1071,7 @@
       let weightInput = null;
       let repsInput = null;
       let durationInput = null;
+      let bwMode = null; // { getDirection, magnitudeInput } — 'bodyweight' type only
 
       if (type === 'time_based') {
         const f = document.createElement('div');
@@ -1002,6 +1087,62 @@
         durationInput.autocomplete = 'off';
         f.appendChild(durationInput);
         fieldRow.appendChild(f);
+      } else if (type === 'bodyweight') {
+        const modeChips = document.createElement('div');
+        modeChips.className = 'chips';
+        block.appendChild(modeChips);
+
+        const magField = document.createElement('div');
+        magField.className = 'field';
+        const magLabel = document.createElement('label');
+        magField.appendChild(magLabel);
+        const magInput = document.createElement('input');
+        magInput.type = 'text';
+        magInput.inputMode = 'decimal';
+        magInput.autocomplete = 'off';
+        magField.append(magLabel, magInput);
+        fieldRow.appendChild(magField);
+
+        const sticky = pickStickyBodyweightMode(entry, session.id);
+        let direction = Number(sticky.magnitude || 0) === 0 ? 'none' : sticky.direction;
+
+        const MODES = [
+          { value: 'assist', label: 'Assisted' },
+          { value: 'none', label: 'Bodyweight' },
+          { value: 'add', label: '+ Weight' },
+        ];
+        const modeButtons = new Map();
+        const updateModeUI = () => {
+          for (const [value, btn] of modeButtons) btn.classList.toggle('selected', value === direction);
+          magField.hidden = direction === 'none';
+          magLabel.textContent = direction === 'assist' ? 'Assistance (kg)' : 'Added weight (kg)';
+        };
+        for (const m of MODES) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'chip';
+          chip.textContent = m.label;
+          chip.addEventListener('click', () => { direction = m.value; updateModeUI(); });
+          modeChips.appendChild(chip);
+          modeButtons.set(m.value, chip);
+        }
+        magInput.value = direction === 'none' ? '' : sticky.magnitude;
+        updateModeUI();
+        bwMode = { getDirection: () => direction, magnitudeInput: magInput };
+
+        const rf = document.createElement('div');
+        rf.className = 'field';
+        const rl = document.createElement('label');
+        rl.textContent = 'Reps';
+        rl.htmlFor = `r-${entry.exercise.id}`;
+        rf.appendChild(rl);
+        repsInput = document.createElement('input');
+        repsInput.id = `r-${entry.exercise.id}`;
+        repsInput.type = 'text';
+        repsInput.inputMode = 'numeric';
+        repsInput.autocomplete = 'off';
+        rf.appendChild(repsInput);
+        fieldRow.appendChild(rf);
       } else {
         const wf = document.createElement('div');
         wf.className = 'field';
@@ -1095,6 +1236,34 @@
             return;
           }
           payload.duration_seconds = secs;
+        } else if (type === 'bodyweight') {
+          const reps = parseInt(repsInput.value.trim(), 10);
+          if (!Number.isFinite(reps) || reps <= 0) {
+            show(localStatus, 'error', 'Enter how many reps you did.');
+            repsInput.focus();
+            return;
+          }
+          if (latestBodyweightKg === null) {
+            show(localStatus, 'error', 'Still loading your bodyweight — try again in a moment.');
+            return;
+          }
+
+          const direction = bwMode.getDirection();
+          let magnitude = 0;
+          if (direction !== 'none') {
+            const raw = bwMode.magnitudeInput.value.trim().replace(',', '.');
+            magnitude = raw === '' ? 0 : parseFloat(raw);
+            if (!Number.isFinite(magnitude) || magnitude < 0) {
+              show(localStatus, 'error', 'Enter a number, 0 or more.');
+              bwMode.magnitudeInput.focus();
+              return;
+            }
+          }
+
+          payload.weight = magnitude;
+          payload.weight_direction = magnitude === 0 ? null : direction;
+          payload.bodyweight_kg = latestBodyweightKg;
+          payload.reps = reps;
         } else {
           const rawWeight = weightInput.value.trim().replace(',', '.');
           const reps = parseInt(repsInput.value.trim(), 10);
@@ -1112,6 +1281,13 @@
               return;
             }
             payload.weight = w;
+            // Zero assistance is a real bodyweight rep, not an assisted one —
+            // snapshot bodyweight now so it displays and scores as one, the
+            // same as the new bodyweight type, without needing to migrate
+            // this exercise off its locked legacy type.
+            if (type === 'assisted' && w === 0 && latestBodyweightKg !== null) {
+              payload.bodyweight_kg = latestBodyweightKg;
+            }
           }
           payload.reps = reps;
         }
@@ -1136,6 +1312,70 @@
         entry.history.unshift({ ...data, sessions: { id: session.id, start_time: session.start_time } });
         renderEntries();
         flash('Set logged.', 'ok', 1800);
+      });
+
+      return block;
+    }
+
+    /** Stands in for the whole entry block until a bodyweight is on record to snapshot. */
+    function buildBodyweightNudgeBlock(entry) {
+      const block = document.createElement('div');
+      block.className = 'entry-block';
+
+      const note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = 'Log your current bodyweight to start logging this exercise.';
+      block.appendChild(note);
+
+      const field = document.createElement('div');
+      field.className = 'field';
+      const label = document.createElement('label');
+      label.textContent = 'Your bodyweight (kg)';
+      label.htmlFor = `bw-${entry.exercise.id}`;
+      field.appendChild(label);
+      const input = document.createElement('input');
+      input.id = `bw-${entry.exercise.id}`;
+      input.type = 'text';
+      input.inputMode = 'decimal';
+      input.autocomplete = 'off';
+      field.appendChild(input);
+      block.appendChild(field);
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = 'Save bodyweight';
+      saveBtn.style.marginTop = '14px';
+      block.appendChild(saveBtn);
+
+      const status = document.createElement('div');
+      status.className = 'status';
+      status.hidden = true;
+      status.setAttribute('role', 'status');
+      block.appendChild(status);
+
+      saveBtn.addEventListener('click', async () => {
+        hide(status);
+        const raw = input.value.trim().replace(',', '.');
+        const w = parseFloat(raw);
+        if (!Number.isFinite(w) || w <= 20 || w >= 500) {
+          show(status, 'error', 'Enter a realistic bodyweight in kg.');
+          input.focus();
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        const { data, error } = await supabase.from('body_weights').insert({ weight_kg: w }).select().single();
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save bodyweight';
+
+        if (error) {
+          show(status, 'error', `Could not save: ${error.message}`);
+          return;
+        }
+        latestBodyweightKg = Number(data.weight_kg);
+        renderEntries();
+        flash('Bodyweight saved.', 'ok', 1800);
       });
 
       return block;

@@ -73,7 +73,7 @@
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
-    import { sessionCapacities, displayDepths } from './strength-index.js';
+    import { sessionCapacities, displayDepths, effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
 
     // Set 1 is the loudest, deeper sets recede — they are context for it, not
     // competing series.
@@ -126,12 +126,25 @@
     }
     function describeSet(set, type) {
       if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
+      // Zero assistance on a legacy 'assisted' exercise isn't assisted at
+      // all — it's a plain bodyweight rep, so it reads as one.
+      if (isBodyweightEquivalent(set, type)) return describeBodyweightSet(set);
       const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
       const suffix = type === 'assisted' ? ' assist' : '';
       const parts = [];
       if (weight) parts.push(weight + suffix);
       if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}${tagLetter(set.quick_tag)}`);
       return parts.join(' ') || '—';
+    }
+    /** "Bodyweight × 12e" / "BW +10 kg × 8" / "BW −15 kg assist × 6f". Real numbers, never the effective-load estimate. */
+    function describeBodyweightSet(set) {
+      const magnitude = Number(set.weight || 0);
+      let prefix;
+      if (magnitude === 0) prefix = 'Bodyweight';
+      else if (set.weight_direction === 'assist') prefix = `BW −${formatWeight(magnitude)} kg assist`;
+      else prefix = `BW +${formatWeight(magnitude)} kg`;
+      const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}${tagLetter(set.quick_tag)}` : '';
+      return prefix + reps;
     }
     function formatFullDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -177,9 +190,18 @@
       const points = [];
       for (const sessionSets of bySession.values()) {
         let best = null;
+        let bestLoad = null;
         for (const s of sessionSets) {
           if (type === 'time_based') {
             if (!best || s.duration_seconds > best.duration_seconds) best = s;
+          } else if (type === 'bodyweight') {
+            // Ranked by effective load (bodyweight ± delta), not the raw
+            // delta magnitude — otherwise assisted and added-weight sets
+            // would compare on the wrong number entirely.
+            const load = effectiveLoad(s, type);
+            if (load === null) continue;
+            const better = !best || load > bestLoad || (load === bestLoad && s.reps > best.reps);
+            if (better) { best = s; bestLoad = load; }
           } else {
             const w = Number(s.weight);
             const better = !best
@@ -188,7 +210,10 @@
             if (better) best = s;
           }
         }
-        const value = type === 'time_based' ? best.duration_seconds : Number(best.weight);
+        if (!best) continue;
+        const value = type === 'time_based' ? best.duration_seconds
+          : type === 'bodyweight' ? bestLoad
+          : Number(best.weight);
         points.push({ date: best.sessions.start_time, value, set: best });
       }
 
@@ -212,7 +237,7 @@
      * The underlying number is an estimated 1RM, but that never surfaces —
      * it's a backend detail, not something to think in.
      */
-    function drawIndex(points, depths) {
+    function drawIndex(points, depths, type) {
       const base = points[0].caps[0];
       if (!(base > 0)) return;
 
@@ -231,7 +256,7 @@
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
         tooltipLines: (p) => [
-          `Set ${p.depth}: ${describeSet(p.session.sets[p.depth - 1], 'weight_reps')}`,
+          `Set ${p.depth}: ${describeSet(p.session.sets[p.depth - 1], type)}`,
           `${p.value.toFixed(0)} · ${formatFullDate(p.date)}`,
         ],
         ariaLabel: (p) => `Set ${p.depth}, index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
@@ -250,7 +275,7 @@
       legend.hidden = depths < 2;
     }
 
-    /** Assisted and time-based exercises have no 1RM, so they keep a plain top-set line. */
+    /** Drawn for every type alongside the index (when there is one) — the literal top set/effort per session, never just the estimate. */
     function drawTopSet(points, type) {
       const useMinutes = type === 'time_based'
         && Math.max(...points.map((p) => p.value)) >= 60;
@@ -303,11 +328,12 @@
 
       content.hidden = false;
 
-      // The index needs an estimated 1RM, which only weight × reps sets carry.
-      // Assisted and time-based exercises get the weight chart alone.
+      // The index needs an estimated 1RM, which weight_reps and bodyweight
+      // (via effective load) sets carry. Legacy assisted and time-based
+      // exercises get the top-set chart alone.
       const capacity = sessionCapacities(liveSets, [exercise]).get(exercise.id);
       if (capacity && capacity.length > 0) {
-        drawIndex(capacity, displayDepths(capacity));
+        drawIndex(capacity, displayDepths(capacity), exercise.type);
       } else {
         indexLabel.hidden = true;
         indexChart.closest('.chart-card').hidden = true;
