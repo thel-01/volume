@@ -46,12 +46,20 @@
       flex-wrap: wrap;
     }
     .stat { display: flex; flex-direction: column; gap: 3px; }
+    /* Fixed height so a number and a chart in neighboring stats read as
+       equal weight and their labels land on the same row, regardless of
+       the number's line-height differing from the chart's own aspect ratio.
+       Bottom-aligned so a bigger number grows upward from that shared line
+       instead of shifting the label under it. */
+    .stat-visual { height: 38px; display: flex; align-items: flex-end; }
+    .stat-visual svg { height: 34px; width: auto; display: block; }
     .stat-value {
       font-size: 30px;
       font-weight: 700;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
+    .stat-value.lg { font-size: 34px; }
     .stat-value.accent { color: var(--accent); }
     .stat-label { font-size: 13px; color: var(--muted); }
     /* Uncoloured on purpose: gaining weight isn't inherently good or bad. */
@@ -103,14 +111,14 @@
 
       <p class="section-label">Volume &amp; Intensity</p>
       <a href="./volume.html" class="card" style="margin-bottom:24px;display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;">
-        <div class="stat-row" style="flex:1;margin-bottom:0;">
+        <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
           <div class="stat">
-            <span class="stat-value" id="volume-this-week">—</span>
+            <div class="stat-visual"><span class="stat-value lg" id="volume-this-week">—</span></div>
             <span class="stat-label">sets this week</span>
           </div>
           <div class="stat">
-            <span class="stat-value" id="volume-failure-pct" style="color:var(--danger);">—</span>
-            <span class="stat-label">taken to failure</span>
+            <div class="stat-visual"><svg id="volume-intensity-gauge" viewBox="0 0 200 116" role="img" aria-label="Intensity this week"></svg></div>
+            <span class="stat-label">Intensity</span>
           </div>
         </div>
         <span class="list-item-chevron">›</span>
@@ -162,7 +170,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
-    import { renderLineChart } from './chart.js';
+    import { renderLineChart, renderGaugeChart } from './chart.js';
     import { epley, compositeIndexSeries, effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
 
@@ -182,7 +190,7 @@
     const indexChart = document.getElementById('index-chart');
 
     const volumeThisWeek = document.getElementById('volume-this-week');
-    const volumeFailurePct = document.getElementById('volume-failure-pct');
+    const volumeIntensityGauge = document.getElementById('volume-intensity-gauge');
 
     const prListEl = document.getElementById('pr-list');
     const prToggle = document.getElementById('pr-toggle');
@@ -515,6 +523,16 @@
     // ------------------------------------------------------------------
     // This week's volume vs. the trailing 8-week average
     // ------------------------------------------------------------------
+    // How hard a tag says a set was, 0..1 — same reasoning and same numbers
+    // as volume.html's INTENSITY_WEIGHT: the inverse of the app's existing
+    // easy > untagged > hard > failure quality ordering, evenly spaced.
+    const INTENSITY_WEIGHT = { easy: 0, hard: 2 / 3, failure: 1 };
+    const INTENSITY_UNTAGGED_WEIGHT = 1 / 3;
+    // Same 3 hues as the 5-band gauge's outer bands, just without the two
+    // in-between steps — small enough here that the extra resolution would
+    // be lost.
+    const INTENSITY_GAUGE_COLORS = ['#4caf50', '#f2d43f', '#e0503a'];
+
     // Same "Monday through Sunday" week volume.html uses, so the preview
     // here and the detail page never disagree.
     function renderVolume(liveSets) {
@@ -522,20 +540,25 @@
       const thisWeekEnd = new Date(thisMonday);
       thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
 
-      let thisWeekCount = 0;
-      let failureCount = 0;
-      for (const s of liveSets) {
+      const thisWeekSets = liveSets.filter((s) => {
         const start = new Date(s.sessions.start_time);
-        if (start >= thisMonday && start < thisWeekEnd) {
-          thisWeekCount++;
-          if (s.quick_tag === 'failure') failureCount++;
-        }
-      }
+        return start >= thisMonday && start < thisWeekEnd;
+      });
 
-      volumeThisWeek.textContent = String(thisWeekCount);
-      volumeFailurePct.textContent = thisWeekCount === 0
-        ? '—'
-        : `${Math.round((failureCount / thisWeekCount) * 100)}%`;
+      volumeThisWeek.textContent = String(thisWeekSets.length);
+
+      if (thisWeekSets.length === 0) {
+        renderGaugeChart(volumeIntensityGauge, { value: 0, colors: INTENSITY_GAUGE_COLORS });
+        return;
+      }
+      const total = thisWeekSets.reduce((sum, s) => {
+        const weight = s.quick_tag in INTENSITY_WEIGHT ? INTENSITY_WEIGHT[s.quick_tag] : INTENSITY_UNTAGGED_WEIGHT;
+        return sum + weight;
+      }, 0);
+      renderGaugeChart(volumeIntensityGauge, {
+        value: total / thisWeekSets.length,
+        colors: INTENSITY_GAUGE_COLORS,
+      });
     }
 
     // ------------------------------------------------------------------
