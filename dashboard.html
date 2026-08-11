@@ -358,6 +358,10 @@
     const COMPARE_DAYS = 14;
     const DAY_MS = 86400000;
     const STALE_AFTER_DAYS = 7;
+    // The preview chart is a teaser, not the full history — it stops
+    // expanding at 3 months back so one long-tracked weigh-in habit doesn't
+    // squash the recent trend into a sliver. Full history lives on weight.html.
+    const CHART_WINDOW_DAYS = 91;
 
     function windowMean(list, endMs, days) {
       const startMs = endMs - days * DAY_MS;
@@ -430,10 +434,17 @@
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
-      const readings = data.map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
+      // Trailing averages are computed over the FULL history (so the mean at
+      // the window's edge still counts the days just before it), then only
+      // the display is clipped to the last 3 months.
+      const windowCutoff = now - CHART_WINDOW_DAYS * DAY_MS;
+      const readings = data
+        .filter((e) => new Date(e.measured_at).getTime() >= windowCutoff)
+        .map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
       const average = [];
       for (const e of data) {
         const t = new Date(e.measured_at).getTime();
+        if (t < windowCutoff) continue;
         const mean = windowMean(data, t, AVERAGE_DAYS);
         if (mean !== null) average.push({ date: e.measured_at, value: mean });
       }

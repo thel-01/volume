@@ -98,6 +98,8 @@
 
       <div id="stale-notice" class="status info" role="button" tabindex="0" style="cursor:pointer;" hidden></div>
 
+      <div id="chart-window-row" class="chips" style="margin-bottom:10px;" hidden></div>
+
       <div class="chart-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
       </div>
@@ -161,6 +163,21 @@
     // shouldn't just sit there looking current.
     const STALE_AFTER_DAYS = 7;
 
+    // Chart date-range picker. The default (3 months) matches the dashboard
+    // preview so the two never disagree about "the recent trend" — the wider
+    // windows only exist here, where there's room for a whole history view.
+    const DEFAULT_WINDOW_DAYS = 91;
+    const WINDOW_OPTIONS = [
+      { key: '4w', label: '4W', days: 28 },
+      { key: '3m', label: '3M', days: 91 },
+      { key: '6m', label: '6M', days: 182 },
+      { key: '12m', label: '12M', days: 365 },
+    ];
+    // 'max' or a WINDOW_OPTIONS key. Chosen once (on first render, from the
+    // data at hand) and remembered across re-renders so editing an entry
+    // doesn't snap the chart back to the default.
+    let chartWindow = null;
+
     // ------------------------------------------------------------------
     // Element refs
     // ------------------------------------------------------------------
@@ -172,6 +189,7 @@
     const averageWeight = document.getElementById('average-weight');
     const trendChange = document.getElementById('trend-change');
     const chart = document.getElementById('chart');
+    const chartWindowRow = document.getElementById('chart-window-row');
     const legend = document.getElementById('legend');
     const staleNotice = document.getElementById('stale-notice');
     const addToggle = document.getElementById('add-toggle');
@@ -307,6 +325,52 @@
       return out;
     }
 
+    /**
+     * Which window buttons are worth showing, given the actual history span.
+     * A window only earns a button if picking it would actually hide some
+     * data compared to "Max" — offering a "12M" button when you've only ever
+     * logged for 6 weeks would just be a second button that does the same
+     * thing as the one next to it.
+     */
+    function chartWindowChoices(ascending) {
+      if (ascending.length === 0) return { options: [], totalSpanDays: 0 };
+      const totalSpanDays = (Date.now() - new Date(ascending[0].measured_at).getTime()) / DAY_MS;
+      const options = WINDOW_OPTIONS.filter((o) => totalSpanDays > o.days);
+      return { options, totalSpanDays };
+    }
+
+    function filterByWindow(points, key) {
+      if (key === 'max') return points;
+      const opt = WINDOW_OPTIONS.find((o) => o.key === key);
+      if (!opt) return points;
+      const cutoff = Date.now() - opt.days * DAY_MS;
+      return points.filter((p) => new Date(p.date).getTime() >= cutoff);
+    }
+
+    function renderChartWindowButtons(options, current) {
+      chartWindowRow.innerHTML = '';
+      // Nothing to trim yet — the chart already shows everything you have,
+      // so a row of buttons that all do the same thing would just be noise.
+      if (options.length === 0) {
+        chartWindowRow.hidden = true;
+        return;
+      }
+      chartWindowRow.hidden = false;
+      const all = [...options, { key: 'max', label: 'Max' }];
+      for (const opt of all) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `chip${opt.key === current ? ' selected' : ''}`;
+        btn.textContent = opt.label;
+        btn.addEventListener('click', () => {
+          if (chartWindow === opt.key) return;
+          chartWindow = opt.key;
+          render();
+        });
+        chartWindowRow.appendChild(btn);
+      }
+    }
+
     // ------------------------------------------------------------------
     // Rendering
     // ------------------------------------------------------------------
@@ -329,6 +393,7 @@
         averageWeight.textContent = '—';
         trendChange.textContent = '';
         chart.innerHTML = '';
+        chartWindowRow.hidden = true;
         legend.hidden = true;
         staleNotice.hidden = true;
         entryList.hidden = true;
@@ -370,10 +435,17 @@
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
-      const readings = ascending.map((e) => ({
+      const { options: windowOptions, totalSpanDays } = chartWindowChoices(ascending);
+      const validWindowKeys = new Set([...windowOptions.map((o) => o.key), 'max']);
+      if (chartWindow === null || !validWindowKeys.has(chartWindow)) {
+        chartWindow = totalSpanDays > DEFAULT_WINDOW_DAYS ? '3m' : 'max';
+      }
+      renderChartWindowButtons(windowOptions, chartWindow);
+
+      const readings = filterByWindow(ascending.map((e) => ({
         date: e.measured_at, value: Number(e.weight_kg), entry: e,
-      }));
-      const average = trailingAverageSeries(ascending);
+      })), chartWindow);
+      const average = filterByWindow(trailingAverageSeries(ascending), chartWindow);
 
       renderLineChart(chart, {
         series: [
