@@ -14,6 +14,20 @@ export function mondayOf(date) {
 }
 
 /**
+ * Calendar days between `iso` and now — local midnight to local midnight,
+ * never a raw 24h division. A session logged yesterday at 11pm is only ~10
+ * hours before 9am today, but it's still yesterday: dividing elapsed
+ * milliseconds by 86400000 would floor that to 0 and call it "today".
+ */
+export function daysAgo(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfThatDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((startOfToday - startOfThatDay) / DAY_MS);
+}
+
+/**
  * "Today", "Yesterday", a bare weekday for the rest of this past week,
  * "Last {weekday}" for the week before that, then a plain date beyond —
  * the same escalation phones use for message timestamps, so it needs no
@@ -23,9 +37,7 @@ export function mondayOf(date) {
 export function relativeDayLabel(iso) {
   const d = new Date(iso);
   const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfEntryDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dayDiff = Math.round((startOfToday - startOfEntryDay) / DAY_MS);
+  const dayDiff = daysAgo(iso);
 
   if (dayDiff <= 0) return 'Today';
   if (dayDiff === 1) return 'Yesterday';
