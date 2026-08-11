@@ -23,6 +23,8 @@
     }
     .chart-card svg { display: block; width: 100%; height: auto; }
     .donut-card svg { max-width: 200px; margin: 0 auto; }
+    .gauge-card { padding-bottom: 0; }
+    .gauge-card svg { max-width: 240px; margin: 0 auto; }
     .legend {
       display: flex;
       flex-wrap: wrap;
@@ -81,7 +83,11 @@
       </div>
 
       <p class="section-label" style="margin-top:28px;">Intensity · this week</p>
-      <div class="card">
+      <div class="chart-card gauge-card">
+        <svg id="intensity-gauge" viewBox="0 0 200 116" role="img" aria-label="Intensity this week"></svg>
+      </div>
+      <p id="gauge-empty" class="muted" style="margin-top:8px;" hidden></p>
+      <div class="card" style="margin-top:12px;">
         <p id="i-sentence" style="margin:0;font-size:15px;line-height:1.5;"></p>
         <div class="reference-line">
           <span class="reference-label">Avg estimated rest:</span>
@@ -121,7 +127,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
-    import { renderLineChart, renderDonutChart } from './chart.js';
+    import { renderLineChart, renderDonutChart, renderGaugeChart } from './chart.js';
     import { mondayOf } from './date-utils.js';
 
     const AVERAGE_WEEKS = 4;
@@ -141,6 +147,15 @@
       'var(--accent)', '#e0805a', '#9aa6b8', '#7bb37e', '#c77fb5', '#d9b45f', '#6c7788',
     ];
 
+    // How hard a tag says a set was, 0..1 — the inverse of the app's existing
+    // easy > untagged > hard > failure quality ordering (tagQuality() in
+    // dashboard.html, used for PR tie-breaking), evenly spaced across the
+    // same 4 steps rather than inventing a separate scale. Untagged sits at
+    // 1/3, not the 0.5 midpoint — tags are for exceptional effort, so most
+    // ordinary sets going untagged shouldn't read as "moderately hard."
+    const INTENSITY_WEIGHT = { easy: 0, hard: 2 / 3, failure: 1 };
+    const INTENSITY_UNTAGGED_WEIGHT = 1 / 3;
+
     // ------------------------------------------------------------------
     // Element refs
     // ------------------------------------------------------------------
@@ -158,6 +173,8 @@
     const splitLegend = document.getElementById('split-legend');
     const splitEmpty = document.getElementById('split-empty');
 
+    const intensityGauge = document.getElementById('intensity-gauge');
+    const gaugeEmpty = document.getElementById('gauge-empty');
     const iSentence = document.getElementById('i-sentence');
     const iRest = document.getElementById('i-rest');
 
@@ -317,6 +334,24 @@
       vTopExercise.textContent = name ? `${name} · ${setsLabel(bestCount)}` : '—';
     }
 
+    /** Mean tag weight across the week's sets — see INTENSITY_WEIGHT above for the reasoning. */
+    function renderIntensityGauge(windowSets) {
+      if (windowSets.length === 0) {
+        intensityGauge.closest('.chart-card').hidden = true;
+        gaugeEmpty.textContent = 'Nothing logged yet this week.';
+        gaugeEmpty.hidden = false;
+        return;
+      }
+      intensityGauge.closest('.chart-card').hidden = false;
+      gaugeEmpty.hidden = true;
+
+      const total = windowSets.reduce((sum, s) => {
+        const weight = s.quick_tag in INTENSITY_WEIGHT ? INTENSITY_WEIGHT[s.quick_tag] : INTENSITY_UNTAGGED_WEIGHT;
+        return sum + weight;
+      }, 0);
+      renderGaugeChart(intensityGauge, { value: total / windowSets.length });
+    }
+
     function renderIntensity(windowSets) {
       if (windowSets.length === 0) {
         iSentence.textContent = 'Nothing logged yet this week.';
@@ -461,6 +496,7 @@
       renderWeekly(liveSets, mondayOf(earliest), thisMonday);
       renderSplit(thisWeekSets);
       renderTopExercise(thisWeekSets, exerciseNames);
+      renderIntensityGauge(thisWeekSets);
       renderIntensity(thisWeekSets);
       renderAverages(fourWeekSets, enoughHistory);
     }

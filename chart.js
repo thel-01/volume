@@ -346,3 +346,99 @@ export function renderDonutChart(svg, opts) {
     svg.appendChild(text(cx, cy + 14, 'middle', '9', 'var(--muted)', centerSub));
   }
 }
+
+// ---------------------------------------------------------------------------
+// Gauge chart — a single 0..1 score on a banded semicircle, e.g. intensity.
+//
+// The bands are arc <path> elements (SVG's elliptical-arc command), not the
+// donut's stroke-dasharray trick — that trick divides up a full circle's
+// circumference, and a semicircle isn't one. The needle is a tapered
+// <polygon>, not a <line>: a rotated line reads as a stick, not a needle.
+// ---------------------------------------------------------------------------
+
+const GAUGE_VIEW_W = 200;
+// Tall enough that the band's OUTER edge (radius + half its stroke width)
+// clears the top of the viewBox — sizing this off the centerline radius
+// alone left the top of the ring clipped by a couple of pixels.
+const GAUGE_VIEW_H = 116;
+const GAUGE_CX = GAUGE_VIEW_W / 2;
+const GAUGE_CY = GAUGE_VIEW_H - 16;
+const GAUGE_RADIUS = 84;
+const GAUGE_BAND_WIDTH = 26;
+const GAUGE_BAND_GAP_DEG = 1.5; // thin dividers between bands, same idea as the donut's slice edges
+
+// Left (0, low) to right (1, high) — the conventional danger-gauge order,
+// not the accent palette used elsewhere, since red/green here mean
+// something specific (low effort vs. all-out) that a themed color wouldn't.
+const GAUGE_COLORS = ['#4caf50', '#a0c93a', '#f2d43f', '#f0932b', '#e0503a'];
+
+function polarPoint(cx, cy, r, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
+}
+
+/**
+ * Draw a 0..1 gauge into an <svg>.
+ *
+ * @param {SVGElement} svg
+ * @param {object} opts
+ * @param {number} opts.value    0..1 — 0 sits at the far left, 1 at the far right
+ * @param {Array}  [opts.colors] band colors, left to right (defaults to GAUGE_COLORS)
+ */
+export function renderGaugeChart(svg, opts) {
+  const { value } = opts;
+  const colors = opts.colors || GAUGE_COLORS;
+
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', `0 0 ${GAUGE_VIEW_W} ${GAUGE_VIEW_H}`);
+
+  const n = colors.length;
+  const step = 180 / n;
+  for (let i = 0; i < n; i++) {
+    // i=0 is the leftmost band (highest angle), matching value=0 at the left.
+    const startAngle = 180 - i * step - GAUGE_BAND_GAP_DEG / 2;
+    const endAngle = 180 - (i + 1) * step + GAUGE_BAND_GAP_DEG / 2;
+    const p0 = polarPoint(GAUGE_CX, GAUGE_CY, GAUGE_RADIUS, startAngle);
+    const p1 = polarPoint(GAUGE_CX, GAUGE_CY, GAUGE_RADIUS, endAngle);
+
+    const arc = document.createElementNS(NS, 'path');
+    arc.setAttribute('d', `M ${p0.x} ${p0.y} A ${GAUGE_RADIUS} ${GAUGE_RADIUS} 0 0 1 ${p1.x} ${p1.y}`);
+    arc.setAttribute('fill', 'none');
+    arc.setAttribute('stroke', colors[i]);
+    arc.setAttribute('stroke-width', GAUGE_BAND_WIDTH);
+    svg.appendChild(arc);
+  }
+
+  const clamped = Math.max(0, Math.min(1, value));
+  const angle = 180 - clamped * 180; // 0 -> left (180deg), 1 -> right (0deg)
+  const rad = (angle * Math.PI) / 180;
+  const dir = { x: Math.cos(rad), y: -Math.sin(rad) };
+  const perp = { x: -dir.y, y: dir.x };
+
+  // A true coffin outline has 6 points, not 4: a short flat trapezoid at the
+  // butt as well as the long one at the tip, both narrower than the pivot
+  // line between them — not a taper that starts at its widest right at the
+  // pivot. The short tail also does double duty as a small counterweight
+  // behind the pivot, the way a real gauge needle is balanced.
+  const needleLen = GAUGE_RADIUS;
+  const tailLen = 10;
+  const baseHalf = 6;
+  const tipHalf = 3.5;
+  const tailHalf = 2.5;
+
+  const tip = { x: GAUGE_CX + dir.x * needleLen, y: GAUGE_CY + dir.y * needleLen };
+  const tail = { x: GAUGE_CX - dir.x * tailLen, y: GAUGE_CY - dir.y * tailLen };
+  const baseLeft = { x: GAUGE_CX + perp.x * baseHalf, y: GAUGE_CY + perp.y * baseHalf };
+  const baseRight = { x: GAUGE_CX - perp.x * baseHalf, y: GAUGE_CY - perp.y * baseHalf };
+  const tipLeft = { x: tip.x + perp.x * tipHalf, y: tip.y + perp.y * tipHalf };
+  const tipRight = { x: tip.x - perp.x * tipHalf, y: tip.y - perp.y * tipHalf };
+  const tailLeft = { x: tail.x + perp.x * tailHalf, y: tail.y + perp.y * tailHalf };
+  const tailRight = { x: tail.x - perp.x * tailHalf, y: tail.y - perp.y * tailHalf };
+
+  const needle = document.createElementNS(NS, 'polygon');
+  const pts = [tailLeft, baseLeft, tipLeft, tipRight, baseRight, tailRight]
+    .map((p) => `${p.x},${p.y}`).join(' ');
+  needle.setAttribute('points', pts);
+  needle.setAttribute('fill', 'var(--text)');
+  svg.appendChild(needle);
+}
