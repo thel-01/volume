@@ -101,17 +101,20 @@
         <div style="height:24px;"></div>
       </div>
 
-      <p class="section-label">This week</p>
-      <div class="card" style="margin-bottom:24px;">
-        <div class="reference-line" style="margin-top:0;">
-          <span class="reference-label">Sets:</span>
-          <span class="reference-value" id="volume-this-week"></span>
+      <p class="section-label">Volume &amp; Intensity</p>
+      <a href="./volume.html" class="card" style="margin-bottom:24px;display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;">
+        <div class="stat-row" style="flex:1;margin-bottom:0;">
+          <div class="stat">
+            <span class="stat-value" id="volume-this-week">—</span>
+            <span class="stat-label">sets this week</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="volume-failure-pct" style="color:var(--danger);">—</span>
+            <span class="stat-label">taken to failure</span>
+          </div>
         </div>
-        <div class="reference-line">
-          <span class="reference-label">8-week avg:</span>
-          <span class="reference-value" id="volume-average"></span>
-        </div>
-      </div>
+        <span class="list-item-chevron">›</span>
+      </a>
 
       <p class="section-label">Recent PRs</p>
       <ul id="pr-list" class="list" hidden></ul>
@@ -179,7 +182,7 @@
     const indexChart = document.getElementById('index-chart');
 
     const volumeThisWeek = document.getElementById('volume-this-week');
-    const volumeAverage = document.getElementById('volume-average');
+    const volumeFailurePct = document.getElementById('volume-failure-pct');
 
     const prListEl = document.getElementById('pr-list');
     const prToggle = document.getElementById('pr-toggle');
@@ -513,35 +516,27 @@
     // ------------------------------------------------------------------
     // This week's volume vs. the trailing 8-week average
     // ------------------------------------------------------------------
+    // Same "Monday through Sunday" week volume.html uses, so the preview
+    // here and the detail page never disagree.
     function renderVolume(liveSets) {
       const thisMonday = mondayOf(new Date());
       const thisWeekEnd = new Date(thisMonday);
       thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
-      const rollingStart = new Date(thisMonday);
-      rollingStart.setDate(rollingStart.getDate() - 8 * 7);
 
       let thisWeekCount = 0;
-      let rollingCount = 0;
-      let earliestStart = null;
+      let failureCount = 0;
       for (const s of liveSets) {
         const start = new Date(s.sessions.start_time);
-        if (earliestStart === null || start < earliestStart) earliestStart = start;
-        if (start >= thisMonday && start < thisWeekEnd) thisWeekCount++;
-        else if (start >= rollingStart && start < thisMonday) rollingCount++;
+        if (start >= thisMonday && start < thisWeekEnd) {
+          thisWeekCount++;
+          if (s.quick_tag === 'failure') failureCount++;
+        }
       }
 
-      volumeThisWeek.textContent = thisWeekCount === 1 ? '1 set' : `${thisWeekCount} sets`;
-
-      // An "8-week average" over less than 8 weeks of actual history isn't
-      // one — it's a partial window silently passed off as the full one.
-      // Wait until there's enough tracked history to back it up.
-      const enoughHistoryForAverage = earliestStart !== null && earliestStart <= rollingStart;
-      if (!enoughHistoryForAverage) {
-        volumeAverage.textContent = '—';
-      } else {
-        const avg = Math.round(rollingCount / 8);
-        volumeAverage.textContent = `${avg} set${avg === 1 ? '' : 's'}/week`;
-      }
+      volumeThisWeek.textContent = String(thisWeekCount);
+      volumeFailurePct.textContent = thisWeekCount === 0
+        ? '—'
+        : `${Math.round((failureCount / thisWeekCount) * 100)}%`;
     }
 
     // ------------------------------------------------------------------

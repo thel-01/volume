@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.22.0';
+const VERSION = 'v1.23.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -21,6 +21,7 @@ const APP_SHELL = [
   './dashboard.html',
   './exercise-trend.html',
   './weight.html',
+  './volume.html',
   './styles.css',
   './supabase-client.js',
   './date-utils.js',
@@ -86,18 +87,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Everything else (CSS, JS, icons): serve from the cache for speed, and
-  // fetch it if this version's cache hasn't seen it yet.
+  // Everything else (CSS, JS, icons): network first, cache as the fallback.
+  //
+  // This used to be cache first, for speed. That quietly broke the app every
+  // time a page started importing something new from a shared script: pages
+  // are fetched network first, so a brand-new page arrived fresh, but its
+  // imports came back from the old cache without the export it needed. The
+  // module then failed to evaluate and the screen sat on "Loading…" forever.
+  // A stale script that a new page can't use isn't worth the milliseconds.
   event.respondWith(
-    caches.match(request).then((hit) => {
-      if (hit) return hit;
-      return fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (response.ok && response.type === 'basic') {
           const copy = response.clone();
           caches.open(CACHE).then((cache) => cache.put(request, copy));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(request))
   );
 });

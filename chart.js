@@ -271,3 +271,78 @@ export function renderLineChart(svg, opts) {
     for (const tspan of label.querySelectorAll('tspan')) tspan.setAttribute('x', textX);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Donut chart — a share-of-total breakdown, e.g. sets per session type.
+//
+// Drawn as one <circle> per slice using stroke-dasharray, rather than arc
+// paths: a ring is exactly what a dashed circle outline already is, so the
+// only maths needed is "how much of the circumference is this slice".
+// ---------------------------------------------------------------------------
+
+const DONUT_VIEW = 120;
+const DONUT_RADIUS = 45;
+const DONUT_STROKE = 20;
+
+/**
+ * Draw a donut into an <svg>. Slices are drawn in the order given.
+ *
+ * @param {SVGElement} svg
+ * @param {object}   opts
+ * @param {Array}    opts.slices      [{ label, value, color }] — values in any unit; shares are computed here
+ * @param {string}   [opts.centerLabel] big text in the hole (e.g. a total)
+ * @param {string}   [opts.centerSub]   small text under it
+ */
+export function renderDonutChart(svg, opts) {
+  const { slices, centerLabel, centerSub } = opts;
+
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', `0 0 ${DONUT_VIEW} ${DONUT_VIEW}`);
+
+  const total = slices.reduce((sum, s) => sum + s.value, 0);
+  if (!(total > 0)) return;
+
+  const cx = DONUT_VIEW / 2;
+  const cy = DONUT_VIEW / 2;
+  const circumference = 2 * Math.PI * DONUT_RADIUS;
+
+  // Track underneath, so a single-slice donut still reads as a ring rather
+  // than an unexplained gap.
+  const track = document.createElementNS(NS, 'circle');
+  track.setAttribute('cx', cx);
+  track.setAttribute('cy', cy);
+  track.setAttribute('r', DONUT_RADIUS);
+  track.setAttribute('fill', 'none');
+  track.setAttribute('stroke', 'var(--surface-2)');
+  track.setAttribute('stroke-width', DONUT_STROKE);
+  svg.appendChild(track);
+
+  let offset = 0;
+  for (const slice of slices) {
+    if (!(slice.value > 0)) continue;
+    const length = (slice.value / total) * circumference;
+
+    const arc = document.createElementNS(NS, 'circle');
+    arc.setAttribute('cx', cx);
+    arc.setAttribute('cy', cy);
+    arc.setAttribute('r', DONUT_RADIUS);
+    arc.setAttribute('fill', 'none');
+    arc.setAttribute('stroke', slice.color);
+    arc.setAttribute('stroke-width', DONUT_STROKE);
+    arc.setAttribute('stroke-dasharray', `${length} ${circumference - length}`);
+    arc.setAttribute('stroke-dashoffset', -offset);
+    // Start at 12 o'clock instead of 3, which is where a dashed circle
+    // otherwise begins — nobody reads a breakdown starting from the right.
+    arc.setAttribute('transform', `rotate(-90 ${cx} ${cy})`);
+    svg.appendChild(arc);
+
+    offset += length;
+  }
+
+  if (centerLabel) {
+    svg.appendChild(text(cx, cy + (centerSub ? 0 : 5), 'middle', '18', 'var(--text)', centerLabel));
+  }
+  if (centerSub) {
+    svg.appendChild(text(cx, cy + 14, 'middle', '9', 'var(--muted)', centerSub));
+  }
+}
