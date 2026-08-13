@@ -15,26 +15,6 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
-    .chart-card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 8px 6px;
-    }
-    .chart-card svg { display: block; width: 100%; height: auto; }
-    .donut-card svg { max-width: 200px; margin: 0 auto; }
-    .gauge-card { padding-bottom: 0; }
-    .gauge-card svg { max-width: 240px; margin: 0 auto; }
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 14px;
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .legend i {
       width: 10px;
       height: 10px;
@@ -84,7 +64,7 @@
 
       <p class="section-label" style="margin-top:28px;">Intensity · this week</p>
       <div class="chart-card gauge-card">
-        <svg id="intensity-gauge" viewBox="0 0 200 116" role="img" aria-label="Intensity this week"></svg>
+        <svg id="intensity-gauge" viewBox="0 0 200 118" role="img" aria-label="Intensity this week"></svg>
       </div>
       <p id="gauge-empty" class="muted" style="margin-top:8px;" hidden></p>
       <div class="card" style="margin-top:12px;">
@@ -143,8 +123,11 @@
 
     // Enough distinct hues for any realistic number of session types; anything
     // past the end shares the last colour rather than going invisible.
+    // Fixed order, dataviz-skill-validated (lightness band, chroma floor, CVD
+    // separation, contrast — all checked against --surface, not eyeballed).
     const SLICE_COLORS = [
-      'var(--accent)', '#e0805a', '#9aa6b8', '#7bb37e', '#c77fb5', '#d9b45f', '#6c7788',
+      'var(--chart-cat-1)', 'var(--chart-cat-2)', 'var(--chart-cat-3)', 'var(--chart-cat-4)',
+      'var(--chart-cat-5)', 'var(--chart-cat-6)', 'var(--chart-cat-7)', 'var(--chart-cat-8)',
     ];
 
     // How hard a tag says a set was, 0..1 — the inverse of the app's existing
@@ -251,7 +234,7 @@
       // One point is a flat line that says nothing about a trend.
       if (points.length < 2) {
         weeklyChart.closest('.chart-card').hidden = true;
-        weeklyEmpty.textContent = 'Not enough weeks logged yet to show a trend.';
+        weeklyEmpty.textContent = 'Not enough weeks logged yet. Come back later.';
         weeklyEmpty.hidden = false;
         return;
       }
@@ -277,7 +260,7 @@
 
       if (windowSets.length === 0) {
         splitChart.closest('.chart-card').hidden = true;
-        splitEmpty.textContent = 'Nothing logged yet this week.';
+        splitEmpty.textContent = 'Not enough sets logged yet. Come back later.';
         splitEmpty.hidden = false;
         return;
       }
@@ -338,7 +321,7 @@
     function renderIntensityGauge(windowSets) {
       if (windowSets.length === 0) {
         intensityGauge.closest('.chart-card').hidden = true;
-        gaugeEmpty.textContent = 'Nothing logged yet this week.';
+        gaugeEmpty.textContent = 'Not enough sets logged yet. Come back later.';
         gaugeEmpty.hidden = false;
         return;
       }

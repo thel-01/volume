@@ -15,13 +15,6 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
-    .chart-card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 8px 6px;
-    }
-    .chart-card svg { display: block; width: 100%; height: auto; }
     .index-headline {
       display: flex;
       align-items: baseline;
@@ -117,7 +110,10 @@
             <span class="stat-label">sets this week</span>
           </div>
           <div class="stat">
-            <div class="stat-visual"><svg id="volume-intensity-gauge" viewBox="0 0 200 116" role="img" aria-label="Intensity this week"></svg></div>
+            <div class="stat-visual">
+              <svg id="volume-intensity-gauge" viewBox="0 0 200 118" role="img" aria-label="Intensity this week" hidden></svg>
+              <span class="stat-value lg" id="volume-intensity-empty" hidden>—</span>
+            </div>
             <span class="stat-label">Intensity</span>
           </div>
         </div>
@@ -154,6 +150,7 @@
       <div class="chart-card" id="weight-card" hidden>
         <svg id="weight-chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
       </div>
+      <p id="weight-chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
       <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
       <div class="btn-row" style="margin-top:12px;">
         <a href="./weight.html?add=1" style="text-decoration:none;display:flex;flex:1;">
@@ -191,6 +188,7 @@
 
     const volumeThisWeek = document.getElementById('volume-this-week');
     const volumeIntensityGauge = document.getElementById('volume-intensity-gauge');
+    const volumeIntensityEmpty = document.getElementById('volume-intensity-empty');
 
     const prListEl = document.getElementById('pr-list');
     const prToggle = document.getElementById('pr-toggle');
@@ -206,6 +204,7 @@
     const weightCard = document.getElementById('weight-card');
     const staleNotice = document.getElementById('stale-notice');
     const weightChart = document.getElementById('weight-chart');
+    const weightChartEmpty = document.getElementById('weight-chart-empty');
     const weightEmpty = document.getElementById('weight-empty');
 
     // ------------------------------------------------------------------
@@ -406,12 +405,12 @@
         weightAverage.textContent = '—';
         weightChange.textContent = '';
         weightCard.hidden = true;
+        weightChartEmpty.hidden = true;
         staleNotice.hidden = true;
         weightEmpty.hidden = false;
         return;
       }
       weightEmpty.hidden = true;
-      weightCard.hidden = false;
 
       const latest = data[data.length - 1];
       weightValue.textContent = `${Number(latest.weight_kg).toFixed(1)} kg`;
@@ -434,6 +433,16 @@
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
+      // A single reading isn't a trend — the stat values above stay valid,
+      // but the chart needs a second point before there's a line to draw.
+      if (data.length < 2) {
+        weightCard.hidden = true;
+        weightChartEmpty.hidden = false;
+        return;
+      }
+      weightChartEmpty.hidden = true;
+      weightCard.hidden = false;
+
       // Trailing averages are computed over the FULL history (so the mean at
       // the window's edge still counts the days just before it), then only
       // the display is clipped to the last 3 months.
@@ -454,7 +463,7 @@
           { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
           // Scatter: joining noisy readings invents a shape and steals
           // attention from the average, which is the real signal.
-          { key: 'raw', points: readings, color: '#9aa6b8', line: false, opacity: '0.45', dots: true, tappable: true },
+          { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
         formatValue: (v) => `${Math.round(v)} kg`,
         formatDate: formatCompactDate,
@@ -539,10 +548,9 @@
     // easy > untagged > hard > failure quality ordering, evenly spaced.
     const INTENSITY_WEIGHT = { easy: 0, hard: 2 / 3, failure: 1 };
     const INTENSITY_UNTAGGED_WEIGHT = 1 / 3;
-    // Same 3 hues as the 5-band gauge's outer bands, just without the two
-    // in-between steps — small enough here that the extra resolution would
-    // be lost.
-    const INTENSITY_GAUGE_COLORS = ['#4caf50', '#f2d43f', '#e0503a'];
+    // 3 of the 4-band gauge's steps, dropping "serious" — small enough here
+    // that the extra resolution would be lost.
+    const INTENSITY_GAUGE_COLORS = ['var(--chart-status-good)', 'var(--chart-status-warning)', 'var(--chart-status-critical)'];
 
     // Same "Monday through Sunday" week volume.html uses, so the preview
     // here and the detail page never disagree.
@@ -558,10 +566,18 @@
 
       volumeThisWeek.textContent = String(thisWeekSets.length);
 
+      // No sets yet this week — there's nothing to score. A ~34px slot next
+      // to a single number has no room for a sentence, so this falls back to
+      // a plain "—" (same convention weight.html uses for its own 7-day
+      // average pre-window), instead of rendering a gauge with a fabricated
+      // value: 0 that reads as "confirmed easy week" rather than "no data."
       if (thisWeekSets.length === 0) {
-        renderGaugeChart(volumeIntensityGauge, { value: 0, colors: INTENSITY_GAUGE_COLORS });
+        volumeIntensityGauge.hidden = true;
+        volumeIntensityEmpty.hidden = false;
         return;
       }
+      volumeIntensityGauge.hidden = false;
+      volumeIntensityEmpty.hidden = true;
       const total = thisWeekSets.reduce((sum, s) => {
         const weight = s.quick_tag in INTENSITY_WEIGHT ? INTENSITY_WEIGHT[s.quick_tag] : INTENSITY_UNTAGGED_WEIGHT;
         return sum + weight;
@@ -569,6 +585,7 @@
       renderGaugeChart(volumeIntensityGauge, {
         value: total / thisWeekSets.length,
         colors: INTENSITY_GAUGE_COLORS,
+        showPivotDot: false,
       });
     }
 

@@ -15,13 +15,6 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
-    .chart-card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 8px 6px;
-    }
-    .chart-card svg { display: block; width: 100%; height: auto; }
     .stat-row {
       display: flex;
       gap: 22px;
@@ -44,16 +37,6 @@
       color: var(--muted);
       font-variant-numeric: tabular-nums;
     }
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 14px;
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
     /* The readings are drawn as points now, so their key is a point too. */
     .legend i.dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -100,9 +83,10 @@
 
       <div id="chart-window-row" class="chips" style="margin-bottom:10px;" hidden></div>
 
-      <div class="chart-card">
+      <div class="chart-card" id="chart-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
       </div>
+      <p id="chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
       <div id="legend" class="legend" hidden></div>
 
       <div style="height:20px;"></div>
@@ -189,6 +173,8 @@
     const averageWeight = document.getElementById('average-weight');
     const trendChange = document.getElementById('trend-change');
     const chart = document.getElementById('chart');
+    const chartCard = document.getElementById('chart-card');
+    const chartEmpty = document.getElementById('chart-empty');
     const chartWindowRow = document.getElementById('chart-window-row');
     const legend = document.getElementById('legend');
     const staleNotice = document.getElementById('stale-notice');
@@ -435,6 +421,19 @@
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
+      // A single reading isn't a trend — the stat values above remain valid,
+      // but the chart (and the window picker that filters it) needs a second
+      // point before there's a line worth drawing.
+      if (ascending.length < 2) {
+        chartWindowRow.hidden = true;
+        chartCard.hidden = true;
+        legend.hidden = true;
+        chartEmpty.hidden = false;
+        return;
+      }
+      chartEmpty.hidden = true;
+      chartCard.hidden = false;
+
       const { options: windowOptions, totalSpanDays } = chartWindowChoices(ascending);
       const validWindowKeys = new Set([...windowOptions.map((o) => o.key), 'max']);
       if (chartWindow === null || !validWindowKeys.has(chartWindow)) {
@@ -453,7 +452,7 @@
           // Scatter, not a line: joining the raw readings drew a jagged shape
           // that isn't real and pulled the eye away from the average, which is
           // the honest interpolation between them.
-          { key: 'raw', points: readings, color: '#9aa6b8', line: false, opacity: '0.45', dots: true, tappable: true },
+          { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
         formatValue: (v) => `${Math.round(v)} kg`,
         formatDate: formatCompactDate,
@@ -463,7 +462,7 @@
 
       legend.innerHTML = `
         <span><i style="background:var(--accent)"></i>${AVERAGE_DAYS}-day average</span>
-        <span><i class="dot" style="background:#9aa6b8"></i>Reading</span>`;
+        <span><i class="dot" style="background:var(--muted)"></i>Reading</span>`;
       legend.hidden = average.length === 0;
 
       renderEntries();

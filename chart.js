@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // The one line chart the app uses, in plain SVG with no library.
 //
-// Deliberately sparse: two or three y-labels, only the first and last date on
-// the x-axis, no grid lines at all. This is a trend visualiser — the shape
+// Deliberately sparse: at least 3 y-labels (never forced to the range's own
+// min/max, wherever round numbers land), only the first and last date on the
+// x-axis, no grid lines at all. This is a trend visualiser — the shape
 // matters, precise readings do not. Tap a point for the exact numbers.
 //
 // Extracted from exercise-trend.html so the dashboard can draw the same chart
@@ -50,16 +51,25 @@ function computeYAxis(values) {
   }
   if (lo < 0 && dataMin >= 0) lo = 0; // never imply negative weight
 
+  // Coarsest, roundest step that still clears a 3-label floor. This used to
+  // stop at the FIRST step sparse enough to be <=3 labels, which could
+  // undershoot straight past 3 to 2 whenever no step landed exactly on 3.
+  // This keeps refining while a step still clears the floor, and only stops
+  // once a coarser step would drop below it.
   let ticks = [];
   for (const step of TICK_STEPS) {
     const candidate = [];
     for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
       candidate.push(Math.round(v));
     }
-    if (candidate.length <= 3) { ticks = candidate; break; }
-    ticks = candidate; // keep the last (finest) set in case nothing fits
+    if (candidate.length < 3) break;
+    ticks = candidate;
   }
-  if (ticks.length > 3) ticks = ticks.slice(0, 3);
+  if (ticks.length === 0) {
+    // Range too narrow even at whole numbers to fit 3 — take what's there.
+    for (let v = Math.ceil(lo); v <= hi + 1e-9; v += 1) ticks.push(Math.round(v));
+  }
+  if (ticks.length > 5) ticks = ticks.slice(0, 5);
 
   return { min: lo, max: hi, ticks };
 }
@@ -230,7 +240,6 @@ export function renderLineChart(svg, opts) {
     g.setAttribute('pointer-events', 'none');
 
     const rect = document.createElementNS(NS, 'rect');
-    rect.setAttribute('rx', 6);
     rect.setAttribute('fill', 'var(--surface-2)');
     rect.setAttribute('stroke', 'var(--line)');
     g.appendChild(rect);
@@ -357,12 +366,13 @@ export function renderDonutChart(svg, opts) {
 // ---------------------------------------------------------------------------
 
 const GAUGE_VIEW_W = 200;
-// Tall enough that the band's OUTER edge (radius + half its stroke width)
-// clears the top of the viewBox — sizing this off the centerline radius
-// alone left the top of the ring clipped by a couple of pixels.
-const GAUGE_VIEW_H = 116;
 const GAUGE_CX = GAUGE_VIEW_W / 2;
-const GAUGE_CY = GAUGE_VIEW_H - 16;
+const GAUGE_CY = 100;
+// Bottom edge sits 18 below the pivot — just enough for the needle's tail
+// (base 9 + tail 11, ~14.2 at its worst-case angle) plus a clean margin, not
+// a coincidental near-miss. GAUGE_CY itself is unchanged from before — only
+// the space below it grew, so the bands sit exactly where they always have.
+const GAUGE_VIEW_H = GAUGE_CY + 18;
 const GAUGE_RADIUS = 84;
 const GAUGE_BAND_WIDTH = 26;
 const GAUGE_BAND_GAP_DEG = 1.5; // thin dividers between bands, same idea as the donut's slice edges
@@ -370,7 +380,21 @@ const GAUGE_BAND_GAP_DEG = 1.5; // thin dividers between bands, same idea as the
 // Left (0, low) to right (1, high) — the conventional danger-gauge order,
 // not the accent palette used elsewhere, since red/green here mean
 // something specific (low effort vs. all-out) that a themed color wouldn't.
-const GAUGE_COLORS = ['#4caf50', '#a0c93a', '#f2d43f', '#f0932b', '#e0503a'];
+const GAUGE_COLORS = [
+  'var(--chart-status-good)',
+  'var(--chart-status-warning)',
+  'var(--chart-status-serious)',
+  'var(--chart-status-critical)',
+];
+
+// Locked needle shape — one trapezoid, pivot inset from the end so a butt
+// extends behind it (marked with a dot in the card's own background color,
+// like a hole punched through the needle) rather than the old two-piece
+// "coffin" outline.
+const NEEDLE_BASE_HALF = 9;
+const NEEDLE_TIP_HALF = 5;
+const NEEDLE_PIVOT_R = 4.5;
+const NEEDLE_TAIL_LEN = 11;
 
 function polarPoint(cx, cy, r, angleDeg) {
   const rad = (angleDeg * Math.PI) / 180;
@@ -384,10 +408,14 @@ function polarPoint(cx, cy, r, angleDeg) {
  * @param {object} opts
  * @param {number} opts.value    0..1 — 0 sits at the far left, 1 at the far right
  * @param {Array}  [opts.colors] band colors, left to right (defaults to GAUGE_COLORS)
+ * @param {boolean} [opts.showPivotDot] false at mini sizes, where the dot is
+ *                                      too small to read as a hole punched
+ *                                      through the needle
  */
 export function renderGaugeChart(svg, opts) {
   const { value } = opts;
   const colors = opts.colors || GAUGE_COLORS;
+  const showPivotDot = opts.showPivotDot !== false;
 
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${GAUGE_VIEW_W} ${GAUGE_VIEW_H}`);
@@ -415,30 +443,26 @@ export function renderGaugeChart(svg, opts) {
   const dir = { x: Math.cos(rad), y: -Math.sin(rad) };
   const perp = { x: -dir.y, y: dir.x };
 
-  // A true coffin outline has 6 points, not 4: a short flat trapezoid at the
-  // butt as well as the long one at the tip, both narrower than the pivot
-  // line between them — not a taper that starts at its widest right at the
-  // pivot. The short tail also does double duty as a small counterweight
-  // behind the pivot, the way a real gauge needle is balanced.
-  const needleLen = GAUGE_RADIUS;
-  const tailLen = 10;
-  const baseHalf = 6;
-  const tipHalf = 3.5;
-  const tailHalf = 2.5;
-
+  const needleLen = GAUGE_RADIUS; // tip reaches the ring
   const tip = { x: GAUGE_CX + dir.x * needleLen, y: GAUGE_CY + dir.y * needleLen };
-  const tail = { x: GAUGE_CX - dir.x * tailLen, y: GAUGE_CY - dir.y * tailLen };
-  const baseLeft = { x: GAUGE_CX + perp.x * baseHalf, y: GAUGE_CY + perp.y * baseHalf };
-  const baseRight = { x: GAUGE_CX - perp.x * baseHalf, y: GAUGE_CY - perp.y * baseHalf };
-  const tipLeft = { x: tip.x + perp.x * tipHalf, y: tip.y + perp.y * tipHalf };
-  const tipRight = { x: tip.x - perp.x * tipHalf, y: tip.y - perp.y * tipHalf };
-  const tailLeft = { x: tail.x + perp.x * tailHalf, y: tail.y + perp.y * tailHalf };
-  const tailRight = { x: tail.x - perp.x * tailHalf, y: tail.y - perp.y * tailHalf };
+  const butt = { x: GAUGE_CX - dir.x * NEEDLE_TAIL_LEN, y: GAUGE_CY - dir.y * NEEDLE_TAIL_LEN };
+  const tipLeft = { x: tip.x + perp.x * NEEDLE_TIP_HALF, y: tip.y + perp.y * NEEDLE_TIP_HALF };
+  const tipRight = { x: tip.x - perp.x * NEEDLE_TIP_HALF, y: tip.y - perp.y * NEEDLE_TIP_HALF };
+  const buttLeft = { x: butt.x + perp.x * NEEDLE_BASE_HALF, y: butt.y + perp.y * NEEDLE_BASE_HALF };
+  const buttRight = { x: butt.x - perp.x * NEEDLE_BASE_HALF, y: butt.y - perp.y * NEEDLE_BASE_HALF };
 
   const needle = document.createElementNS(NS, 'polygon');
-  const pts = [tailLeft, baseLeft, tipLeft, tipRight, baseRight, tailRight]
-    .map((p) => `${p.x},${p.y}`).join(' ');
+  const pts = [buttLeft, tipLeft, tipRight, buttRight].map((p) => `${p.x},${p.y}`).join(' ');
   needle.setAttribute('points', pts);
   needle.setAttribute('fill', 'var(--text)');
   svg.appendChild(needle);
+
+  if (showPivotDot) {
+    const dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('cx', GAUGE_CX);
+    dot.setAttribute('cy', GAUGE_CY);
+    dot.setAttribute('r', NEEDLE_PIVOT_R);
+    dot.setAttribute('fill', 'var(--surface)');
+    svg.appendChild(dot);
+  }
 }

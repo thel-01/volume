@@ -287,6 +287,36 @@ button.secondary {
 .muted { color: var(--muted); font-size: 14px; }
 
 /* ---------------------------------------------------------------------
+   Chart system — shared by every page that draws one (dashboard, volume,
+   weight, exercise-trend). Was duplicated 4x, near-identical but not
+   byte-identical; consolidated here alongside the chart.js reskin pass.
+   Legend swatch shape (.legend i) is the one thing left page-local — some
+   pages use a bar, volume.html a square; reviewed and deliberately left
+   as-is rather than forced to match.
+   --------------------------------------------------------------------- */
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 8px 6px;
+}
+.chart-card svg { display: block; width: 100%; height: auto; }
+.donut-card svg { max-width: 200px; margin: 0 auto; }
+.gauge-card { padding-bottom: 0; }
+.gauge-card svg { max-width: 240px; margin: 0 auto; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------------------------------------------------------------------
    Shared beyond the login/placeholder pages: list + form screens
    (exercises.html and, later, history.html / goals.html reuse these).
    --------------------------------------------------------------------- */

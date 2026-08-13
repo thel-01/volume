@@ -15,23 +15,6 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
-    .chart-card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 8px 6px;
-    }
-    .chart-card svg { display: block; width: 100%; height: auto; }
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 14px;
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .legend span { display: inline-flex; align-items: center; gap: 6px; }
     .legend i {
       width: 14px;
       height: 3px;
@@ -55,15 +38,17 @@
 
     <div id="content" hidden>
       <p class="section-label" id="index-label">Strength index</p>
-      <div class="chart-card">
+      <div class="chart-card" id="index-card">
         <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Strength index over time"></svg>
       </div>
+      <p id="index-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
       <div id="legend" class="legend" hidden></div>
 
       <p class="section-label" style="margin-top:24px;">Top set weight</p>
-      <div class="chart-card">
+      <div class="chart-card" id="top-set-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Top set weight over time"></svg>
       </div>
+      <p id="top-set-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
     </div>
 
     <p id="empty-state" class="empty-state" hidden></p>
@@ -75,13 +60,14 @@
     import { renderLineChart } from './chart.js';
     import { sessionCapacities, displayDepths, effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
 
-    // Set 1 is the loudest, deeper sets recede — they are context for it, not
-    // competing series.
+    // Set 1 is the loudest, deeper sets recede — a monochrome fade, not a
+    // hue ramp. Order carries the meaning here, same principle as a single-
+    // hue sequential ramp.
     const DEPTH_STYLE = [
-      { color: 'var(--accent)', width: '2.2' },
-      { color: '#e0805a', width: '1.9' },
-      { color: '#9aa6b8', width: '1.6' },
-      { color: '#6c7788', width: '1.4' },
+      { color: 'var(--chart-depth-1)', width: '2.2' },
+      { color: 'var(--chart-depth-2)', width: '1.9' },
+      { color: 'var(--chart-depth-3)', width: '1.6' },
+      { color: 'var(--chart-depth-4)', width: '1.4' },
     ];
 
     // ------------------------------------------------------------------
@@ -93,7 +79,11 @@
     const content = document.getElementById('content');
     const emptyState = document.getElementById('empty-state');
     const svg = document.getElementById('chart');
+    const topSetCard = document.getElementById('top-set-card');
+    const topSetEmpty = document.getElementById('top-set-empty');
     const indexChart = document.getElementById('index-chart');
+    const indexCard = document.getElementById('index-card');
+    const indexEmpty = document.getElementById('index-empty');
     const indexLabel = document.getElementById('index-label');
     const legend = document.getElementById('legend');
 
@@ -330,16 +320,32 @@
 
       // The index needs an estimated 1RM, which weight_reps and bodyweight
       // (via effective load) sets carry. Legacy assisted and time-based
-      // exercises get the top-set chart alone.
+      // exercises get the top-set chart alone. Either way, a single workout
+      // isn't a trend — the chart needs a second point before it draws.
       const capacity = sessionCapacities(liveSets, [exercise]).get(exercise.id);
-      if (capacity && capacity.length > 0) {
+      if (capacity && capacity.length >= 2) {
+        indexLabel.hidden = false;
+        indexCard.hidden = false;
+        indexEmpty.hidden = true;
         drawIndex(capacity, displayDepths(capacity), exercise.type);
+      } else if (capacity && capacity.length === 1) {
+        indexLabel.hidden = false;
+        indexCard.hidden = true;
+        indexEmpty.hidden = false;
       } else {
         indexLabel.hidden = true;
-        indexChart.closest('.chart-card').hidden = true;
+        indexCard.hidden = true;
+        indexEmpty.hidden = true;
       }
 
-      drawTopSet(topSetPoints, exercise.type);
+      if (topSetPoints.length >= 2) {
+        topSetCard.hidden = false;
+        topSetEmpty.hidden = true;
+        drawTopSet(topSetPoints, exercise.type);
+      } else {
+        topSetCard.hidden = true;
+        topSetEmpty.hidden = false;
+      }
     }
 
     const params = new URLSearchParams(window.location.search);
