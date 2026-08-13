@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.26.0';
+const VERSION = 'v1.27.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -34,6 +34,10 @@ const APP_SHELL = [
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png',
+  './fonts/bebas-neue-400.woff2',
+  './fonts/inter-variable.woff2',
+  './fonts/dm-mono-400.woff2',
+  './fonts/dm-mono-500.woff2',
 ];
 
 self.addEventListener('install', (event) => {

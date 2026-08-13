@@ -1,15 +1,143 @@
 /* Shared base styles. Mobile-first: sized for a phone held one-handed. */
 
+/* ---------------------------------------------------------------------
+   Fonts — self-hosted (not a Google Fonts CDN link), since this is an
+   offline-capable PWA with a versioned service-worker cache and an
+   external font CDN would silently break offline loading.
+   - Bebas Neue: app wordmark only ("Volume"), nowhere else.
+   - Inter: everything else (labels, buttons, list items, inputs).
+   - DM Mono: numeric hero displays (index value, stat values, weight
+     readings, chart tooltip values) — pairs with the tabular-nums
+     treatment already used everywhere numbers update live. Tops out at
+     weight 500 in the actual font file — 700 doesn't exist, don't
+     request it (browsers fake a synthetic bold instead of failing).
+   --------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Bebas Neue';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/bebas-neue-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+2000-206F, U+20AC, U+2122;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-variable.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+2000-206F, U+20AC, U+2122;
+}
+
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/dm-mono-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+2000-206F, U+20AC, U+2122;
+}
+
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/dm-mono-500.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+2000-206F, U+20AC, U+2122;
+}
+
 :root {
-  --bg: #0f1115;
-  --surface: #171a21;
-  --surface-2: #1f2430;
-  --line: #2b3140;
-  --text: #e9ecf2;
-  --muted: #98a0b3;
-  --accent: #ff5a36;
-  --danger: #ff6b6b;
-  --ok: #48c78e;
+  /* Surfaces & text — true-black system, 3-tier surface + text hierarchy. */
+  --bg: #000000;
+  --surface: #111111;
+  --surface-2: #333333;
+  --line: #222222;
+
+  --text: #ffffff;
+  --muted: #999999;
+  --text-tertiary: #666666;
+
+  /* No pervasive brand accent — white is the monochrome primary-action
+     color; every other color is reserved for one specific meaning. */
+  --accent: #ffffff;       /* primary buttons, selected chip, focus ring, default chart line */
+  --accent-ink: #000000;   /* text/icon color ON --accent */
+
+  --live: #ffc107;         /* reserved for genuine "in-progress" moments: rest-timer gauge, "Resume · elapsed" */
+  --danger: #c0392b;
+  --ok: #4caf50;
+
+  /* Tints derived FROM the tokens above via color-mix(), not retyped as
+     independent rgba() literals. */
+  --accent-glow: color-mix(in srgb, var(--accent) 18%, transparent);
+  --status-error-bg: color-mix(in srgb, var(--danger) 12%, transparent);
+  --status-error-border: color-mix(in srgb, var(--danger) 40%, transparent);
+  --status-ok-bg: color-mix(in srgb, var(--ok) 12%, transparent);
+  --status-ok-border: color-mix(in srgb, var(--ok) 40%, transparent);
+
+  /* Charts — categorical (donut slices / session categories). */
+  --chart-cat-1: #3987e5;
+  --chart-cat-2: #d95926;
+  --chart-cat-3: #199e70;
+  --chart-cat-4: #c98500;
+  --chart-cat-5: #d55181;
+  --chart-cat-6: #008300;
+  --chart-cat-7: #9085e9;
+  --chart-cat-8: #e66767;
+
+  /* Charts — status/severity (intensity gauge), 4 fixed reserved steps. */
+  --chart-status-good: #0ca30c;
+  --chart-status-warning: #fab219;
+  --chart-status-serious: #ec835a;
+  --chart-status-critical: #d03b3b;
+
+  /* Charts — sequential "depth" (receding set-index lines): a monochrome
+     fade, not a hue ramp. Order carries the meaning. */
+  --chart-depth-1: var(--text);
+  --chart-depth-2: var(--muted);
+  --chart-depth-3: var(--text-tertiary);
+  --chart-depth-4: #444444;
+
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, 'SF Mono', monospace;
+
+  --fs-2xs: 11px;   /* chart axis/tooltip labels (SVG) */
+  --fs-xs: 12px;    /* badge, legend text */
+  --fs-sm: 13px;    /* list-item-meta, section-label, stat-label/change */
+  --fs-md: 14px;    /* label, muted, tab, link-button */
+  --fs-base: 15px;  /* chip, status, set-row, empty-state */
+  --fs-input: 17px; /* every real form input — iOS zoom guard, do not change */
+  --fs-lg: 18px;    /* icon glyphs, donut center label */
+  --fs-xl: 22px;    /* page-header h1 */
+  --fs-2xl: 26px;   /* brand wordmark */
+  --fs-3xl: 30px;   /* stat-value */
+  --fs-4xl: 34px;   /* index-value, stat-value.lg */
+
+  --tracking-tight: -0.02em;  /* page-header h1, brand wordmark */
+  --tracking-label: 0.04em;   /* .section-label */
+  --tracking-wide: 0.5px;
+  --tracking-wider: 1px;
+  --tracking-widest: 3px;     /* uppercase CTA buttons */
+
+  --radius: 0;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  --motion-fast: 150ms ease;
 
   /* Anything tappable is at least this tall — comfortable with a thumb. */
   --tap: 56px;
@@ -88,7 +216,7 @@ input[type='text'] {
 
 input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 90, 54, 0.18);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 button {
@@ -98,7 +226,7 @@ button {
   border: 0;
   border-radius: 14px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-size: 17px;
   font-weight: 600;
   cursor: pointer;
@@ -124,13 +252,13 @@ button.secondary {
 }
 .status[hidden] { display: none; }
 .status.error {
-  background: rgba(255, 107, 107, 0.12);
-  border-color: rgba(255, 107, 107, 0.4);
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
   color: #ffc9c9;
 }
 .status.ok {
-  background: rgba(72, 199, 142, 0.12);
-  border-color: rgba(72, 199, 142, 0.4);
+  background: var(--status-ok-bg);
+  border-color: var(--status-ok-border);
   color: #b6f0d5;
 }
 .status.info {
@@ -183,7 +311,7 @@ button.secondary {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.icon-btn { background: var(--accent); border-color: var(--accent); color: #fff; }
+.icon-btn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
 textarea,
 select {
@@ -204,14 +332,14 @@ select {
   -webkit-appearance: none;
   height: var(--tap);
   padding-right: 40px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%2398a0b3' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%23999999' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 16px center;
 }
 
 textarea:focus, select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 90, 54, 0.18);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 input:disabled, textarea:disabled, select:disabled {
@@ -222,11 +350,11 @@ input:disabled, textarea:disabled, select:disabled {
 .btn-row { display: flex; gap: 12px; }
 .btn-row button { flex: 1; }
 
-button.danger { background: var(--danger); }
+button.danger { background: var(--danger); color: #fff; }
 button.danger.secondary {
   background: var(--surface-2);
   color: var(--danger);
-  border-color: rgba(255, 107, 107, 0.4);
+  border-color: var(--status-error-border);
 }
 
 .tabs {
@@ -360,7 +488,7 @@ button.danger.secondary {
 .chip.selected {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
