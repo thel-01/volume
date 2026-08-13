@@ -22,8 +22,9 @@
       margin-bottom: 10px;
     }
     .index-value {
-      font-size: 34px;
-      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: var(--fs-4xl);
+      font-weight: 500;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
@@ -47,13 +48,24 @@
     .stat-visual { height: 38px; display: flex; align-items: flex-end; }
     .stat-visual svg { height: 34px; width: auto; display: block; }
     .stat-value {
-      font-size: 30px;
-      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: var(--fs-3xl);
+      font-weight: 500;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    .stat-value.lg { font-size: 34px; }
+    .stat-value.lg { font-size: var(--fs-4xl); }
     .stat-value.accent { color: var(--accent); }
+    /* DM Mono is monospaced, so a literal space before a unit reads as a
+       much wider gap than it would in a proportional font. Styled down and
+       set apart with margin instead of a space character. */
+    .stat-value .unit {
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 3px;
+    }
     .stat-label { font-size: 13px; color: var(--muted); }
     /* Uncoloured on purpose: gaining weight isn't inherently good or bad. */
     .stat-change {
@@ -70,18 +82,18 @@
 
     <div class="page-header">
       <!-- No back arrow: this is the app's root. The blank keeps the title centred. -->
-      <span class="icon-link" style="visibility:hidden">←</span>
+      <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       <h1>Volume</h1>
-      <a href="./settings.html" class="icon-link" aria-label="Settings">⚙</a>
+      <a href="./settings.html" class="icon-link" aria-label="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2.1" fill="var(--surface)"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2.1" fill="var(--surface)"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="11" cy="18" r="2.1" fill="var(--surface)"/></svg></a>
     </div>
 
     <!-- The two things you actually open the app to do. -->
     <div class="btn-row" style="margin-bottom:24px;">
       <a href="./log.html" class="grow-2" style="text-decoration:none;display:flex;">
-        <button type="button" id="workout-btn" style="width:100%;">Start workout</button>
+        <button type="button" id="workout-btn" class="uppercase" style="width:100%;">Start workout</button>
       </a>
       <a href="./history.html" style="text-decoration:none;display:flex;flex:1;">
-        <button class="secondary" type="button" style="width:100%;">History</button>
+        <button class="secondary uppercase" type="button" style="width:100%;">History</button>
       </a>
     </div>
 
@@ -117,7 +129,7 @@
             <span class="stat-label">Intensity</span>
           </div>
         </div>
-        <span class="list-item-chevron">›</span>
+        <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
       </a>
 
       <p class="section-label">Recent PRs</p>
@@ -210,14 +222,22 @@
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
     // ------------------------------------------------------------------
+    // Same two icons used for every success/error status across the app —
+    // color-only otherwise, which doesn't hold up for anyone who can't rely
+    // on color alone.
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
     function show(el, kind, message) {
       el.className = `status ${kind}`;
-      el.textContent = message;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
       el.hidden = false;
     }
     function hide(el) {
       el.hidden = true;
-      el.textContent = '';
+      el.innerHTML = '';
     }
     function flash(message, kind = 'ok', ms = 3000) {
       show(topStatus, kind, message);
@@ -387,7 +407,8 @@
         staleNotice.hidden = true;
         return;
       }
-      staleNotice.textContent = `No reading in ${days} days — tap to log one.`;
+      staleNotice.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7 V12 L16 14"/></svg>';
+      staleNotice.appendChild(document.createTextNode(`No reading in ${days} days — tap to log one.`));
       staleNotice.hidden = false;
     }
 
@@ -413,7 +434,7 @@
       weightEmpty.hidden = true;
 
       const latest = data[data.length - 1];
-      weightValue.textContent = `${Number(latest.weight_kg).toFixed(1)} kg`;
+      weightValue.innerHTML = `${Number(latest.weight_kg).toFixed(1)}<span class="unit">kg</span>`;
       weightWhen.textContent = relativeWhen(latest);
       renderStaleNotice(latest);
 
@@ -422,7 +443,7 @@
       const avgThen = windowMean(data, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
       // The change sits under the average because that's what it measures —
       // comparing single readings would mostly measure yesterday's dinner.
-      weightAverage.textContent = avgNow === null ? '—' : `${avgNow.toFixed(1)} kg`;
+      weightAverage.innerHTML = avgNow === null ? '—' : `${avgNow.toFixed(1)}<span class="unit">kg</span>`;
       if (avgNow === null || avgThen === null) {
         weightChange.textContent = '';
       } else {
@@ -779,7 +800,7 @@
       meta.appendChild(value);
       if (stat.pr && stat.isFirstLog) {
         const badge = document.createElement('span');
-        badge.className = 'badge';
+        badge.className = 'badge badge-warning';
         badge.textContent = 'First log';
         meta.appendChild(badge);
       }
@@ -789,7 +810,7 @@
       if (tappable) {
         const chevron = document.createElement('span');
         chevron.className = 'list-item-chevron';
-        chevron.textContent = '›';
+        chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
         li.appendChild(chevron);
       }
       return li;
@@ -842,8 +863,11 @@
         body.appendChild(name);
         li.appendChild(body);
 
+        // Not a badge: this value is the actual point of the row, not
+        // supporting detail, so it reads as plain text rather than a tag.
         const value = document.createElement('span');
-        value.className = 'badge';
+        value.style.color = 'var(--muted)';
+        value.style.fontSize = 'var(--fs-sm)';
         value.textContent = timeAgo(lastStart);
         li.appendChild(value);
 

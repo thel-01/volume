@@ -289,7 +289,9 @@ button.secondary {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 20px;
+  transition: transform var(--motion-fast);
 }
+.card:active { transform: scale(0.99); }
 
 .muted { color: var(--muted); font-size: 14px; }
 
