@@ -23,12 +23,23 @@
     }
     .stat { display: flex; flex-direction: column; gap: 3px; }
     .stat-value {
-      font-size: 30px;
-      font-weight: 700;
+      font-family: var(--font-mono);
+      font-size: var(--fs-3xl);
+      font-weight: 500;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    .stat-value.accent { color: var(--accent); }
+    .stat-value.live { color: var(--live); }
+    /* DM Mono is monospaced, so a literal space before a unit reads as a
+       much wider gap than it would in a proportional font. Styled down and
+       set apart with margin instead of a space character. */
+    .stat-value .unit {
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 3px;
+    }
     .stat-label { font-size: 13px; color: var(--muted); }
     /* Deliberately uncoloured: gaining weight isn't inherently bad, so
        painting one direction green and the other red would editorialise. */
@@ -53,9 +64,9 @@
     <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
 
     <div class="page-header">
-      <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
+      <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
       <h1>Weight</h1>
-      <span class="icon-link" style="visibility:hidden">←</span>
+      <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
     </div>
 
     <p id="loading" class="muted">Loading…</p>
@@ -73,7 +84,7 @@
         <div class="stat">
           <!-- Coloured to match its line on the chart, so the number and the
                curve are obviously the same thing. -->
-          <span class="stat-value accent" id="average-weight">—</span>
+          <span class="stat-value live" id="average-weight">—</span>
           <span class="stat-label">7-day average</span>
           <span class="stat-change" id="trend-change"></span>
         </div>
@@ -85,16 +96,16 @@
 
       <div class="chart-card" id="chart-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
+        <div id="legend" class="legend" hidden></div>
       </div>
       <p id="chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
-      <div id="legend" class="legend" hidden></div>
 
       <div style="height:20px;"></div>
       <button id="add-toggle" type="button">+ Log weight</button>
 
       <!-- Add form. Date and time stay tucked away: the overwhelmingly common
            case is weighing yourself and logging it there and then. -->
-      <div id="add-form" class="card" style="margin-top:12px;" hidden>
+      <div id="add-form" style="margin-top:12px;" hidden>
         <div class="field">
           <label for="new-weight">Weight (kg)</label>
           <input id="new-weight" type="text" inputmode="decimal" autocomplete="off" placeholder="80.5">
@@ -198,9 +209,14 @@
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
     function show(el, kind, message) {
       el.className = `status ${kind}`;
-      el.textContent = message;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
       el.hidden = false;
     }
     function hide(el) { el.hidden = true; }
@@ -391,7 +407,7 @@
 
       const ascending = [...entries].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
 
-      currentWeight.textContent = `${fmtKg(entries[0].weight_kg)} kg`;
+      currentWeight.innerHTML = `${fmtKg(entries[0].weight_kg)}<span class="unit">kg</span>`;
       currentWhen.textContent = relativeWhen(entries[0]);
       renderStaleNotice(entries[0]);
 
@@ -409,7 +425,7 @@
       // full one. Wait until there's enough tracked history to back it up.
       const enoughHistoryForAverage = now - new Date(ascending[0].measured_at).getTime() >= AVERAGE_DAYS * DAY_MS;
 
-      averageWeight.textContent = (!enoughHistoryForAverage || avgNow === null) ? '—' : `${fmtKg(avgNow)} kg`;
+      averageWeight.innerHTML = (!enoughHistoryForAverage || avgNow === null) ? '—' : `${fmtKg(avgNow)}<span class="unit">kg</span>`;
 
       if (!enoughHistoryForAverage || avgNow === null || avgThen === null) {
         trendChange.textContent = '';
@@ -448,7 +464,7 @@
 
       renderLineChart(chart, {
         series: [
-          { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
+          { key: 'avg', points: average, color: 'var(--live)', width: '2.2' },
           // Scatter, not a line: joining the raw readings drew a jagged shape
           // that isn't real and pulled the eye away from the average, which is
           // the honest interpolation between them.
@@ -461,7 +477,7 @@
       });
 
       legend.innerHTML = `
-        <span><i style="background:var(--accent)"></i>${AVERAGE_DAYS}-day average</span>
+        <span><i style="background:var(--live)"></i>${AVERAGE_DAYS}-day average</span>
         <span><i class="dot" style="background:var(--muted)"></i>Reading</span>`;
       legend.hidden = average.length === 0;
 
@@ -512,7 +528,7 @@
 
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
-      chevron.textContent = '›';
+      chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
       li.appendChild(chevron);
       return li;
     }
