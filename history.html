@@ -23,9 +23,9 @@
     <!-- =================== LIST VIEW =================== -->
     <section id="list-view">
       <div class="page-header">
-        <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
+        <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
         <h1>History</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <p class="section-label">Filter</p>
@@ -39,16 +39,16 @@
     <!-- =================== SESSION DETAIL =================== -->
     <section id="detail-view" hidden>
       <div class="page-header">
-        <button id="detail-back" class="icon-link" type="button" aria-label="Back to history">←</button>
+        <button id="detail-back" class="icon-link" type="button" aria-label="Back to history"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1>Session</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
       <p id="detail-subtitle" class="subtitle"></p>
 
       <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add note</button>
       <div class="field" id="session-comment-field" hidden>
         <label for="session-comment">Session comment</label>
-        <textarea id="session-comment" placeholder="e.g. didn't eat much today"></textarea>
+        <textarea id="session-comment" placeholder="Add a comment"></textarea>
         <p id="session-comment-state" class="muted" style="margin:4px 0 0;min-height:18px;font-size:13px;"></p>
       </div>
 
@@ -56,14 +56,14 @@
       <p id="empty-exercises" class="empty-state" hidden>Nothing was logged in this session.</p>
 
       <div class="danger-zone">
-        <button id="delete-session-btn" class="secondary danger" type="button">Delete this session</button>
+        <button id="delete-session-btn" class="secondary danger uppercase" type="button">Delete this session</button>
         <div id="delete-session-confirm" hidden>
           <p class="muted" style="margin:12px 0;">
             Delete this whole session? You can restore it later from Settings.
           </p>
           <div class="btn-row">
             <button id="delete-session-cancel" class="secondary" type="button">Cancel</button>
-            <button id="delete-session-confirm-btn" class="danger" type="button">Yes, delete</button>
+            <button id="delete-session-confirm-btn" class="danger uppercase" type="button">Yes, delete</button>
           </div>
         </div>
       </div>
@@ -137,14 +137,22 @@
       latestBodyweightKg = error || !data ? null : Number(data.weight_kg);
     }
 
+    // Same two icons used for every success/error status across the app —
+    // color-only otherwise, which doesn't hold up for anyone who can't rely
+    // on color alone.
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
     function show(el, kind, message) {
       el.className = `status ${kind}`;
-      el.textContent = message;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
       el.hidden = false;
     }
     function hide(el) {
       el.hidden = true;
-      el.textContent = '';
+      el.innerHTML = '';
     }
     function flash(message, kind = 'ok', ms = 3000) {
       show(topStatus, kind, message);
@@ -397,23 +405,25 @@
 
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
+      // Badges are added info, not the point of the row — they sit after
+      // whatever they're annotating, never before it.
+      const summary = document.createElement('span');
+      summary.textContent = exerciseCount === 0
+        ? 'Nothing logged'
+        : `${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'} · ${setCount} set${setCount === 1 ? '' : 's'}`;
+      meta.appendChild(summary);
       if (s.category) {
         const badge = document.createElement('span');
         badge.className = 'badge';
         badge.textContent = s.category;
         meta.appendChild(badge);
       }
-      const summary = document.createElement('span');
-      summary.textContent = exerciseCount === 0
-        ? 'Nothing logged'
-        : `${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'} · ${setCount} set${setCount === 1 ? '' : 's'}`;
-      meta.appendChild(summary);
       body.appendChild(meta);
 
       li.appendChild(body);
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
-      chevron.textContent = '›';
+      chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
       li.appendChild(chevron);
 
       const open = () => openSessionDetail(s.id);
@@ -554,8 +564,7 @@
       name.textContent = entry.exercise.name;
       if (entry.exercise.deleted_at) {
         const flag = document.createElement('span');
-        flag.className = 'badge';
-        flag.style.marginLeft = '8px';
+        flag.className = 'badge badge-warning';
         flag.textContent = 'removed from library';
         name.appendChild(flag);
       }
@@ -646,7 +655,7 @@
       removeCancel.textContent = 'Cancel';
       const removeYes = document.createElement('button');
       removeYes.type = 'button';
-      removeYes.className = 'danger';
+      removeYes.className = 'danger uppercase';
       removeYes.textContent = 'Yes, remove';
       removeRow.appendChild(removeCancel);
       removeRow.appendChild(removeYes);
@@ -960,10 +969,11 @@
       }
 
       // Two-tap hard delete, identical state machine to the Log screen.
+      const DELETE_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>';
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'set-delete';
-      del.textContent = '×';
+      del.innerHTML = DELETE_ICON;
       del.setAttribute('aria-label', 'Delete set');
       let armed = false;
       let disarmTimer = null;
@@ -976,7 +986,7 @@
           disarmTimer = setTimeout(() => {
             armed = false;
             del.classList.remove('confirming');
-            del.textContent = '×';
+            del.innerHTML = DELETE_ICON;
           }, 3000);
           return;
         }
@@ -987,7 +997,7 @@
         if (error) {
           del.disabled = false;
           del.classList.remove('confirming');
-          del.textContent = '×';
+          del.innerHTML = DELETE_ICON;
           armed = false;
           flash(`Could not delete the set: ${error.message}`, 'error', 5000);
           return;
