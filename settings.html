@@ -26,9 +26,9 @@
          redesign of this page. -->
     <section id="home-view">
       <div class="page-header">
-        <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
+        <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
         <h1>Settings</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <ul class="list">
@@ -36,35 +36,33 @@
           <div class="list-item-body">
             <div class="list-item-name">Manage exercises</div>
           </div>
-          <span class="list-item-chevron">›</span>
+          <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
         </li>
         <li class="list-item" id="session-types-link" tabindex="0" role="button">
           <div class="list-item-body">
             <div class="list-item-name">Session types</div>
           </div>
-          <span class="list-item-chevron">›</span>
+          <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
         </li>
         <li class="list-item" id="recently-deleted-link" tabindex="0" role="button">
           <div class="list-item-body">
             <div class="list-item-name">Recently Deleted</div>
           </div>
-          <span class="list-item-chevron">›</span>
+          <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
         </li>
       </ul>
 
       <p class="section-label" style="margin-top:28px;">Account</p>
-      <div class="card">
-        <div class="reference-line" style="margin-top:0;">
-          <span class="reference-label">Signed in as:</span>
-          <span class="reference-value" id="account-email">…</span>
-        </div>
-        <div class="reference-line">
-          <span class="reference-label">Running:</span>
-          <span class="reference-value" id="account-mode">…</span>
-        </div>
+      <div class="reference-line" style="margin-top:0;">
+        <span class="reference-label">Signed in as:</span>
+        <span class="reference-value" id="account-email">…</span>
       </div>
-      <div style="height:12px;"></div>
-      <button id="logout" class="secondary" type="button">Log out</button>
+      <div class="reference-line">
+        <span class="reference-label">Running:</span>
+        <span class="reference-value" id="account-mode">…</span>
+      </div>
+      <div style="height:16px;"></div>
+      <button id="logout" class="secondary uppercase" type="button">Log out</button>
 
       <p class="section-label" style="margin-top:28px;">Backup</p>
       <button id="export-btn" class="secondary" type="button">Export all data (JSON)</button>
@@ -77,9 +75,9 @@
     <!-- =================== SESSION TYPES =================== -->
     <section id="session-types-view" hidden>
       <div class="page-header">
-        <button id="st-back" class="icon-link" type="button" aria-label="Back to settings">←</button>
+        <button id="st-back" class="icon-link" type="button" aria-label="Back to settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1>Session Types</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <p class="muted" style="margin:-8px 0 20px;">
@@ -96,7 +94,7 @@
         <div id="st-suggestion-chips" class="chips" style="margin-bottom:12px;"></div>
         <div class="field">
           <label for="st-custom-input">Custom</label>
-          <input id="st-custom-input" type="text" autocomplete="off" autocapitalize="words" placeholder="e.g. Arms, PT">
+          <input id="st-custom-input" type="text" autocomplete="off" autocapitalize="words" placeholder="Enter session type name">
         </div>
         <button id="st-custom-add-btn" type="button" class="secondary">Add</button>
       </div>
@@ -106,9 +104,9 @@
     <!-- =================== RECENTLY DELETED =================== -->
     <section id="recently-deleted-view" hidden>
       <div class="page-header">
-        <button id="rd-back" class="icon-link" type="button" aria-label="Back to settings">←</button>
+        <button id="rd-back" class="icon-link" type="button" aria-label="Back to settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1>Recently Deleted</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <p id="loading" class="muted">Loading…</p>
@@ -181,9 +179,14 @@
     // row and drop off this suggestion list.
     const DEFAULT_SESSION_TYPES = ['Push', 'Pull', 'Legs', 'Upper', 'Lower', 'Full Body'];
 
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
     function show(el, kind, message) {
       el.className = `status ${kind}`;
-      el.textContent = message;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
       el.hidden = false;
     }
     function hide(el) {
