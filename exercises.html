@@ -25,7 +25,7 @@
     <!-- =================== PATTERNS (home) VIEW =================== -->
     <section id="patterns-view">
       <div class="page-header">
-        <a href="./settings.html" class="icon-link" aria-label="Back">←</a>
+        <a href="./settings.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
         <h1>Movement Patterns</h1>
         <button id="new-pattern-btn" class="icon-btn" type="button" aria-label="New movement pattern">+</button>
       </div>
@@ -45,7 +45,7 @@
     <!-- =================== PATTERN DETAIL (inside a box) =================== -->
     <section id="pattern-detail-view" hidden>
       <div class="page-header">
-        <button id="detail-back" class="icon-link" type="button" aria-label="Back to patterns">←</button>
+        <button id="detail-back" class="icon-link" type="button" aria-label="Back to patterns"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1 id="detail-title">Pattern name</h1>
         <button id="detail-edit-btn" class="icon-link" type="button" style="width:auto;padding:0 12px;font-size:14px;">Edit</button>
       </div>
@@ -62,16 +62,16 @@
     <!-- =================== PATTERN FORM (create / rename / delete) =================== -->
     <section id="pattern-form-view" hidden>
       <div class="page-header">
-        <button id="pattern-form-back" class="icon-link" type="button" aria-label="Cancel">←</button>
+        <button id="pattern-form-back" class="icon-link" type="button" aria-label="Cancel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1 id="pattern-form-title">New movement pattern</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <form id="pattern-form" novalidate>
         <div class="field">
           <label for="pattern-name">Name</label>
           <input id="pattern-name" type="text" autocomplete="off" autocapitalize="words"
-                 placeholder="e.g. Horizontal Press" required>
+                 placeholder="Enter movement pattern name" required>
         </div>
 
         <p class="section-label">Session type</p>
@@ -91,12 +91,12 @@
       <div id="pattern-form-status" class="status" role="status" aria-live="polite" hidden></div>
 
       <div id="pattern-delete-zone" class="danger-zone" hidden>
-        <button id="pattern-delete-btn" class="secondary danger" type="button">Delete movement pattern</button>
+        <button id="pattern-delete-btn" class="secondary danger uppercase" type="button">Delete movement pattern</button>
         <div id="pattern-delete-confirm" hidden>
           <p class="muted" id="pattern-delete-copy" style="margin-bottom:12px;"></p>
           <div class="btn-row">
             <button id="pattern-delete-cancel" class="secondary" type="button">Cancel</button>
-            <button id="pattern-delete-confirm-btn" class="danger" type="button">Yes, delete</button>
+            <button id="pattern-delete-confirm-btn" class="danger uppercase" type="button">Yes, delete</button>
           </div>
         </div>
       </div>
@@ -105,15 +105,15 @@
     <!-- =================== EXERCISE FORM (create / edit) =================== -->
     <section id="exercise-form-view" hidden>
       <div class="page-header">
-        <button id="exercise-form-back" class="icon-link" type="button" aria-label="Cancel">←</button>
+        <button id="exercise-form-back" class="icon-link" type="button" aria-label="Cancel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1 id="exercise-form-title">New exercise</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <form id="exercise-form" novalidate>
         <div class="field">
           <label for="ex-name">Name</label>
-          <input id="ex-name" type="text" autocomplete="off" autocapitalize="words" required>
+          <input id="ex-name" type="text" autocomplete="off" autocapitalize="words" placeholder="Enter exercise name" required>
         </div>
 
         <div class="field">
@@ -139,7 +139,7 @@
         <button id="ex-notes-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add notes</button>
         <div class="field" id="ex-notes-field" hidden>
           <label for="ex-notes">Notes</label>
-          <textarea id="ex-notes" placeholder="e.g. smith machine = 10kg resistance"></textarea>
+          <textarea id="ex-notes" placeholder="Add exercise notes"></textarea>
         </div>
 
         <button id="ex-save-btn" type="submit">Save</button>
@@ -148,7 +148,7 @@
       <div id="exercise-form-status" class="status" role="status" aria-live="polite" hidden></div>
 
       <div id="exercise-delete-zone" class="danger-zone" hidden>
-        <button id="exercise-delete-btn" class="secondary danger" type="button">Delete exercise</button>
+        <button id="exercise-delete-btn" class="secondary danger uppercase" type="button">Delete exercise</button>
         <div id="exercise-delete-confirm" hidden>
           <p class="muted" style="margin-bottom:12px;">
             Delete "<strong id="exercise-delete-name"></strong>"? You can restore it later
@@ -156,7 +156,7 @@
           </p>
           <div class="btn-row">
             <button id="exercise-delete-cancel" class="secondary" type="button">Cancel</button>
-            <button id="exercise-delete-confirm-btn" class="danger" type="button">Yes, delete</button>
+            <button id="exercise-delete-confirm-btn" class="danger uppercase" type="button">Yes, delete</button>
           </div>
         </div>
       </div>
@@ -250,14 +250,22 @@
     let editingExerciseId = null;  // null while creating an exercise
     let editingExerciseLocked = false;
 
+    // Same two icons used for every success/error status across the app —
+    // color-only otherwise, which doesn't hold up for anyone who can't rely
+    // on color alone.
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
     function show(el, kind, message) {
       el.className = `status ${kind}`;
-      el.textContent = message;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
       el.hidden = false;
     }
     function hide(el) {
       el.hidden = true;
-      el.textContent = '';
+      el.innerHTML = '';
     }
     function showView(view) {
       patternsView.hidden = view !== 'patterns';
@@ -341,10 +349,12 @@
 
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = count === 1 ? '1 exercise' : `${count} exercises`;
-      meta.appendChild(badge);
+      // Count is plain text, not a badge — matches log.html's "3 sets" and
+      // history.html's "4 exercises · 12 sets", the only other places a
+      // count sits next to a real badge in a meta row.
+      const countEl = document.createElement('span');
+      countEl.textContent = count === 1 ? '1 exercise' : `${count} exercises`;
+      meta.appendChild(countEl);
       if (pattern.category) {
         const catBadge = document.createElement('span');
         catBadge.className = 'badge';
@@ -356,7 +366,7 @@
       li.appendChild(body);
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
-      chevron.textContent = '›';
+      chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
       li.appendChild(chevron);
 
       const open = () => openPatternDetail(pattern.id);
@@ -422,7 +432,7 @@
       li.appendChild(body);
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
-      chevron.textContent = '›';
+      chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
       li.appendChild(chevron);
 
       const open = () => openExerciseForm(ex);

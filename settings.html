@@ -519,6 +519,11 @@
       if (sessionTypes.length === 0) {
         sessionTypeListEl.hidden = true;
         emptySessionTypes.hidden = false;
+        // Nothing to show yet — open straight to the form instead of making
+        // a brand-new account tap "+ Add session type" for what's obviously
+        // the next step.
+        stAddPanel.hidden = false;
+        stAddToggle.textContent = '− Hide';
       } else {
         emptySessionTypes.hidden = true;
         sessionTypeListEl.hidden = false;
