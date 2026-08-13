@@ -1,3 +1,11 @@
 CLAUDE.md
 .DS_Store
 .claude/
+
+# Reskin design-process files — in-flux, not yet part of the shipped app.
+# Revisit committing once the reskin locks in and ships (see reskin plan).
+tokens.css
+fonts/
+design-tokens-mapping.md
+reskin-decisions.md
+icon-preview/
