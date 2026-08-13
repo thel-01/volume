@@ -124,7 +124,7 @@
   --tracking-label: 0.04em;   /* .section-label */
   --tracking-wide: 0.5px;
   --tracking-wider: 1px;
-  --tracking-widest: 3px;     /* uppercase CTA buttons */
+  --tracking-widest: 1px;     /* uppercase CTA buttons */
 
   --radius: 0;
 
@@ -244,6 +244,7 @@ button:disabled { opacity: 0.55; cursor: default; }
    Applied per-instance where that's true; not the default button look. */
 button.uppercase {
   text-transform: uppercase;
+  font-weight: 800;
   letter-spacing: var(--tracking-widest);
 }
 
