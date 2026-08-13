@@ -24,9 +24,9 @@
     <!-- =================== START VIEW (no active session) =================== -->
     <section id="start-view" hidden>
       <div class="page-header">
-        <a href="./dashboard.html" class="icon-link" aria-label="Back">←</a>
+        <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
         <h1>Start workout</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <p class="section-label">Session type</p>
@@ -35,7 +35,7 @@
         No session types yet — add some in Settings, or pick Other for now.
       </p>
 
-      <button id="start-btn" type="submit" disabled>Start workout</button>
+      <button id="start-btn" type="submit" class="uppercase" disabled>Start workout</button>
 
       <div id="start-status" class="status" role="status" aria-live="polite" hidden></div>
     </section>
@@ -47,7 +47,7 @@
           <div id="session-category" class="session-bar-category">Workout</div>
           <div id="session-clock" class="session-bar-clock">—</div>
         </div>
-        <button id="end-session-btn" class="secondary" type="button"
+        <button id="end-session-btn" class="secondary uppercase" type="button"
                 style="width:auto;min-height:40px;padding:0 16px;flex:0 0 auto;">End</button>
       </div>
 
@@ -63,9 +63,9 @@
     <!-- =================== PICKER VIEW (choose / create exercise) =================== -->
     <section id="picker-view" hidden>
       <div class="page-header">
-        <button id="picker-back" class="icon-link" type="button" aria-label="Cancel">←</button>
+        <button id="picker-back" class="icon-link" type="button" aria-label="Cancel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1>Add exercise</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <div class="field">
@@ -86,7 +86,7 @@
         <p class="section-label">Create new</p>
         <div class="field">
           <label for="new-ex-name">Name</label>
-          <input id="new-ex-name" type="text" autocomplete="off" autocapitalize="words">
+          <input id="new-ex-name" type="text" autocomplete="off" autocapitalize="words" placeholder="Enter exercise name">
         </div>
         <div class="field">
           <label for="new-ex-type">Type</label>
@@ -111,9 +111,9 @@
     <!-- =================== END VIEW (wrap up) =================== -->
     <section id="end-view" hidden>
       <div class="page-header">
-        <button id="end-back" class="icon-link" type="button" aria-label="Back to workout">←</button>
+        <button id="end-back" class="icon-link" type="button" aria-label="Back to workout"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
         <h1>Finish workout</h1>
-        <span class="icon-link" style="visibility:hidden">←</span>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
       <p id="end-summary-heading" class="subtitle"></p>
@@ -125,12 +125,12 @@
       <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add a comment</button>
       <div class="field" id="session-comment-field" hidden>
         <label for="session-comment">How did it go?</label>
-        <textarea id="session-comment" placeholder="e.g. didn't eat much today"></textarea>
+        <textarea id="session-comment" placeholder="Add a comment"></textarea>
       </div>
 
       <div class="btn-row">
         <button id="end-cancel" class="secondary" type="button">Keep going</button>
-        <button id="end-confirm" type="button">Finish</button>
+        <button id="end-confirm" type="button" class="uppercase">Finish</button>
       </div>
 
       <div id="end-status" class="status" role="status" aria-live="polite" hidden></div>
@@ -223,14 +223,22 @@
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as exercises.html)
     // ------------------------------------------------------------------
+    // Same two icons used for every success/error status across the app —
+    // color-only otherwise, which doesn't hold up for anyone who can't rely
+    // on color alone.
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
     function show(el, kind, message) {
       el.className = `status ${kind}`;
-      el.textContent = message;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
       el.hidden = false;
     }
     function hide(el) {
       el.hidden = true;
-      el.textContent = '';
+      el.innerHTML = '';
     }
     function flash(message, kind = 'ok', ms = 3000) {
       show(topStatus, kind, message);
@@ -783,9 +791,12 @@
       headerBody.appendChild(meta);
       header.appendChild(headerBody);
 
+      // Accordion indicator, not a disclosure arrow — one V-shaped chevron
+      // that rotates 180° open, rather than swapping between two glyphs.
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
-      chevron.textContent = entry.expanded ? '⌄' : '›';
+      chevron.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform var(--motion-fast);"><path d="M5 8 L12 15 L19 8"/></svg>';
+      if (entry.expanded) chevron.firstElementChild.style.transform = 'rotate(180deg)';
       header.appendChild(chevron);
 
       header.addEventListener('click', () => {
@@ -876,7 +887,7 @@
       const comment = document.createElement('textarea');
       comment.id = `comment-${entry.exercise.id}`;
       comment.value = entry.comment || '';
-      comment.placeholder = 'e.g. hamstring felt bad, didn’t go up in weight';
+      comment.placeholder = 'Add a note for today';
       comment.style.minHeight = '60px';
       commentField.appendChild(comment);
       const commentState = document.createElement('p');
@@ -1011,10 +1022,11 @@
       }
 
       // Two-tap delete: × turns into "Delete?" rather than a browser dialog.
+      const DELETE_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>';
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'set-delete';
-      del.textContent = '×';
+      del.innerHTML = DELETE_ICON;
       del.setAttribute('aria-label', 'Delete set');
       let armed = false;
       let disarmTimer = null;
@@ -1026,7 +1038,7 @@
           disarmTimer = setTimeout(() => {
             armed = false;
             del.classList.remove('confirming');
-            del.textContent = '×';
+            del.innerHTML = DELETE_ICON;
           }, 3000);
           return;
         }
@@ -1037,7 +1049,7 @@
         if (error) {
           del.disabled = false;
           del.classList.remove('confirming');
-          del.textContent = '×';
+          del.innerHTML = DELETE_ICON;
           armed = false;
           flash(`Could not delete the set: ${error.message}`, 'error', 5000);
           return;
@@ -1603,7 +1615,7 @@
 
       const chevron = document.createElement('span');
       chevron.className = 'list-item-chevron';
-      chevron.textContent = '›';
+      chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
       li.appendChild(chevron);
 
       const pick = () => addExerciseToSession(ex);

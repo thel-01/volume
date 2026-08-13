@@ -247,6 +247,11 @@ button.uppercase {
   letter-spacing: var(--tracking-widest);
 }
 
+/* Workout-in-progress state — a genuine "in progress" moment, one of only
+   two places --live means exactly this (the other is the log screen's own
+   running session clock). */
+button.live { background: var(--live); color: var(--accent-ink); }
+
 button.secondary {
   background: var(--surface-2);
   color: var(--text);
@@ -339,7 +344,6 @@ button.secondary {
 .page-header h1 {
   flex: 1;
   margin: 0;
-  font-family: var(--font-display);
   font-size: var(--fs-xl);
   letter-spacing: var(--tracking-tight);
   text-align: center;
@@ -348,6 +352,8 @@ button.secondary {
 .icon-link, .icon-btn {
   width: 40px;
   height: 40px;
+  min-height: 0;
+  padding: 0;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -575,10 +581,14 @@ button.danger.secondary {
 }
 .session-bar-clock {
   margin-top: 2px;
-  color: var(--muted);
+  color: var(--live);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+
+/* A genuine "in progress" moment — same amber as the workout-in-progress
+   Resume button, reserved for exactly this kind of live/ticking state. */
+#rest-gauge { color: var(--live); }
 
 /* One exercise inside the session. Collapsed = header only. */
 .exercise-card {

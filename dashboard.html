@@ -55,7 +55,7 @@
       font-variant-numeric: tabular-nums;
     }
     .stat-value.lg { font-size: var(--fs-4xl); }
-    .stat-value.accent { color: var(--accent); }
+    .stat-value.live { color: var(--live); }
     /* DM Mono is monospaced, so a literal space before a unit reads as a
        much wider gap than it would in a proportional font. Styled down and
        set apart with margin instead of a space character. */
@@ -151,7 +151,7 @@
         </div>
         <div class="stat">
           <!-- Coloured to match its line on the chart below. -->
-          <span class="stat-value accent" id="weight-average">—</span>
+          <span class="stat-value live" id="weight-average">—</span>
           <span class="stat-label">7-day average</span>
           <span class="stat-change" id="weight-change"></span>
         </div>
@@ -481,7 +481,7 @@
 
       renderLineChart(weightChart, {
         series: [
-          { key: 'avg', points: average, color: 'var(--accent)', width: '2.2' },
+          { key: 'avg', points: average, color: 'var(--live)', width: '2.2' },
           // Scatter: joining noisy readings invents a shape and steals
           // attention from the average, which is the real signal.
           { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
@@ -508,6 +508,9 @@
       workoutBtn.textContent = openSession
         ? `Resume · ${elapsedSince(openSession.start_time)}`
         : 'Start workout';
+      // A genuine "in progress" moment — the one other place --live means
+      // exactly this, alongside the log screen's own running clock.
+      workoutBtn.classList.toggle('live', Boolean(openSession));
     }
 
     // ------------------------------------------------------------------
