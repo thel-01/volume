@@ -245,10 +245,11 @@ create unique index if not exists exercises_unique_live_name
 
 
 -- ===========================================================================
--- 4. session_exercises — one exercise's comment for one specific day
+-- 4. session_exercises — one exercise's comment (and extra-flag) for one
+--    specific day
 -- ===========================================================================
--- e.g. "hamstring felt bad, didn't go up in weight" — true of leg curls on
--- Tuesday, not of leg curls in general.
+-- Comment e.g. "hamstring felt bad, didn't go up in weight" — true of leg
+-- curls on Tuesday, not of leg curls in general.
 --
 -- Kept separate from `sets` so the comment survives deleting every set, and
 -- can be written before the first set is logged.
@@ -260,11 +261,23 @@ create table if not exists public.session_exercises (
 
   comment      text,
 
+  -- Marks a rep-out that isn't really today's focus — a few pull-ups
+  -- tacked onto the end of a push day, not a genuine attempt at the
+  -- movement. Excluded from the strength index (an unfocused set shouldn't
+  -- drag a pattern's trajectory down) and, on the volume donut, counted
+  -- under the exercise's own movement pattern instead of the session's
+  -- category — so a bonus pull-up doesn't get filed as Push volume.
+  is_extra     boolean not null default false,
+
   created_at   timestamptz not null default now(),
 
   -- One comment row per exercise per session.
   constraint session_exercises_unique_pair unique (session_id, exercise_id)
 );
+
+-- Brings an already-existing session_exercises table up to the current
+-- shape. No-op on a brand new database.
+alter table public.session_exercises add column if not exists is_extra boolean not null default false;
 
 create index if not exists session_exercises_session_idx
   on public.session_exercises (session_id);

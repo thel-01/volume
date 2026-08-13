@@ -274,13 +274,13 @@
       if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}${tagLetter(set.quick_tag)}`);
       return parts.join(' ') || '—';
     }
-    /** "Bodyweight × 12e" / "BW +10 kg × 8" / "BW −15 kg assist × 6f". Real numbers, never the effective-load estimate. */
+    /** "BW × 12e" / "+10 kg × 8" / "−15 kg × 6f". Real numbers, never the effective-load estimate. */
     function describeBodyweightSet(set) {
       const magnitude = Number(set.weight || 0);
       let prefix;
-      if (magnitude === 0) prefix = 'Bodyweight';
-      else if (set.weight_direction === 'assist') prefix = `BW −${formatWeight(magnitude)} kg assist`;
-      else prefix = `BW +${formatWeight(magnitude)} kg`;
+      if (magnitude === 0) prefix = 'BW';
+      else if (set.weight_direction === 'assist') prefix = `−${formatWeight(magnitude)} kg`;
+      else prefix = `+${formatWeight(magnitude)} kg`;
       const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}${tagLetter(set.quick_tag)}` : '';
       return prefix + reps;
     }
@@ -328,7 +328,7 @@
       loading.hidden = false;
       content.hidden = true;
 
-      const [exercisesRes, setsRes, sessionsRes, openRes] = await Promise.all([
+      const [exercisesRes, setsRes, sessionsRes, openRes, sessionExercisesRes] = await Promise.all([
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
         supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
         supabase.from('sessions').select('id, category, start_time')
@@ -342,13 +342,17 @@
           .is('end_time', null)
           .order('start_time', { ascending: false })
           .limit(1),
+        // Which (session, exercise) pairs are flagged "extra" — a rep-out
+        // that wasn't that day's real focus. Only the strength index cares;
+        // PRs and the weekly count/intensity preview still count them.
+        supabase.from('session_exercises').select('session_id, exercise_id').eq('is_extra', true),
       ]);
 
       // An open session is a nicety, not the point of the page — if only that
       // lookup fails the button just stays on its default wording.
       renderWorkoutButton(openRes.error ? null : (openRes.data && openRes.data[0]));
 
-      const err = exercisesRes.error || setsRes.error || sessionsRes.error;
+      const err = exercisesRes.error || setsRes.error || sessionsRes.error || sessionExercisesRes.error;
       if (err) {
         loading.hidden = true;
         show(topStatus, 'error', `Could not load the dashboard: ${err.message}`);
@@ -359,11 +363,19 @@
       // deleted_at of its own), so exclude them here explicitly.
       const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
 
+      // Extra-tagged sets are real training, so PRs and the weekly preview
+      // still see them — only the index's session-to-session trend excludes
+      // them, since an unfocused rep-out shouldn't move a pattern's trajectory.
+      const extraKeys = new Set(
+        (sessionExercisesRes.data || []).map((r) => `${r.session_id}:${r.exercise_id}`)
+      );
+      const indexSets = liveSets.filter((s) => !extraKeys.has(`${s.session_id}:${s.exercise_id}`));
+
       loading.hidden = true;
       content.hidden = false;
 
       renderVolume(liveSets);
-      renderStrengthIndex(exercisesRes.data, liveSets);
+      renderStrengthIndex(exercisesRes.data, indexSets);
       renderPrs(exercisesRes.data, liveSets);
       renderCategories(sessionsRes.data);
       loadWeight();

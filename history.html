@@ -233,13 +233,13 @@
       if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}`);
       return parts.join(' ') || '—';
     }
-    /** "Bodyweight × 12" / "BW +10 kg × 8" / "BW −15 kg assist × 6". Real numbers, never the effective-load estimate. */
+    /** "BW × 12" / "+10 kg × 8" / "−15 kg × 6". Real numbers, never the effective-load estimate. */
     function describeBodyweightSet(set) {
       const magnitude = Number(set.weight || 0);
       let prefix;
-      if (magnitude === 0) prefix = 'Bodyweight';
-      else if (set.weight_direction === 'assist') prefix = `BW −${formatWeight(magnitude)} kg assist`;
-      else prefix = `BW +${formatWeight(magnitude)} kg`;
+      if (magnitude === 0) prefix = 'BW';
+      else if (set.weight_direction === 'assist') prefix = `−${formatWeight(magnitude)} kg`;
+      else prefix = `+${formatWeight(magnitude)} kg`;
       const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}` : '';
       return prefix + reps;
     }
@@ -267,9 +267,9 @@
 
       let direction = initialDirection;
       const MODES = [
-        { value: 'assist', label: 'Assisted' },
-        { value: 'none', label: 'Bodyweight' },
-        { value: 'add', label: '+ Weight' },
+        { value: 'assist', label: 'Assist' },
+        { value: 'none', label: 'BW' },
+        { value: 'add', label: 'Weight' },
       ];
       const modeButtons = new Map();
       const updateModeUI = () => {
@@ -549,6 +549,20 @@
       };
     }
 
+    async function toggleExtra(se, chipEl, noteEl) {
+      const next = !se.is_extra;
+      se.is_extra = next;
+      chipEl.classList.toggle('selected', next);
+      noteEl.hidden = !next;
+      const { error } = await supabase.from('session_exercises').update({ is_extra: next }).eq('id', se.id);
+      if (error) {
+        se.is_extra = !next;
+        chipEl.classList.toggle('selected', !next);
+        noteEl.hidden = next;
+        flash(`Could not update: ${error.message}`, 'error');
+      }
+    }
+
     function buildExerciseCard(entry) {
       const card = document.createElement('div');
       card.className = 'exercise-card expanded';
@@ -575,11 +589,13 @@
       const body = document.createElement('div');
       body.className = 'exercise-card-body';
 
-      // Exercise comment — collapsed unless it already has something.
-      // Comments are made in the moment, not the point of this screen.
       const se = entry.sessionExercise;
+
+      // Exercise comment — collapsed unless it already has something, or
+      // Extra is already on (it lives in this same row now, so the section
+      // needs to be open for it to be visible at all).
       if (se._commentExpanded === undefined) {
-        se._commentExpanded = !!(se.comment && se.comment.trim());
+        se._commentExpanded = !!(se.comment && se.comment.trim()) || !!se.is_extra;
       }
 
       const commentToggle = document.createElement('button');
@@ -589,15 +605,45 @@
       body.appendChild(commentToggle);
 
       const commentField = document.createElement('div');
-      commentField.className = 'field';
       commentField.style.marginTop = '8px';
       commentField.hidden = !se._commentExpanded;
       const commentLabel = document.createElement('label');
       commentLabel.textContent = 'Notes for this session';
       commentField.appendChild(commentLabel);
+
+      // "Extra" — a rep-out that wasn't really that day's focus — lives in
+      // the same row as the note field rather than its own always-visible
+      // section, since both are occasional, this-instance-only metadata.
+      // Editable here too, not just live: this is exactly where you'd
+      // retroactively flag a set you only recognized as a bonus afterward.
+      const commentRow = document.createElement('div');
+      commentRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start;margin-top:4px;';
+      const textareaWrap = document.createElement('div');
+      textareaWrap.style.cssText = 'flex:1;min-width:0;';
       const comment = document.createElement('textarea');
       comment.value = se.comment || '';
-      commentField.appendChild(comment);
+      comment.rows = 1;
+      comment.style.cssText = 'height:56px;min-height:56px;';
+      textareaWrap.appendChild(comment);
+      commentRow.appendChild(textareaWrap);
+
+      const extraChip = document.createElement('button');
+      extraChip.type = 'button';
+      extraChip.className = 'chip' + (se.is_extra ? ' selected' : '');
+      extraChip.style.flex = '0 0 auto';
+      extraChip.textContent = 'Extra';
+      commentRow.appendChild(extraChip);
+      commentField.appendChild(commentRow);
+
+      // Only worth the explanation once it's actually on.
+      const extraNote = document.createElement('p');
+      extraNote.className = 'muted';
+      extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
+      extraNote.textContent = "Not that day's focus — left out of the strength index and counted under its own pattern in the volume chart.";
+      extraNote.hidden = !se.is_extra;
+      commentField.appendChild(extraNote);
+      extraChip.addEventListener('click', () => toggleExtra(se, extraChip, extraNote));
+
       const commentState = document.createElement('p');
       commentState.className = 'muted';
       commentState.style.cssText = 'margin:4px 0 0;min-height:18px;font-size:13px;';

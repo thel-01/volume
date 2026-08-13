@@ -131,13 +131,13 @@
       if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}${tagLetter(set.quick_tag)}`);
       return parts.join(' ') || '—';
     }
-    /** "Bodyweight × 12e" / "BW +10 kg × 8" / "BW −15 kg assist × 6f". Real numbers, never the effective-load estimate. */
+    /** "BW × 12e" / "+10 kg × 8" / "−15 kg × 6f". Real numbers, never the effective-load estimate. */
     function describeBodyweightSet(set) {
       const magnitude = Number(set.weight || 0);
       let prefix;
-      if (magnitude === 0) prefix = 'Bodyweight';
-      else if (set.weight_direction === 'assist') prefix = `BW −${formatWeight(magnitude)} kg assist`;
-      else prefix = `BW +${formatWeight(magnitude)} kg`;
+      if (magnitude === 0) prefix = 'BW';
+      else if (set.weight_direction === 'assist') prefix = `−${formatWeight(magnitude)} kg`;
+      else prefix = `+${formatWeight(magnitude)} kg`;
       const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}${tagLetter(set.quick_tag)}` : '';
       return prefix + reps;
     }
@@ -287,12 +287,16 @@
     // Boot
     // ------------------------------------------------------------------
     async function loadAll(exerciseId) {
-      const [exerciseRes, setsRes] = await Promise.all([
+      const [exerciseRes, setsRes, sessionExercisesRes] = await Promise.all([
         supabase.from('exercises').select('*').eq('id', exerciseId).is('deleted_at', null).maybeSingle(),
         supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').eq('exercise_id', exerciseId).order('created_at'),
+        // Sessions where this exercise was flagged "extra" — a rep-out that
+        // wasn't a real attempt at the movement, so it's kept out of both
+        // trends below rather than reading as a genuine dip or a real top set.
+        supabase.from('session_exercises').select('session_id').eq('exercise_id', exerciseId).eq('is_extra', true),
       ]);
 
-      const err = exerciseRes.error || setsRes.error;
+      const err = exerciseRes.error || setsRes.error || sessionExercisesRes.error;
       if (err) {
         loading.hidden = true;
         show(topStatus, 'error', `Could not load this exercise: ${err.message}`);
@@ -310,7 +314,10 @@
       if (exercise.name.length > 22) heading.style.fontSize = '18px';
       document.title = `Volume — ${exercise.name}`;
 
-      const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
+      const extraSessionIds = new Set((sessionExercisesRes.data || []).map((r) => r.session_id));
+      const liveSets = setsRes.data.filter((s) =>
+        s.sessions && !s.sessions.deleted_at && !extraSessionIds.has(s.session_id)
+      );
       const topSetPoints = computeSessionBests(liveSets, exercise.type);
 
       loading.hidden = true;

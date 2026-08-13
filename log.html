@@ -282,7 +282,7 @@
       return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
     }
 
-    /** "30 kg × 12" / "45s" / "20 kg assist × 10" / "BW +10 kg × 8" — one set, for display. */
+    /** "30 kg × 12" / "45s" / "20 kg assist × 10" / "+10 kg × 8" — one set, for display. */
     function describeSet(set, type) {
       if (type === 'time_based') return formatDuration(set.duration_seconds);
       // Zero assistance on a legacy 'assisted' exercise isn't assisted at
@@ -296,13 +296,13 @@
       return parts.join(' ') || '—';
     }
 
-    /** "Bodyweight × 12" / "BW +10 kg × 8" / "BW −15 kg assist × 6". Real numbers, never the effective-load estimate. */
+    /** "BW × 12" / "+10 kg × 8" / "−15 kg × 6". Real numbers, never the effective-load estimate. */
     function describeBodyweightSet(set) {
       const magnitude = Number(set.weight || 0);
       let prefix;
-      if (magnitude === 0) prefix = 'Bodyweight';
-      else if (set.weight_direction === 'assist') prefix = `BW −${formatWeight(magnitude)} kg assist`;
-      else prefix = `BW +${formatWeight(magnitude)} kg`;
+      if (magnitude === 0) prefix = 'BW';
+      else if (set.weight_direction === 'assist') prefix = `−${formatWeight(magnitude)} kg`;
+      else prefix = `+${formatWeight(magnitude)} kg`;
       const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}` : '';
       return prefix + reps;
     }
@@ -352,7 +352,7 @@
           const w = c.weight === null ? '' : `${formatWeight(c.weight)} kg${suffix} `;
           return `${w}× ${c.reps.join(', ')}`;
         })
-        .join(' · ');
+        .join(' | ');
     }
 
     // ------------------------------------------------------------------
@@ -788,6 +788,12 @@
         summary.textContent = describeSetGroup(entry.sets, entry.exercise.type);
         meta.appendChild(summary);
       }
+      if (entry.isExtra) {
+        const extraBadge = document.createElement('span');
+        extraBadge.className = 'badge';
+        extraBadge.textContent = 'Extra';
+        meta.appendChild(extraBadge);
+      }
       headerBody.appendChild(meta);
       header.appendChild(headerBody);
 
@@ -830,8 +836,18 @@
         body.appendChild(notesLine);
       }
 
-      body.appendChild(buildReferenceLine('Last session', entry, 'last'));
-      body.appendChild(buildReferenceLine('Best session', entry, 'best'));
+      const lastGroup = findLastSession(entry.history, session.id);
+      const bestGroup = findBestSession(entry.history, entry.exercise.type);
+      // Same session for both, or neither exists yet (genuinely the first
+      // time) — one block instead of two saying the same thing.
+      const sameOrBothEmpty = (lastGroup && bestGroup && lastGroup.sessionId === bestGroup.sessionId)
+        || (!lastGroup && !bestGroup);
+      if (sameOrBothEmpty) {
+        body.appendChild(buildReferenceBlock('Last and best', entry, lastGroup, 'first time doing this'));
+      } else {
+        body.appendChild(buildReferenceBlock('Last', entry, lastGroup, 'first time doing this'));
+        body.appendChild(buildReferenceBlock('Best', entry, bestGroup, 'none yet'));
+      }
 
       // Only worth showing before you've started — once set 1 is in, you're
       // warm and it's just clutter.
@@ -846,32 +862,19 @@
           line.appendChild(label);
           const value = document.createElement('span');
           value.className = 'reference-value';
-          value.textContent = `${ladder.map(formatWeight).join(' · ')} kg`;
+          value.textContent = `${ladder.map(formatWeight).join(' | ')} kg`;
           line.appendChild(value);
           body.appendChild(line);
         }
       }
 
-      // Tucked behind a tap: every past session for this exercise, not just
-      // the single best one — there for when you're curious, not by default.
-      const bestGroup = findBestSession(entry.history, entry.exercise.type);
-      if (bestGroup) {
-        const seeAllBtn = document.createElement('button');
-        seeAllBtn.type = 'button';
-        seeAllBtn.className = 'link-button';
-        // display:block so it doesn't sit on the same line as "+ Add note".
-        seeAllBtn.style.cssText = 'display:block;margin-top:2px;font-size:13px;';
-        seeAllBtn.textContent = entry.historyExpanded ? '− Hide all sessions' : 'See all sessions →';
-        seeAllBtn.addEventListener('click', () => {
-          entry.historyExpanded = !entry.historyExpanded;
-          renderEntries();
-        });
-        body.appendChild(seeAllBtn);
-        if (entry.historyExpanded) body.appendChild(buildFullHistoryList(entry));
-      }
 
       // Exercise comment for this specific day — collapsed unless it's
       // already got something in it, same reveal pattern as "+ Add note".
+      // "Extra" lives in the same row as the note now rather than its own
+      // always-visible section — both are occasional, this-instance-only
+      // metadata, so one disclosure covers both instead of two competing
+      // for space at the top of the card.
       const commentToggle = document.createElement('button');
       commentToggle.type = 'button';
       commentToggle.className = 'link-button';
@@ -881,15 +884,41 @@
       body.appendChild(commentToggle);
 
       const commentField = document.createElement('div');
-      commentField.className = 'field';
       commentField.style.marginTop = '8px';
       commentField.hidden = !entry.commentExpanded;
+
+      const commentRow = document.createElement('div');
+      commentRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start;';
+      const textareaWrap = document.createElement('div');
+      textareaWrap.className = 'field';
+      textareaWrap.style.cssText = 'flex:1;min-width:0;margin-bottom:0;';
       const comment = document.createElement('textarea');
       comment.id = `comment-${entry.exercise.id}`;
       comment.value = entry.comment || '';
       comment.placeholder = 'Add a note for today';
-      comment.style.minHeight = '60px';
-      commentField.appendChild(comment);
+      comment.rows = 1;
+      comment.style.cssText = 'height:56px;min-height:56px;';
+      textareaWrap.appendChild(comment);
+      commentRow.appendChild(textareaWrap);
+
+      const extraChip = document.createElement('button');
+      extraChip.type = 'button';
+      extraChip.className = 'chip' + (entry.isExtra ? ' selected' : '');
+      extraChip.style.flex = '0 0 auto';
+      extraChip.textContent = 'Extra';
+      extraChip.addEventListener('click', () => toggleExtra(entry));
+      commentRow.appendChild(extraChip);
+      commentField.appendChild(commentRow);
+
+      // Only worth the explanation once it's actually on.
+      if (entry.isExtra) {
+        const extraNote = document.createElement('p');
+        extraNote.className = 'muted';
+        extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
+        extraNote.textContent = "Not today's focus — left out of the strength index and counted under its own pattern in the volume chart.";
+        commentField.appendChild(extraNote);
+      }
+
       const commentState = document.createElement('p');
       commentState.className = 'muted';
       commentState.style.cssText = 'margin:4px 0 0;min-height:18px;font-size:13px;';
@@ -927,74 +956,67 @@
       return card;
     }
 
-    function buildReferenceLine(labelText, entry, which) {
-      const line = document.createElement('div');
-      line.className = 'reference-line';
-
-      const label = document.createElement('span');
-      label.className = 'reference-label';
-      label.textContent = `${labelText}:`;
-      line.appendChild(label);
-
-      const value = document.createElement('span');
-      value.className = 'reference-value';
-
-      const type = entry.exercise.type;
-      const group = which === 'last'
-        ? findLastSession(entry.history, session.id)
-        : findBestSession(entry.history, type);
-
-      if (!group) {
-        value.classList.add('none');
-        value.textContent = which === 'last' ? 'first time doing this' : 'none yet';
-      } else {
-        const when = group.startTime ? formatDate(group.startTime) : '';
-        value.textContent = `${when} — ${describeSetGroup(group.sets, type)}`;
+    async function toggleExtra(entry) {
+      const next = !entry.isExtra;
+      entry.isExtra = next;
+      renderEntries();
+      const { error } = await supabase.from('session_exercises').update({ is_extra: next }).eq('id', entry.sessionExerciseId);
+      if (error) {
+        entry.isExtra = !next;
+        renderEntries();
+        flash(`Could not update: ${error.message}`, 'error');
       }
-      line.appendChild(value);
-      return line;
     }
 
-    /** Every past session for this exercise, newest first — behind "See all sessions". */
-    function buildFullHistoryList(entry) {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'margin-top:10px;padding-top:10px;border-top:1px solid var(--line);';
-
-      const bySession = new Map();
-      for (const set of entry.history) {
-        if (set.session_id === session.id) continue; // this workout's already shown above
-        const sid = set.session_id;
-        if (!bySession.has(sid)) {
-          bySession.set(sid, { startTime: set.sessions?.start_time, sets: [] });
-        }
-        bySession.get(sid).sets.push(set);
+    async function removeEmptyExercise(entry) {
+      const { error } = await supabase.from('session_exercises').delete().eq('id', entry.sessionExerciseId);
+      if (error) {
+        flash(`Could not remove ${entry.exercise.name}: ${error.message}`, 'error');
+        return;
       }
-      const sorted = [...bySession.values()].sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+      entries = entries.filter((e) => e !== entry);
+      renderEntries();
+    }
 
-      if (sorted.length === 0) {
-        const p = document.createElement('p');
-        p.className = 'muted';
-        p.style.margin = '0';
-        p.textContent = 'No earlier sessions yet.';
-        wrap.appendChild(p);
-        return wrap;
+    /**
+     * "Last" / "Best" (or "Last and best") as two rows: a header line with
+     * the date as a trailing badge, then the actual sets underneath — was
+     * one long "12 Aug — 30 kg × 12, 12, 7" line, which read as a wall of
+     * text next to everything else on the card.
+     */
+    function buildReferenceBlock(labelText, entry, group, emptyText) {
+      const container = document.createElement('div');
+      container.style.marginBottom = '10px';
+
+      const header = document.createElement('div');
+      header.className = 'reference-line';
+      const label = document.createElement('span');
+      label.className = 'reference-label';
+      label.textContent = labelText;
+      header.appendChild(label);
+
+      if (group) {
+        const dateBadge = document.createElement('span');
+        dateBadge.className = 'badge';
+        dateBadge.textContent = group.startTime ? formatDate(group.startTime) : '';
+        header.appendChild(dateBadge);
+      } else {
+        const none = document.createElement('span');
+        none.className = 'reference-value none';
+        none.textContent = emptyText;
+        header.appendChild(none);
       }
+      container.appendChild(header);
 
-      for (const s of sorted) {
-        s.sets.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        const line = document.createElement('div');
-        line.className = 'reference-line';
-        const label = document.createElement('span');
-        label.className = 'reference-label';
-        label.textContent = `${formatDate(s.startTime)}:`;
-        line.appendChild(label);
-        const value = document.createElement('span');
+      if (group) {
+        const value = document.createElement('div');
         value.className = 'reference-value';
-        value.textContent = describeSetGroup(s.sets, entry.exercise.type);
-        line.appendChild(value);
-        wrap.appendChild(line);
+        value.style.marginTop = '2px';
+        value.textContent = describeSetGroup(group.sets, entry.exercise.type);
+        container.appendChild(value);
       }
-      return wrap;
+
+      return container;
     }
 
     function buildSetRow(entry, set, index) {
@@ -1102,6 +1124,7 @@
       } else if (type === 'bodyweight') {
         const modeChips = document.createElement('div');
         modeChips.className = 'chips';
+        modeChips.style.marginBottom = '14px';
         block.appendChild(modeChips);
 
         const magField = document.createElement('div');
@@ -1119,9 +1142,9 @@
         let direction = Number(sticky.magnitude || 0) === 0 ? 'none' : sticky.direction;
 
         const MODES = [
-          { value: 'assist', label: 'Assisted' },
-          { value: 'none', label: 'Bodyweight' },
-          { value: 'add', label: '+ Weight' },
+          { value: 'assist', label: 'Assist' },
+          { value: 'none', label: 'BW' },
+          { value: 'add', label: 'Weight' },
         ];
         const modeButtons = new Map();
         const updateModeUI = () => {
@@ -1220,17 +1243,22 @@
       localStatus.setAttribute('role', 'status');
       block.appendChild(localStatus);
 
-      // Just closes the card — available with or without sets logged; an
-      // exercise with none is already dropped automatically when the
-      // workout is finished.
+      // With sets logged, this just closes the card. With none, there's
+      // nothing here worth keeping open for — it doubles as a way to drop
+      // an exercise added by mistake, immediately rather than waiting for
+      // it to get silently dropped at the end of the workout (see endConfirm).
       const finishBtn = document.createElement('button');
       finishBtn.type = 'button';
       finishBtn.className = 'secondary';
-      finishBtn.textContent = 'Finish exercise';
+      finishBtn.textContent = entry.sets.length === 0 ? 'Discard exercise' : 'Finish exercise';
       finishBtn.style.marginTop = '10px';
       block.appendChild(finishBtn);
 
       finishBtn.addEventListener('click', () => {
+        if (entry.sets.length === 0) {
+          removeEmptyExercise(entry);
+          return;
+        }
         entry.expanded = false;
         renderEntries();
       });
@@ -1716,11 +1744,11 @@
         exercise,
         sessionExerciseId,
         comment,
+        isExtra: se?.is_extra ?? false,
         sets: setsThisSession,
         history,
         expanded: true,
-        commentExpanded: !!comment,
-        historyExpanded: false,
+        commentExpanded: !!comment || !!se?.is_extra,
       });
 
       hide(pickerStatus);
@@ -1897,11 +1925,11 @@
         exercise: row.exercises,
         sessionExerciseId: row.id,
         comment: row.comment || '',
+        isExtra: row.is_extra || false,
         sets: setsRes.data.filter((s) => s.exercise_id === row.exercise_id),
         history: histories[i].history,
         expanded: false,
-        commentExpanded: !!(row.comment && row.comment.trim()),
-        historyExpanded: false,
+        commentExpanded: !!(row.comment && row.comment.trim()) || !!row.is_extra,
       }));
       if (entries.length > 0) entries[entries.length - 1].expanded = true;
     }

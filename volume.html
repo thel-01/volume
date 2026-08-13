@@ -254,7 +254,7 @@
      * middle. A breakdown of what actually happened, so a part-finished week
      * is just a shorter period rather than a misleading one.
      */
-    function renderSplit(windowSets) {
+    function renderSplit(windowSets, categoryFor) {
       splitLegend.innerHTML = '';
 
       if (windowSets.length === 0) {
@@ -270,7 +270,7 @@
       // same rule the dashboard's category list follows.
       const byKey = new Map();
       for (const s of windowSets) {
-        const raw = (s.sessions.category || 'Other').trim();
+        const raw = categoryFor(s).trim();
         const key = raw.toLowerCase();
         if (!byKey.has(key)) byKey.set(key, { label: raw, value: 0 });
         byKey.get(key).value++;
@@ -422,14 +422,20 @@
     // Loading
     // ------------------------------------------------------------------
     async function loadAll() {
-      const [setsRes, exercisesRes] = await Promise.all([
+      const [setsRes, exercisesRes, patternsRes, sessionExercisesRes] = await Promise.all([
         supabase.from('sets')
           .select('*, sessions(id, start_time, end_time, category, deleted_at)')
           .order('created_at'),
-        supabase.from('exercises').select('id, name'),
+        supabase.from('exercises').select('id, name, movement_pattern_id'),
+        supabase.from('movement_patterns').select('id, category'),
+        // Sets flagged "extra" (not that day's focus) get credited to their
+        // own movement pattern in the split donut below, instead of the
+        // session's category — a bonus pull-up on a push day shouldn't
+        // count as Push volume.
+        supabase.from('session_exercises').select('session_id, exercise_id').eq('is_extra', true),
       ]);
 
-      const err = setsRes.error || exercisesRes.error;
+      const err = setsRes.error || exercisesRes.error || patternsRes.error || sessionExercisesRes.error;
       if (err) {
         loading.hidden = true;
         show(topStatus, 'error', `Could not load your training data: ${err.message}`);
@@ -438,6 +444,27 @@
 
       const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
       loading.hidden = true;
+
+      // exercise -> its movement pattern's category (only exercises with a
+      // filed, categorized pattern have one).
+      const patternCategoryById = new Map(patternsRes.data.map((p) => [p.id, p.category]));
+      const patternCategoryByExercise = new Map();
+      for (const e of exercisesRes.data) {
+        if (!e.movement_pattern_id) continue;
+        const cat = patternCategoryById.get(e.movement_pattern_id);
+        if (cat) patternCategoryByExercise.set(e.id, cat);
+      }
+      const extraKeys = new Set(
+        (sessionExercisesRes.data || []).map((r) => `${r.session_id}:${r.exercise_id}`)
+      );
+      /** The category a set counts toward in the split donut. */
+      function splitCategoryFor(s) {
+        if (extraKeys.has(`${s.session_id}:${s.exercise_id}`)) {
+          const patternCat = patternCategoryByExercise.get(s.exercise_id);
+          if (patternCat) return patternCat;
+        }
+        return s.sessions.category || 'Other';
+      }
 
       if (liveSets.length === 0) {
         emptyState.textContent = 'No sets logged yet.';
@@ -476,7 +503,7 @@
         : '—';
 
       renderWeekly(liveSets, mondayOf(earliest), thisMonday);
-      renderSplit(thisWeekSets);
+      renderSplit(thisWeekSets, splitCategoryFor);
       renderTopExercise(thisWeekSets, exerciseNames);
       renderIntensityGauge(thisWeekSets);
       renderIntensity(thisWeekSets);
