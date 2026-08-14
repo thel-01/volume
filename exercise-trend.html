@@ -255,6 +255,10 @@
         series,
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
+        // Pinned to a 100 baseline like the composite index — without a
+        // floor a couple of quiet sessions' 1-2 point drift would fill the
+        // whole chart like a real move.
+        minRange: 8,
         tooltipLines: (p) => [
           `Set ${p.depth}: ${describeSet(p.session.sets[p.depth - 1], type)}`,
           `${p.value.toFixed(0)} · ${formatFullDate(p.date)}`,
@@ -277,12 +281,23 @@
 
     /** Drawn for every type alongside the index (when there is one) — the literal top set/effort per session, never just the estimate. */
     function drawTopSet(points, type) {
-      const useMinutes = type === 'time_based'
-        && Math.max(...points.map((p) => p.value)) >= 60;
+      const maxValue = Math.max(...points.map((p) => p.value));
+      const useMinutes = type === 'time_based' && maxValue >= 60;
+      // 'bodyweight' sits on a roughly-body-weight kg scale (whether or not
+      // there's added/assisted weight), so an absolute floor matches the
+      // bodyweight charts. weight_reps/assisted/time_based have no fixed
+      // scale — a 5kg curl and a 200kg deadlift need very different floors
+      // — so those scale with the series' own max instead.
+      const minRange = type === 'bodyweight'
+        ? 2
+        : type === 'time_based'
+          ? Math.max(5, maxValue * 0.08)
+          : Math.max(2, maxValue * 0.05);
       renderLineChart(svg, {
         series: [{ points, dots: true, tappable: true }],
         formatValue: (v) => formatAxisValue(v, type, useMinutes),
         formatDate: formatCompactDate,
+        minRange,
         tooltipLines: (p) => [describeSet(p.set, type), formatFullDate(p.date)],
         ariaLabel: (p) => `${describeSet(p.set, type)} on ${formatFullDate(p.date)}`,
       });

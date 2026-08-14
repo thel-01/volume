@@ -492,6 +492,10 @@
         // into duplicate whole-kg labels.
         formatValue: (v) => `${v} kg`,
         formatDate: formatCompactDate,
+        // Ordinary day-to-day bodyweight noise (water, food) runs well
+        // under this — without a floor, a 0.3kg wobble would stretch to
+        // fill the whole chart and read as a real trend.
+        minRange: 2,
         tooltipLines: (p) => [
           `${Number(p.value).toFixed(1)} kg`,
           p.entry.time_known ? formatFullDate(p.date) : `${formatFullDate(p.date)} (no time)`,
@@ -563,6 +567,10 @@
         series: [{ points: series, dots: true, tappable: true }],
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
+        // The index is a regression fit with its own margin of error, not a
+        // precise instrument — without a floor a quiet month's 1-2 point
+        // drift would fill the whole chart like a real swing.
+        minRange: 8,
         tooltipLines: (p) => [p.value.toFixed(1), formatFullDate(p.date)],
         ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
       });

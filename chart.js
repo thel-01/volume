@@ -46,7 +46,7 @@ function stepDecimals(step) {
  * third. The labels are only here for context, so the highest one does not
  * need to sit at the very top.
  */
-function computeYAxis(values) {
+function computeYAxis(values, minRange = 0) {
   const dataMin = Math.min(...values);
   const dataMax = Math.max(...values);
   let lo = dataMin;
@@ -64,6 +64,19 @@ function computeYAxis(values) {
     lo -= pad;
     hi += pad;
   }
+
+  // A genuinely tiny move (0.3kg of bodyweight noise, a 1-point index
+  // wobble) would otherwise stretch to fill the whole chart height and
+  // read as a dramatic swing. minRange floors the span so the chart's
+  // own scale stays honest about how big the real change is — callers
+  // pass a floor sized to their own unit, since e.g. 2kg means nothing
+  // on an index chart and 2 index points means nothing on a weight chart.
+  if (hi - lo < minRange) {
+    const mid = (hi + lo) / 2;
+    lo = mid - minRange / 2;
+    hi = mid + minRange / 2;
+  }
+
   if (lo < 0 && dataMin >= 0) lo = 0; // never imply negative weight
 
   // Coarsest, roundest step that still clears a 3-label floor. This used to
@@ -122,9 +135,11 @@ function text(x, y, anchor, size, fill, content) {
  * @param {Function} opts.formatDate    (iso, showYear) => x-axis label
  * @param {Function} opts.tooltipLines  (point) => [primary, secondary]
  * @param {Function} [opts.ariaLabel]   (point) => string
+ * @param {number}   [opts.minRange]    floor on the y-axis span, in the series' own unit — keeps a
+ *                                      trivial real-world move from visually filling the whole chart
  */
 export function renderLineChart(svg, opts) {
-  const { series, formatValue, formatDate, tooltipLines, ariaLabel } = opts;
+  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange } = opts;
 
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${VIEW_W} ${VIEW_H}`);
@@ -136,7 +151,7 @@ export function renderLineChart(svg, opts) {
   const times = allPoints.map((p) => new Date(p.date).getTime());
   const minT = Math.min(...times);
   const maxT = Math.max(...times);
-  const axis = computeYAxis(allPoints.map((p) => p.value));
+  const axis = computeYAxis(allPoints.map((p) => p.value), minRange || 0);
 
   const plotW = VIEW_W - MARGIN.left - MARGIN.right;
   const plotH = VIEW_H - MARGIN.top - MARGIN.bottom;

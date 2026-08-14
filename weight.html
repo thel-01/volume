@@ -476,6 +476,10 @@
         // into duplicate whole-kg labels.
         formatValue: (v) => `${v} kg`,
         formatDate: formatCompactDate,
+        // Ordinary day-to-day bodyweight noise (water, food) runs well
+        // under this — without a floor, a 0.3kg wobble would stretch to
+        // fill the whole chart and read as a real trend.
+        minRange: 2,
         tooltipLines: (p) => [`${fmtKg(p.value)} kg`, formatEntryWhen(p.entry)],
         ariaLabel: (p) => `${fmtKg(p.value)} kg on ${formatEntryWhen(p.entry)}`,
       });

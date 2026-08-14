@@ -244,6 +244,9 @@
         series: [{ points, color: 'var(--accent)', width: '2.2', dots: true, tappable: true }],
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
+        // A 1-2 set week-to-week wobble is normal variance, not a trend —
+        // without a floor it would fill the whole chart like a real one.
+        minRange: 4,
         tooltipLines: (p) => [setsLabel(p.value), `week of ${formatFullDate(p.date)}`],
         ariaLabel: (p) => `${setsLabel(p.value)} in the week of ${formatFullDate(p.date)}`,
       });
