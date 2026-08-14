@@ -85,6 +85,7 @@ function computeYAxis(values, minRange = 0) {
   // This keeps refining while a step still clears the floor, and only stops
   // once a coarser step would drop below it.
   let ticks = [];
+  let usedStep = TICK_STEPS[0];
   for (const step of TICK_STEPS) {
     const factor = 10 ** stepDecimals(step);
     const candidate = [];
@@ -93,6 +94,7 @@ function computeYAxis(values, minRange = 0) {
     }
     if (candidate.length < 3) break;
     ticks = candidate;
+    usedStep = step;
   }
   if (ticks.length === 0) {
     // Range too narrow to clear 3 labels even at the finest step — take
@@ -103,13 +105,18 @@ function computeYAxis(values, minRange = 0) {
     // which moves by tenths, not whole kilos, session to session).
     const step = TICK_STEPS[0];
     const factor = 10 ** stepDecimals(step);
+    usedStep = step;
     for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
       ticks.push(Math.round(v * factor) / factor);
     }
   }
   if (ticks.length > 5) ticks = ticks.slice(0, 5);
 
-  return { min: lo, max: hi, ticks };
+  // Every label on one axis shares the step's own decimal precision, so a
+  // "80" next to an "80.5" doesn't read as more/less precise than it is —
+  // it becomes "80.0". formatValue receives this and decides how to apply
+  // it (a kg label wants it, a whole-number index/count label doesn't).
+  return { min: lo, max: hi, ticks, decimals: stepDecimals(usedStep) };
 }
 
 function text(x, y, anchor, size, fill, content) {
@@ -131,7 +138,10 @@ function text(x, y, anchor, size, fill, content) {
  * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, tappable, line }]
  *                                      Axes span every series; only `tappable` ones get tooltips.
  *                                      `line: false` draws the points alone, with no segments joining them.
- * @param {Function} opts.formatValue   (value) => y-axis label
+ * @param {Function} opts.formatValue   (value, decimals) => y-axis label — decimals is the shared
+ *                                      precision every tick on this axis was rounded to, so "80" next
+ *                                      to a real "80.5" can render as "80.0" instead of implying more
+ *                                      precision than the other labels on the same axis
  * @param {Function} opts.formatDate    (iso, showYear) => x-axis label
  * @param {Function} opts.tooltipLines  (point) => [primary, secondary]
  * @param {Function} [opts.ariaLabel]   (point) => string
@@ -174,7 +184,7 @@ export function renderLineChart(svg, opts) {
   for (const tickValue of axis.ticks) {
     svg.appendChild(text(
       MARGIN.left - 8, yScale(tickValue) + 3.5,
-      'end', '11', 'var(--muted)', formatValue(tickValue),
+      'end', '11', 'var(--muted)', formatValue(tickValue, axis.decimals),
     ));
   }
 

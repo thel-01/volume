@@ -152,16 +152,14 @@
     }
     // `useMinutes` is decided once per axis (from its max, not each tick) so
     // ticks never mix units — no axis showing "0s" next to "2m".
-    function formatAxisValue(value, type, useMinutes) {
+    function formatAxisValue(value, type, useMinutes, decimals) {
       if (type === 'time_based') {
         return useMinutes ? `${Math.round(value / 60)}m` : `${Math.round(value)}s`;
       }
-      // Already rounded to the right precision by computeYAxis (whole kg
-      // most of the time, tenths when the range is narrow enough to need
-      // it — bodyweight with no added/assisted delta, for instance).
-      // Re-rounding here would collapse those tenths back to duplicate
-      // whole-kg labels.
-      return `${value} kg`;
+      // Every tick on this axis shares the same decimal precision, so "80"
+      // next to a real "80.5" reads as "80.0" — never implying more or
+      // less precision than its neighbors.
+      return `${value.toFixed(decimals)} kg`;
     }
 
     // ------------------------------------------------------------------
@@ -295,7 +293,7 @@
           : Math.max(2, maxValue * 0.05);
       renderLineChart(svg, {
         series: [{ points, dots: true, tappable: true }],
-        formatValue: (v) => formatAxisValue(v, type, useMinutes),
+        formatValue: (v, decimals) => formatAxisValue(v, type, useMinutes, decimals),
         formatDate: formatCompactDate,
         minRange,
         tooltipLines: (p) => [describeSet(p.set, type), formatFullDate(p.date)],

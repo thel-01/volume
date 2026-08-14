@@ -486,11 +486,10 @@
           // attention from the average, which is the real signal.
           { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
-        // computeYAxis already rounds each tick to the right precision —
-        // whole kg normally, tenths if the window's range is narrow enough
-        // to need it. Re-rounding here would collapse those tenths back
-        // into duplicate whole-kg labels.
-        formatValue: (v) => `${v} kg`,
+        // Every tick on this axis shares the same decimal precision, so
+        // "80" next to a real "80.5" reads as "80.0" — never implying more
+        // or less precision than its neighbors.
+        formatValue: (v, decimals) => `${v.toFixed(decimals)} kg`,
         formatDate: formatCompactDate,
         // Ordinary day-to-day bodyweight noise (water, food) runs well
         // under this — without a floor, a 0.3kg wobble would stretch to
