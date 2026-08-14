@@ -349,6 +349,10 @@ button.secondary {
   letter-spacing: var(--tracking-tight);
   text-align: center;
 }
+/* dashboard.html's header isn't describing the page like every other one —
+   it's the app root, so its "Volume" is the same logotype as the login
+   screen's, just sitting in the page-header's centered layout. */
+.page-header h1.wordmark { font-family: var(--font-display); }
 
 .icon-link, .icon-btn {
   width: 40px;
@@ -475,7 +479,16 @@ button.danger.secondary {
   color: var(--muted);
   font-size: 13px;
 }
-.list-item-chevron { flex: 0 0 auto; color: var(--muted); }
+/* display:flex + align-items:center here, not just on the row that
+   contains it — an inline SVG sits on its own text baseline, leaving
+   uneven space below it inside its box, so the row's own centering isn't
+   enough on a card tall enough for the gap to actually show. */
+.list-item-chevron {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
 
 .badge {
   display: inline-block;
