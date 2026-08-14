@@ -470,7 +470,11 @@
           // the honest interpolation between them.
           { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
-        formatValue: (v) => `${Math.round(v)} kg`,
+        // computeYAxis already rounds each tick to the right precision —
+        // whole kg normally, tenths if the window's range is narrow enough
+        // to need it. Re-rounding here would collapse those tenths back
+        // into duplicate whole-kg labels.
+        formatValue: (v) => `${v} kg`,
         formatDate: formatCompactDate,
         tooltipLines: (p) => [`${fmtKg(p.value)} kg`, formatEntryWhen(p.entry)],
         ariaLabel: (p) => `${fmtKg(p.value)} kg on ${formatEntryWhen(p.entry)}`,

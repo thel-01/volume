@@ -13,13 +13,28 @@
 const NS = 'http://www.w3.org/2000/svg';
 const VIEW_W = 340;
 const VIEW_H = 180;
-const MARGIN = { top: 16, right: 16, bottom: 26, left: 40 };
+// left is wide enough for the longest realistic label ("150.5 kg") now that
+// a tick can carry a decimal — narrow-range series (bodyweight-scale
+// numbers with no added/assisted weight) need one, per computeYAxis below.
+const MARGIN = { top: 16, right: 16, bottom: 26, left: 48 };
 
-// Whole-number steps only, so two labels can never round to the same text.
+// Finer-than-1 steps matter for anything tracking bodyweight-scale numbers,
+// where a real, meaningful change can be under 1kg (a pull-up's "load" with
+// no added/assisted weight is just your bodyweight that day, which moves in
+// tenths). Each step's own decimal places are used for rounding below, so
+// two labels still can never round to the same text.
 const TICK_STEPS = [
+  0.1, 0.2, 0.25, 0.5,
   1, 2, 3, 4, 5, 10, 15, 20, 25, 50,
   100, 150, 200, 250, 500, 1000, 2000, 2500, 5000, 10000,
 ];
+
+/** How many decimal places a step like 0.25 needs so ticks round cleanly. */
+function stepDecimals(step) {
+  const s = String(step);
+  const i = s.indexOf('.');
+  return i === -1 ? 0 : s.length - i - 1;
+}
 
 /**
  * The plot area is fitted to the DATA, and labels are then placed on whatever
@@ -58,16 +73,26 @@ function computeYAxis(values) {
   // once a coarser step would drop below it.
   let ticks = [];
   for (const step of TICK_STEPS) {
+    const factor = 10 ** stepDecimals(step);
     const candidate = [];
     for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
-      candidate.push(Math.round(v));
+      candidate.push(Math.round(v * factor) / factor);
     }
     if (candidate.length < 3) break;
     ticks = candidate;
   }
   if (ticks.length === 0) {
-    // Range too narrow even at whole numbers to fit 3 — take what's there.
-    for (let v = Math.ceil(lo); v <= hi + 1e-9; v += 1) ticks.push(Math.round(v));
+    // Range too narrow to clear 3 labels even at the finest step — take
+    // whatever that finest step gives rather than falling back to whole
+    // numbers, which for a sub-1-unit range can mean zero ticks at all
+    // (this is what used to leave the axis blank for a pull-up's "top set
+    // weight" — with no added or assisted weight, that's just bodyweight,
+    // which moves by tenths, not whole kilos, session to session).
+    const step = TICK_STEPS[0];
+    const factor = 10 ** stepDecimals(step);
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+      ticks.push(Math.round(v * factor) / factor);
+    }
   }
   if (ticks.length > 5) ticks = ticks.slice(0, 5);
 

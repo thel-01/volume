@@ -297,23 +297,40 @@
       }
     }
 
-    /** A ranking of what's actually there, so it needs no history-depth guard. */
+    /**
+     * A ranking of what's actually there, so it needs no history-depth guard.
+     * Ties on set count (common — plenty of exercises land on 3 or 4 sets)
+     * break first on mean intensity (same weighting as the gauge below, so
+     * it agrees with what that gauge is telling you), then on whichever was
+     * logged more recently.
+     */
     function renderTopExercise(windowSets, exerciseNames) {
       if (windowSets.length === 0) { vTopExercise.textContent = '—'; return; }
 
-      const counts = new Map();
+      const byExercise = new Map();
       for (const s of windowSets) {
-        counts.set(s.exercise_id, (counts.get(s.exercise_id) || 0) + 1);
+        if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, []);
+        byExercise.get(s.exercise_id).push(s);
       }
 
-      let bestId = null;
-      let bestCount = 0;
-      for (const [id, count] of counts) {
-        if (count > bestCount) { bestId = id; bestCount = count; }
+      const meanIntensity = (sets) => sets.reduce((sum, s) => {
+        const weight = s.quick_tag in INTENSITY_WEIGHT ? INTENSITY_WEIGHT[s.quick_tag] : INTENSITY_UNTAGGED_WEIGHT;
+        return sum + weight;
+      }, 0) / sets.length;
+      const lastLoggedAt = (sets) => Math.max(...sets.map((s) => new Date(s.created_at).getTime()));
+
+      let best = null;
+      for (const [id, sets] of byExercise) {
+        const candidate = { id, count: sets.length, intensity: meanIntensity(sets), recency: lastLoggedAt(sets) };
+        const beats = !best
+          || candidate.count > best.count
+          || (candidate.count === best.count && candidate.intensity > best.intensity)
+          || (candidate.count === best.count && candidate.intensity === best.intensity && candidate.recency > best.recency);
+        if (beats) best = candidate;
       }
 
-      const name = exerciseNames.get(bestId);
-      vTopExercise.textContent = name ? `${name} · ${setsLabel(bestCount)}` : '—';
+      const name = exerciseNames.get(best.id);
+      vTopExercise.textContent = name ? `${name} · ${setsLabel(best.count)}` : '—';
     }
 
     /** Mean tag weight across the week's sets — see INTENSITY_WEIGHT above for the reasoning. */

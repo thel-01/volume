@@ -156,7 +156,12 @@
       if (type === 'time_based') {
         return useMinutes ? `${Math.round(value / 60)}m` : `${Math.round(value)}s`;
       }
-      return `${Math.round(value)} kg`;
+      // Already rounded to the right precision by computeYAxis (whole kg
+      // most of the time, tenths when the range is narrow enough to need
+      // it — bodyweight with no added/assisted delta, for instance).
+      // Re-rounding here would collapse those tenths back to duplicate
+      // whole-kg labels.
+      return `${value} kg`;
     }
 
     // ------------------------------------------------------------------
