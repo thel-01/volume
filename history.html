@@ -639,7 +639,7 @@
       const extraNote = document.createElement('p');
       extraNote.className = 'muted';
       extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
-      extraNote.textContent = "Not that day's focus — left out of the strength index and counted under its own pattern in the volume chart.";
+      extraNote.textContent = "Not that day's focus — still counts toward the strength index, just shown as its own slice in the volume chart instead of that session's category.";
       extraNote.hidden = !se.is_extra;
       commentField.appendChild(extraNote);
       extraChip.addEventListener('click', () => toggleExtra(se, extraChip, extraNote));

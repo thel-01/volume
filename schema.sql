@@ -263,10 +263,11 @@ create table if not exists public.session_exercises (
 
   -- Marks a rep-out that isn't really today's focus — a few pull-ups
   -- tacked onto the end of a push day, not a genuine attempt at the
-  -- movement. Excluded from the strength index (an unfocused set shouldn't
-  -- drag a pattern's trajectory down) and, on the volume donut, counted
-  -- under the exercise's own movement pattern instead of the session's
-  -- category — so a bonus pull-up doesn't get filed as Push volume.
+  -- movement. Still counts toward the strength index (it's real training,
+  -- and the index already smooths out a single off day across many
+  -- sessions) — the flag only changes the volume donut, where it shows as
+  -- its own "Extra" slice instead of getting filed under the session's
+  -- category, so a bonus pull-up doesn't count as Push volume.
   is_extra     boolean not null default false,
 
   created_at   timestamptz not null default now(),
