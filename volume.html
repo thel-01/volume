@@ -115,6 +115,13 @@
     // it's an estimate, and the label says so.
     const SET_DURATION_SECONDS = 45;
 
+    // A gap this long within one exercise is almost never real rest — it's
+    // a set logged late (walked off, got distracted, only logged it once in
+    // the locker room). Excluded from the average entirely rather than
+    // capped to this value, since even a capped number would still be a
+    // guess standing in for rest that probably looked nothing like it.
+    const REST_GAP_CEILING_MS = 5 * 60 * 1000;
+
     // Enough distinct hues for any realistic number of session types; anything
     // past the end shares the last colour rather than going invisible.
     // Fixed order, dataviz-skill-validated (lightness band, chroma floor, CVD
@@ -381,7 +388,9 @@
       for (const times of byGroup.values()) {
         times.sort((a, b) => a - b);
         for (let i = 1; i < times.length; i++) {
-          gapTotal += times[i] - times[i - 1];
+          const gap = times[i] - times[i - 1];
+          if (gap > REST_GAP_CEILING_MS) continue; // a late log, not real rest
+          gapTotal += gap;
           gapCount++;
         }
       }
