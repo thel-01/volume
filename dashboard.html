@@ -103,10 +103,9 @@
 
       <p class="section-label">Aches &amp; Injuries</p>
       <div id="injury-slot"></div>
-      <div style="height:24px;"></div>
 
       <div id="index-section" hidden>
-        <p class="section-label">Composite strength index</p>
+        <p class="section-label" style="margin-top:24px;">Composite strength index</p>
         <div class="index-headline">
           <span class="index-value" id="index-value"></span>
           <span class="index-delta" id="index-delta"></span>
@@ -115,11 +114,10 @@
         <div class="chart-card" id="index-chart-card">
           <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
         </div>
-        <div style="height:24px;"></div>
       </div>
 
       <p class="section-label">Volume &amp; Intensity</p>
-      <a href="./volume.html" class="card" style="margin-bottom:24px;display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;">
+      <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;">
         <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
           <div class="stat">
             <div class="stat-visual"><span class="stat-value lg" id="volume-this-week">—</span></div>
@@ -138,14 +136,14 @@
 
       <p class="section-label">Recent PRs</p>
       <ul id="pr-list" class="list" hidden></ul>
-      <button id="pr-toggle" type="button" class="link-button" style="margin-bottom:24px;" hidden></button>
+      <button id="pr-toggle" type="button" class="link-button" hidden></button>
       <p id="empty-prs" class="empty-state" hidden>No sets logged yet.</p>
 
       <p class="section-label">Time since last session</p>
       <ul id="category-list" class="list" hidden></ul>
       <p id="empty-categories" class="empty-state" hidden>No sessions logged yet.</p>
 
-      <p class="section-label" style="margin-top:28px;">Bodyweight</p>
+      <p class="section-label">Bodyweight</p>
       <div class="stat-row">
         <div class="stat">
           <span class="stat-value" id="weight-value">—</span>
@@ -1219,7 +1217,6 @@
           const toggle = document.createElement('button');
           toggle.type = 'button';
           toggle.className = 'link-button';
-          toggle.style.marginTop = '8px';
           toggle.textContent = expanded ? 'Show fewer' : `Show all ${withLatest.length}`;
           toggle.addEventListener('click', () => { expanded = !expanded; paint(); });
           injurySlot.appendChild(toggle);
@@ -1233,7 +1230,6 @@
         const addBtn = document.createElement('button');
         addBtn.type = 'button';
         addBtn.className = 'secondary';
-        addBtn.style.marginTop = '12px';
         addBtn.textContent = '+ Track something else';
         addBtn.addEventListener('click', () => openNewCaseModal());
         injurySlot.appendChild(addBtn);
