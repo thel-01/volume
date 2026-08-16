@@ -167,9 +167,7 @@
       <p id="weight-chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
       <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
       <div class="btn-row" style="margin-top:12px;">
-        <a href="./weight.html?add=1" style="text-decoration:none;display:flex;flex:1;">
-          <button type="button" style="width:100%;">Log weight</button>
-        </a>
+        <button type="button" id="weight-quicklog-open">Log weight</button>
         <a href="./weight.html" style="text-decoration:none;display:flex;flex:1;">
           <button class="secondary" type="button" style="width:100%;">All entries</button>
         </a>
@@ -272,6 +270,26 @@
     </div>
   </div>
 
+  <!-- Quicklog: weight. Dashboard only — captures just the one number,
+       always "right now", no date field. weight.html's own full form
+       keeps free-text entry and a date/time for backdating a forgotten
+       weigh-in; this is for the everyday "log today's reading" case. -->
+  <div class="modal-backdrop" id="weight-quicklog-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Log weight</h2>
+        <button type="button" class="modal-close" id="weight-quicklog-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="stepper-row">
+        <button type="button" class="stepper-btn" id="weight-quicklog-minus" aria-label="Decrease by 0.1 kg">&minus;</button>
+        <div class="stepper-value"><span class="value" id="weight-quicklog-value">0.0<span class="unit">kg</span></span></div>
+        <button type="button" class="stepper-btn" id="weight-quicklog-plus" aria-label="Increase by 0.1 kg">+</button>
+      </div>
+      <div id="weight-quicklog-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
+      <button type="button" class="uppercase" id="weight-quicklog-save" style="margin-top:20px;">Save</button>
+    </div>
+  </div>
+
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
@@ -338,6 +356,14 @@
     const weightChart = document.getElementById('weight-chart');
     const weightChartEmpty = document.getElementById('weight-chart-empty');
     const weightEmpty = document.getElementById('weight-empty');
+
+    const weightQuicklogOpen = document.getElementById('weight-quicklog-open');
+    const weightQuicklogModal = document.getElementById('weight-quicklog-modal');
+    const weightQuicklogValue = document.getElementById('weight-quicklog-value');
+    const weightQuicklogMinus = document.getElementById('weight-quicklog-minus');
+    const weightQuicklogPlus = document.getElementById('weight-quicklog-plus');
+    const weightQuicklogStatus = document.getElementById('weight-quicklog-status');
+    const weightQuicklogSave = document.getElementById('weight-quicklog-save');
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
@@ -535,6 +561,10 @@
       staleNotice.hidden = false;
     }
 
+    // Seeds the weight quicklog stepper without a separate fetch — set
+    // whenever loadWeight() succeeds, read only when the popup opens.
+    let latestWeightKg = null;
+
     async function loadWeight() {
       const { data, error } = await supabase
         .from('body_weights')
@@ -557,6 +587,7 @@
       weightEmpty.hidden = true;
 
       const latest = data[data.length - 1];
+      latestWeightKg = Number(latest.weight_kg);
       weightValue.innerHTML = `${Number(latest.weight_kg).toFixed(1)}<span class="unit">kg</span>`;
       weightWhen.textContent = relativeWhen(latest);
       renderStaleNotice(latest);
@@ -625,6 +656,54 @@
         ariaLabel: (p) => `${Number(p.value).toFixed(1)} kg on ${formatFullDate(p.date)}`,
       });
     }
+
+    // ---- Quicklog: weight — stepper only, no free text, no date field.
+    // Always means "right now"; weight.html's own form covers backdating.
+    let weightQuicklogValueKg = 0;
+    function paintWeightQuicklog() {
+      weightQuicklogValue.firstChild.textContent = weightQuicklogValueKg.toFixed(1);
+    }
+    weightQuicklogOpen.addEventListener('click', () => {
+      weightQuicklogValueKg = latestWeightKg !== null ? latestWeightKg : 70;
+      paintWeightQuicklog();
+      hide(weightQuicklogStatus);
+      weightQuicklogSave.disabled = false;
+      weightQuicklogSave.textContent = 'Save';
+      openModal(weightQuicklogModal);
+    });
+    document.getElementById('weight-quicklog-close').addEventListener('click', () => closeModal(weightQuicklogModal));
+    weightQuicklogMinus.addEventListener('click', () => {
+      weightQuicklogValueKg = Math.round((weightQuicklogValueKg - 0.1) * 10) / 10;
+      paintWeightQuicklog();
+    });
+    weightQuicklogPlus.addEventListener('click', () => {
+      weightQuicklogValueKg = Math.round((weightQuicklogValueKg + 0.1) * 10) / 10;
+      paintWeightQuicklog();
+    });
+    weightQuicklogSave.addEventListener('click', async () => {
+      hide(weightQuicklogStatus);
+      weightQuicklogSave.disabled = true;
+      weightQuicklogSave.textContent = 'Saving…';
+
+      const { error } = await supabase.from('body_weights').insert({
+        user_id: user.id,
+        weight_kg: weightQuicklogValueKg,
+        measured_at: new Date().toISOString(),
+        time_known: true,
+      });
+
+      weightQuicklogSave.disabled = false;
+      weightQuicklogSave.textContent = 'Save';
+
+      if (error) {
+        show(weightQuicklogStatus, 'error', `Could not save: ${error.message}`);
+        return;
+      }
+
+      closeModal(weightQuicklogModal);
+      flash(`Logged ${weightQuicklogValueKg.toFixed(1)} kg.`);
+      await loadWeight();
+    });
 
     /** Compact elapsed time for a workout already under way: "23m", "1h 40m". */
     function elapsedSince(iso) {
