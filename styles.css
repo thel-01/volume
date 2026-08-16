@@ -410,6 +410,10 @@ button.secondary {
   justify-content: center;
 }
 .modal-backdrop[hidden] { display: none; }
+/* Opened from inside another already-open modal (the pain-scale "?"), so
+   it must always stack above the rest regardless of DOM order — relying
+   on DOM order alone breaks the moment a new modal is added after it. */
+#pain-info-modal { z-index: 1001; }
 .modal-card {
   width: 100%;
   max-width: 460px;
