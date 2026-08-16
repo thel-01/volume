@@ -123,6 +123,45 @@
     </div>
   </div>
 
+  <!-- Edit an existing check-in — pain, note, and the date/time itself,
+       for backdating a correction. Delete lives here too: a check-in is a
+       fine-grained log entry like a set, hard-deleted with no ceremony. -->
+  <div class="modal-backdrop" id="edit-checkin-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Edit check-in</h2>
+        <button type="button" class="modal-close" id="edit-checkin-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="field" style="margin-bottom:8px;">
+        <div class="pain-label-row">
+          <label style="margin:0;">Pain</label>
+        </div>
+        <div class="pain-readout">
+          <span class="value"><span class="pain-num" id="edit-checkin-pain-value">0</span><span class="unit">/10</span></span>
+          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">?</button>
+        </div>
+        <div class="pain-grid" id="edit-checkin-pain-grid"></div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="edit-checkin-date">Date</label>
+          <input type="date" id="edit-checkin-date">
+        </div>
+        <div class="field">
+          <label for="edit-checkin-time">Time</label>
+          <input type="time" id="edit-checkin-time">
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="edit-checkin-note">Note</label>
+        <textarea id="edit-checkin-note" placeholder="Add anything worth remembering"></textarea>
+      </div>
+      <div id="edit-checkin-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
+      <button type="button" class="uppercase" id="edit-checkin-save" style="margin-top:20px;">Save</button>
+      <button type="button" class="secondary" id="edit-checkin-delete" style="margin-top:10px;color:var(--danger);">Delete check-in</button>
+    </div>
+  </div>
+
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
@@ -160,6 +199,16 @@
     const updateLogBtn = document.getElementById('update-log');
     const painInfoModal = document.getElementById('pain-info-modal');
 
+    const editCheckinModal = document.getElementById('edit-checkin-modal');
+    const editCheckinPainValue = document.getElementById('edit-checkin-pain-value');
+    const editCheckinPainGrid = document.getElementById('edit-checkin-pain-grid');
+    const editCheckinDate = document.getElementById('edit-checkin-date');
+    const editCheckinTime = document.getElementById('edit-checkin-time');
+    const editCheckinNote = document.getElementById('edit-checkin-note');
+    const editCheckinStatus = document.getElementById('edit-checkin-status');
+    const editCheckinSaveBtn = document.getElementById('edit-checkin-save');
+    const editCheckinDeleteBtn = document.getElementById('edit-checkin-delete');
+
     // Same two icons every page uses for a status message.
     const STATUS_ICONS = {
       ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
@@ -196,6 +245,18 @@
     const QUIET_HOURS = 24;
     function hoursSince(iso) {
       return (Date.now() - new Date(iso).getTime()) / 3600000;
+    }
+    /** Local date/time inputs -> a UTC instant. */
+    function toInstant(dateStr, timeStr) {
+      return new Date(`${dateStr}T${timeStr}`);
+    }
+    function localDateValue(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    }
+    function localTimeValue(d) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
     function painSeverityColor(pain) {
       if (pain <= 2) return 'var(--chart-status-good)';
@@ -351,7 +412,12 @@
       for (const c of ordered) {
         const li = document.createElement('li');
         li.className = 'list-item';
-        li.style.cursor = 'default';
+        li.tabIndex = 0;
+        li.setAttribute('role', 'button');
+        const openEdit = () => openEditCheckinModal(c);
+        li.addEventListener('click', openEdit);
+        li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(); } });
+
         const body = document.createElement('div');
         body.className = 'list-item-body';
         const name = document.createElement('div');
@@ -363,6 +429,12 @@
         meta.textContent = c.note ? `${relativeWhen(c.created_at)} · "${c.note}"` : relativeWhen(c.created_at);
         body.appendChild(meta);
         li.appendChild(body);
+
+        const chevron = document.createElement('span');
+        chevron.className = 'list-item-chevron';
+        chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
+        li.appendChild(chevron);
+
         checkinListEl.appendChild(li);
       }
     }
@@ -454,6 +526,99 @@
     }
     updateLogBtn.addEventListener('click', () => submitCheckin({ resolve: false }));
     updateResolveBtn.addEventListener('click', () => submitCheckin({ resolve: true }));
+
+    // ---- Edit check-in popup — pain, note, and the timestamp itself, plus
+    // a hard delete. Reached by tapping a row in the check-ins list.
+    let editCheckinTarget = null;
+    let editCheckinPain = 0;
+    function openEditCheckinModal(checkin) {
+      editCheckinTarget = checkin;
+      editCheckinPain = checkin.pain;
+      buildPainScale(editCheckinPainGrid, editCheckinPain, (v) => {
+        editCheckinPain = v;
+        editCheckinPainValue.textContent = String(v);
+      });
+      editCheckinPainValue.textContent = String(editCheckinPain);
+      const when = new Date(checkin.created_at);
+      editCheckinDate.value = localDateValue(when);
+      editCheckinTime.value = localTimeValue(when);
+      editCheckinNote.value = checkin.note || '';
+      hide(editCheckinStatus);
+      editCheckinSaveBtn.disabled = false;
+      editCheckinSaveBtn.textContent = 'Save';
+      editCheckinDeleteBtn.disabled = false;
+      editCheckinDeleteBtn.textContent = 'Delete check-in';
+      openModal(editCheckinModal);
+    }
+    document.getElementById('edit-checkin-close').addEventListener('click', () => closeModal(editCheckinModal));
+
+    editCheckinSaveBtn.addEventListener('click', async () => {
+      hide(editCheckinStatus);
+      if (!editCheckinDate.value || !editCheckinTime.value) {
+        show(editCheckinStatus, 'error', 'A date and time are both needed.');
+        return;
+      }
+      const createdAt = toInstant(editCheckinDate.value, editCheckinTime.value);
+      if (isNaN(createdAt.getTime())) {
+        show(editCheckinStatus, 'error', 'That date is not valid.');
+        return;
+      }
+
+      editCheckinSaveBtn.disabled = true;
+      editCheckinSaveBtn.textContent = 'Saving…';
+
+      const note = editCheckinNote.value.trim() || null;
+      const { error } = await supabase
+        .from('injury_checkins')
+        .update({ pain: editCheckinPain, note, created_at: createdAt.toISOString() })
+        .eq('id', editCheckinTarget.id);
+
+      editCheckinSaveBtn.disabled = false;
+      editCheckinSaveBtn.textContent = 'Save';
+
+      if (error) {
+        show(editCheckinStatus, 'error', `Could not save: ${error.message}`);
+        return;
+      }
+
+      closeModal(editCheckinModal);
+      flash('Check-in updated.');
+      await loadAll();
+    });
+
+    // Two-tap hard delete, same as sets and weight entries elsewhere — a
+    // single check-in is a fine-grained record, not worth protecting.
+    let editCheckinDeleteArmed = false;
+    editCheckinDeleteBtn.addEventListener('click', async () => {
+      if (!editCheckinDeleteArmed) {
+        editCheckinDeleteArmed = true;
+        editCheckinDeleteBtn.textContent = 'Tap again to delete';
+        setTimeout(() => {
+          if (editCheckinDeleteArmed) {
+            editCheckinDeleteArmed = false;
+            editCheckinDeleteBtn.textContent = 'Delete check-in';
+          }
+        }, 3000);
+        return;
+      }
+      editCheckinDeleteArmed = false;
+      editCheckinDeleteBtn.disabled = true;
+      editCheckinDeleteBtn.textContent = 'Deleting…';
+
+      const { error } = await supabase.from('injury_checkins').delete().eq('id', editCheckinTarget.id);
+
+      editCheckinDeleteBtn.disabled = false;
+      editCheckinDeleteBtn.textContent = 'Delete check-in';
+
+      if (error) {
+        show(editCheckinStatus, 'error', `Could not delete: ${error.message}`);
+        return;
+      }
+
+      closeModal(editCheckinModal);
+      flash('Check-in deleted.');
+      await loadAll();
+    });
 
     // ---- Delete this case — hard delete, no recovery. Injuries never got
     // a soft-delete column (deliberately — a mistracked case is trivial to
