@@ -130,6 +130,16 @@
         </div>
 
         <div class="field">
+          <label>Unilateral</label>
+          <div class="chips">
+            <button id="ex-unilateral-chip" type="button" class="chip">Unilateral</button>
+          </div>
+          <p id="ex-unilateral-locked-note" class="muted" hidden style="margin-top:8px;">
+            Locked — sets have already been logged for this exercise.
+          </p>
+        </div>
+
+        <div class="field">
           <label for="ex-pattern">Movement pattern</label>
           <select id="ex-pattern">
             <option value="">None — uncategorized</option>
@@ -166,6 +176,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
+    import { showToast } from './toast.js';
 
     const TYPE_LABELS = {
       weight_reps: 'Standard',
@@ -221,6 +232,8 @@
     const exNameInput = document.getElementById('ex-name');
     const exTypeSelect = document.getElementById('ex-type');
     const exTypeLockedNote = document.getElementById('ex-type-locked-note');
+    const exUnilateralChip = document.getElementById('ex-unilateral-chip');
+    const exUnilateralLockedNote = document.getElementById('ex-unilateral-locked-note');
     const exPatternSelect = document.getElementById('ex-pattern');
     const exNotesToggle = document.getElementById('ex-notes-toggle');
     const exNotesField = document.getElementById('ex-notes-field');
@@ -266,6 +279,14 @@
     function hide(el) {
       el.hidden = true;
       el.innerHTML = '';
+    }
+    // Floats above the page instead of pushing it down, for the result of
+    // something the user just did (save, delete). show()/hide() above stay
+    // as-is for the load-time #top-status error, a different, blocking case
+    // that isn't this — and for exerciseFormStatus/patternFormStatus, which
+    // are inline feedback on a form still open, not a page-level notice.
+    function flash(message, kind = 'ok', ms = 3000) {
+      showToast(message, kind, { ms });
     }
     function showView(view) {
       patternsView.hidden = view !== 'patterns';
@@ -607,8 +628,7 @@
 
       const wasEditing = !!editingPatternId;
       closePatternForm();
-      show(topStatus, 'ok', wasEditing ? `Renamed to "${saved.name}".` : `Added "${saved.name}".`);
-      setTimeout(() => hide(topStatus), 3000);
+      flash(wasEditing ? `Renamed to "${saved.name}".` : `Added "${saved.name}".`);
     });
 
     patternDeleteBtn.addEventListener('click', () => {
@@ -653,14 +673,13 @@
       editingPatternId = null;
       showView('patterns');
 
-      show(
-        topStatus,
-        'ok',
+      flash(
         cascadedCount > 0
           ? `Deleted "${data.name}" and ${cascadedCount} exercise${cascadedCount === 1 ? '' : 's'}. Recover in Settings.`
-          : `Deleted "${data.name}". Recover it in Settings.`
+          : `Deleted "${data.name}". Recover it in Settings.`,
+        'ok',
+        4000
       );
-      setTimeout(() => hide(topStatus), 4000);
     });
 
     // ------------------------------------------------------------------
@@ -688,6 +707,11 @@
       if (!exNotesField.hidden) exNotesInput.focus();
     });
 
+    exUnilateralChip.addEventListener('click', () => {
+      if (exUnilateralChip.disabled) return;
+      exUnilateralChip.classList.toggle('selected');
+    });
+
     function openCreateExerciseForm(presetPatternId) {
       editingExerciseId = null;
       editingExerciseLocked = false;
@@ -704,6 +728,9 @@
       `;
       exTypeSelect.value = 'weight_reps';
       exTypeLockedNote.hidden = true;
+      exUnilateralChip.disabled = false;
+      exUnilateralChip.classList.remove('selected');
+      exUnilateralLockedNote.hidden = true;
       populatePatternDropdown(presetPatternId);
       exerciseDeleteZone.hidden = true;
       exerciseDeleteConfirm.hidden = true;
@@ -741,6 +768,9 @@
       exTypeSelect.disabled = true;
       exTypeSelect.innerHTML = `<option value="${ex.type}">${TYPE_LABELS[ex.type] || ex.type}</option>`;
       exTypeLockedNote.hidden = true;
+      exUnilateralChip.disabled = true;
+      exUnilateralChip.classList.toggle('selected', !!ex.unilateral);
+      exUnilateralLockedNote.hidden = true;
 
       const { count, error } = await supabase
         .from('sets')
@@ -754,6 +784,7 @@
         show(exerciseFormStatus, 'error', `Could not check whether this exercise has logged sets: ${error.message}`);
         editingExerciseLocked = true; // safest default: don't allow an unverified type change
         exTypeLockedNote.hidden = false;
+        exUnilateralLockedNote.hidden = false;
         return;
       }
 
@@ -761,6 +792,7 @@
 
       if (editingExerciseLocked) {
         exTypeLockedNote.hidden = false;
+        exUnilateralLockedNote.hidden = false;
       } else {
         exTypeSelect.disabled = false;
         // 'assisted' isn't offered for a fresh choice anymore (superseded by
@@ -774,6 +806,7 @@
           ${ex.type === 'assisted' ? '<option value="assisted">Assisted</option>' : ''}
         `;
         exTypeSelect.value = ex.type;
+        exUnilateralChip.disabled = false;
       }
     }
 
@@ -804,6 +837,7 @@
 
       const name = exNameInput.value.trim();
       const type = exTypeSelect.value;
+      const unilateral = exUnilateralChip.classList.contains('selected');
       const patternId = exPatternSelect.value || null;
       const notes = exNotesInput.value.trim() || null;
 
@@ -823,14 +857,17 @@
       let result;
       if (editingExerciseId) {
         const payload = { name, movement_pattern_id: patternId, persistent_notes: notes };
-        // Only send `type` if it's actually editable — avoids poking the
-        // lock trigger with a value that's already unchanged-but-disabled.
-        if (!editingExerciseLocked) payload.type = type;
+        // Only send `type`/`unilateral` if actually editable — avoids poking
+        // the lock triggers with a value that's already unchanged-but-disabled.
+        if (!editingExerciseLocked) {
+          payload.type = type;
+          payload.unilateral = unilateral;
+        }
         result = await supabase.from('exercises').update(payload).eq('id', editingExerciseId).select().single();
       } else {
         result = await supabase
           .from('exercises')
-          .insert({ user_id: user.id, name, type, movement_pattern_id: patternId, persistent_notes: notes })
+          .insert({ user_id: user.id, name, type, unilateral, movement_pattern_id: patternId, persistent_notes: notes })
           .select()
           .single();
       }
@@ -856,8 +893,7 @@
       renderPatternDetail();
 
       closeExerciseForm();
-      show(topStatus, 'ok', editingExerciseId ? `Saved "${saved.name}".` : `Added "${saved.name}".`);
-      setTimeout(() => hide(topStatus), 3000);
+      flash(editingExerciseId ? `Saved "${saved.name}".` : `Added "${saved.name}".`);
     });
 
     exerciseDeleteBtn.addEventListener('click', () => {
@@ -896,8 +932,7 @@
       renderPatternDetail();
 
       closeExerciseForm();
-      show(topStatus, 'ok', `Deleted "${data.name}". Restore it anytime from Settings.`);
-      setTimeout(() => hide(topStatus), 4000);
+      flash(`Deleted "${data.name}". Restore it anytime from Settings.`, 'ok', 4000);
     });
 
     // ------------------------------------------------------------------

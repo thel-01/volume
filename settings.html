@@ -134,6 +134,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
+    import { showToast } from './toast.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -196,6 +197,13 @@
     function hide(el) {
       el.hidden = true;
       el.textContent = '';
+    }
+    // Floats above the page instead of pushing it down, for the result of
+    // something the user just did (restore, log out). show()/hide() above
+    // stay as-is for the load-time #top-status error, a different, blocking
+    // case that isn't this.
+    function flash(message, kind = 'ok', ms = 3000) {
+      showToast(message, kind, { ms });
     }
     function formatDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -382,12 +390,11 @@
     async function restorePattern(p, btn) {
       btn.disabled = true;
       btn.textContent = 'Restoring…';
-      hide(topStatus);
 
       const { error } = await supabase.from('movement_patterns').update({ deleted_at: null }).eq('id', p.id);
 
       if (error) {
-        show(topStatus, 'error', `Could not restore "${p.name}": ${error.message}`);
+        flash(`Could not restore "${p.name}": ${error.message}`, 'error');
         btn.disabled = false;
         btn.textContent = 'Restore';
         return;
@@ -404,25 +411,23 @@
       deletedPatterns = deletedPatterns.filter((x) => x.id !== p.id);
 
       renderAll();
-      show(
-        topStatus,
-        'ok',
+      flash(
         cascaded.length > 0
           ? `Restored "${p.name}" and ${cascaded.length} exercise${cascaded.length === 1 ? '' : 's'}.`
-          : `Restored "${p.name}".`
+          : `Restored "${p.name}".`,
+        'ok',
+        4000
       );
-      setTimeout(() => hide(topStatus), 4000);
     }
 
     async function restoreExercise(ex, btn) {
       btn.disabled = true;
       btn.textContent = 'Restoring…';
-      hide(topStatus);
 
       const { error } = await supabase.from('exercises').update({ deleted_at: null }).eq('id', ex.id);
 
       if (error) {
-        show(topStatus, 'error', `Could not restore "${ex.name}": ${error.message}`);
+        flash(`Could not restore "${ex.name}": ${error.message}`, 'error');
         btn.disabled = false;
         btn.textContent = 'Restore';
         return;
@@ -430,8 +435,7 @@
 
       deletedExercises = deletedExercises.filter((e) => e.id !== ex.id);
       renderExercises();
-      show(topStatus, 'ok', `Restored "${ex.name}".`);
-      setTimeout(() => hide(topStatus), 3000);
+      flash(`Restored "${ex.name}".`);
     }
 
     // ------------------------------------------------------------------
@@ -478,12 +482,11 @@
     async function restoreSession(s, btn) {
       btn.disabled = true;
       btn.textContent = 'Restoring…';
-      hide(topStatus);
 
       const { error } = await supabase.from('sessions').update({ deleted_at: null }).eq('id', s.id);
 
       if (error) {
-        show(topStatus, 'error', `Could not restore that session: ${error.message}`);
+        flash(`Could not restore that session: ${error.message}`, 'error');
         btn.disabled = false;
         btn.textContent = 'Restore';
         return;
@@ -491,8 +494,7 @@
 
       deletedSessions = deletedSessions.filter((x) => x.id !== s.id);
       renderSessions();
-      show(topStatus, 'ok', 'Session restored.');
-      setTimeout(() => hide(topStatus), 3000);
+      flash('Session restored.');
     }
 
     // ------------------------------------------------------------------
@@ -676,7 +678,7 @@
       logoutBtn.textContent = 'Logging out…';
       const { error } = await supabase.auth.signOut();
       if (error) {
-        show(topStatus, 'error', `Could not log out: ${error.message}`);
+        flash(`Could not log out: ${error.message}`, 'error');
         logoutBtn.disabled = false;
         logoutBtn.textContent = 'Log out';
         return;

@@ -189,6 +189,13 @@ create table if not exists public.exercises (
   -- so changing this later would silently corrupt PR and history maths.
   type                  text not null,
 
+  -- One side at a time (a single-leg calf raise, a single-arm row) rather
+  -- than both together. Also locked after the first set — see the trigger
+  -- further down. Doesn't affect PR/index math like type does; it's locked
+  -- for a lighter reason, so old sets' limiting_side (see sets table) keeps
+  -- meaning what it meant when logged.
+  unilateral            boolean not null default false,
+
   -- Which box this exercise lives in, e.g. "Bench Press" -> "Horizontal
   -- Press". Nullable: an exercise doesn't have to belong to a pattern.
   -- ON DELETE SET NULL is a fallback for a pattern removed outside the app
@@ -228,6 +235,7 @@ drop index if exists public.exercises_parent_idx;
 alter table public.exercises drop column if exists parent_exercise_id;
 alter table public.exercises
   add column if not exists movement_pattern_id uuid references public.movement_patterns (id) on delete set null;
+alter table public.exercises add column if not exists unilateral boolean not null default false;
 
 create index if not exists exercises_user_idx
   on public.exercises (user_id);
@@ -340,6 +348,13 @@ create table if not exists public.sets (
   -- Text rather than an enum so adding a tag doesn't need a migration.
   quick_tag         text,
 
+  -- Unilateral exercises only. Which side actually decided the tag above —
+  -- you cap the stronger side to match the weaker one while training, so
+  -- the rep count is already honest for both; this records which side was
+  -- the real limiting factor. Only ever asked for alongside 'hard' or
+  -- 'failure' — an 'easy' set didn't get limited by either side.
+  limiting_side     text,
+
   note              text,
 
   created_at        timestamptz not null default now(),
@@ -351,6 +366,8 @@ create table if not exists public.sets (
     check (weight_direction is null or weight_direction in ('assist', 'add')),
   constraint sets_bodyweight_sane
     check (bodyweight_kg is null or (bodyweight_kg > 20 and bodyweight_kg < 500)),
+  constraint sets_limiting_side_valid
+    check (limiting_side is null or limiting_side in ('left', 'right', 'even')),
 
   -- A set has to record something.
   constraint sets_not_empty
@@ -361,12 +378,16 @@ create table if not exists public.sets (
 -- brand new database, since the create table above already has these columns.
 alter table public.sets add column if not exists weight_direction text;
 alter table public.sets add column if not exists bodyweight_kg numeric(5, 2);
+alter table public.sets add column if not exists limiting_side text;
 alter table public.sets drop constraint if exists sets_weight_direction_valid;
 alter table public.sets add constraint sets_weight_direction_valid
   check (weight_direction is null or weight_direction in ('assist', 'add'));
 alter table public.sets drop constraint if exists sets_bodyweight_sane;
 alter table public.sets add constraint sets_bodyweight_sane
   check (bodyweight_kg is null or (bodyweight_kg > 20 and bodyweight_kg < 500));
+alter table public.sets drop constraint if exists sets_limiting_side_valid;
+alter table public.sets add constraint sets_limiting_side_valid
+  check (limiting_side is null or limiting_side in ('left', 'right', 'even'));
 
 -- Fetching a session's sets in the order they were logged.
 create index if not exists sets_session_idx
@@ -445,6 +466,37 @@ create trigger exercises_lock_type
   before update of type on public.exercises
   for each row
   execute function public.lock_exercise_type();
+
+-- Same reasoning, lighter stakes: unilateral doesn't feed PR/index math, but
+-- an old set's limiting_side only means something if you know whether the
+-- exercise was tracked per-side when it was logged. Kept as its own
+-- function/trigger rather than folded into lock_exercise_type above, since
+-- the two lock for different reasons and touching the working type trigger
+-- isn't worth the risk for this.
+create or replace function public.lock_exercise_unilateral()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+begin
+  if new.unilateral is distinct from old.unilateral
+     and exists (select 1 from public.sets where exercise_id = old.id) then
+    raise exception
+      'Cannot change whether "%" is unilateral — sets have already been logged against it.',
+      old.name
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists exercises_lock_unilateral on public.exercises;
+
+create trigger exercises_lock_unilateral
+  before update of unilateral on public.exercises
+  for each row
+  execute function public.lock_exercise_unilateral();
 
 
 -- ===========================================================================

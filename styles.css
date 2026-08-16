@@ -290,6 +290,91 @@ button.secondary {
   color: var(--muted);
 }
 
+/* Toasts — same job as .status above (every action ends in one of these),
+   but for a transient action result ("Set logged.", "Could not delete the
+   set: ...") that floats above the page instead of pushing it down. A
+   page's own load-time failure stays as the in-flow .status; this is only
+   for something the user just did. */
+#toast-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: max(12px, env(safe-area-inset-top)) 16px 0;
+  pointer-events: none;
+}
+/* First deliberate use of a shadow anywhere in the system — everything
+   else stays flat on purpose, but a layer that's genuinely floating above
+   content needs to read as physically on top of it, not just tinted. */
+.toast {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: 15px;
+  border: 1px solid transparent;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  transform: translateY(-140%);
+  opacity: 0;
+  /* Deliberately not --motion-fast (150ms) — that's locked for existing
+     in-place state-swaps; a toast sliding in is a new kind of motion and
+     reads better a little slower. */
+  transition: transform 220ms ease, opacity 220ms ease;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast svg { flex-shrink: 0; margin-top: 2px; }
+.toast.error {
+  background: var(--status-error-bg);
+  border-color: var(--status-error-border);
+  color: #ffc9c9;
+}
+.toast.ok {
+  background: var(--status-ok-bg);
+  border-color: var(--status-ok-border);
+  color: #b6f0d5;
+}
+.toast.info {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.toast-body { flex: 1; min-width: 0; }
+.toast-detail { font-size: var(--fs-xs); color: var(--muted); margin-top: 3px; line-height: 1.4; }
+.toast-actions { margin-top: 8px; }
+.toast-action {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: auto;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.toast-close {
+  width: auto;
+  flex: 0 0 auto;
+  min-height: auto;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);

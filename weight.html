@@ -146,6 +146,7 @@
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
+    import { showToast } from './toast.js';
 
     // Bodyweight swings a kilo or more day to day on food and water alone, so
     // a single reading says very little. A 7-day trailing mean is the usual
@@ -220,9 +221,12 @@
       el.hidden = false;
     }
     function hide(el) { el.hidden = true; }
-    function flash(el, kind, message, ms = 3000) {
-      show(el, kind, message);
-      setTimeout(() => hide(el), ms);
+    // Floats above the page instead of pushing it down — show()/hide() above
+    // stay as-is for the load-time #top-status error, a different, blocking
+    // case that isn't this. Signature dropped its `el` param (always
+    // topStatus in practice) to match every other page's flash().
+    function flash(message, kind = 'ok', ms = 3000) {
+      showToast(message, kind, { ms });
     }
     const fmtKg = (v) => Number(v).toFixed(1);
 
@@ -675,7 +679,7 @@
       entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
       closeAddForm();
       render();
-      flash(topStatus, 'ok', `Logged ${fmtKg(data.weight_kg)} kg.`);
+      flash(`Logged ${fmtKg(data.weight_kg)} kg.`);
     }
 
     async function saveEdit(entry, wInput, dInput, tInput, btn, status) {
@@ -703,7 +707,7 @@
       entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
       editingId = null;
       render();
-      flash(topStatus, 'ok', 'Entry updated.');
+      flash('Entry updated.');
     }
 
     async function removeEntry(entry, btn, status) {
@@ -719,7 +723,7 @@
       entries = entries.filter((e) => e.id !== entry.id);
       editingId = null;
       render();
-      flash(topStatus, 'ok', 'Entry deleted.');
+      flash('Entry deleted.');
     }
 
     // ------------------------------------------------------------------

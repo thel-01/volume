@@ -27,6 +27,7 @@ const APP_SHELL = [
   './date-utils.js',
   './chart.js',
   './strength-index.js',
+  './toast.js',
   './register-sw.js',
   './manifest.json',
   './vendor/supabase.js',

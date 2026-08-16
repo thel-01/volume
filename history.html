@@ -75,6 +75,7 @@
     import { supabase, requireSession } from './supabase-client.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { isBodyweightEquivalent } from './strength-index.js';
+    import { showToast } from './toast.js';
 
     const QUICK_TAGS = [
       { value: 'easy', label: 'Easy' },
@@ -154,9 +155,11 @@
       el.hidden = true;
       el.innerHTML = '';
     }
+    // Floats above the page instead of pushing it down — show()/hide() above
+    // stay as-is for the load-time #top-status error, a different, blocking
+    // case that isn't this.
     function flash(message, kind = 'ok', ms = 3000) {
-      show(topStatus, kind, message);
-      setTimeout(() => hide(topStatus), ms);
+      showToast(message, kind, { ms });
     }
     function formatDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });

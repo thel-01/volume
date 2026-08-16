@@ -141,6 +141,7 @@
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
+    import { showToast } from './toast.js';
 
     const TYPE_LABELS = {
       weight_reps: 'Standard',
@@ -240,9 +241,11 @@
       el.hidden = true;
       el.innerHTML = '';
     }
+    // Floats above the page instead of pushing it down — show()/hide() above
+    // stay as-is for the load-time #top-status error, a different, blocking
+    // case that isn't this.
     function flash(message, kind = 'ok', ms = 3000) {
-      show(topStatus, kind, message);
-      setTimeout(() => hide(topStatus), ms);
+      showToast(message, kind, { ms });
     }
     /** Ending a workout leaves this page entirely — the dashboard shows the message instead. */
     function goToDashboardWithFlash(message, kind = 'ok') {
@@ -1214,6 +1217,7 @@
 
       // Quick tags — single select, tap again to clear.
       let activeTag = null;
+      let activeSide = null;
       const chips = document.createElement('div');
       chips.className = 'chips';
       chips.style.marginTop = '12px';
@@ -1226,10 +1230,52 @@
           activeTag = activeTag === tag.value ? null : tag.value;
           for (const c of chips.children) c.classList.remove('selected');
           if (activeTag) chip.classList.add('selected');
+          updateSideVisibility();
         });
         chips.appendChild(chip);
       }
       block.appendChild(chips);
+
+      // Limiting side — unilateral exercises only, and only once a tag says
+      // something actually limited you. Easy has no limiting side: nothing
+      // did, so there's nothing to ask.
+      let sideWrap = null;
+      let sideChips = null;
+      function updateSideVisibility() {
+        if (!sideWrap) return;
+        const showSide = activeTag && activeTag !== 'easy';
+        sideWrap.hidden = !showSide;
+        if (!showSide) {
+          activeSide = null;
+          for (const c of sideChips.children) c.classList.remove('selected');
+        }
+      }
+      if (entry.exercise.unilateral) {
+        sideWrap = document.createElement('div');
+        sideWrap.hidden = true;
+        sideWrap.style.marginTop = '12px';
+        const sideLabel = document.createElement('p');
+        sideLabel.className = 'muted';
+        sideLabel.style.margin = '0 0 6px';
+        sideLabel.textContent = 'Limiting side';
+        sideWrap.appendChild(sideLabel);
+        sideChips = document.createElement('div');
+        sideChips.className = 'chips';
+        for (const side of [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }, { value: 'even', label: 'Even' }]) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'chip';
+          chip.textContent = side.label;
+          chip.addEventListener('click', () => {
+            activeSide = activeSide === side.value ? null : side.value;
+            for (const c of sideChips.children) c.classList.remove('selected');
+            if (activeSide) chip.classList.add('selected');
+          });
+          sideChips.appendChild(chip);
+        }
+        sideWrap.appendChild(sideChips);
+        block.appendChild(sideWrap);
+      }
 
       const logBtn = document.createElement('button');
       logBtn.type = 'button';
@@ -1333,6 +1379,7 @@
         }
 
         if (activeTag) payload.quick_tag = activeTag;
+        if (activeSide) payload.limiting_side = activeSide;
 
         logBtn.disabled = true;
         logBtn.textContent = 'Logging…';
