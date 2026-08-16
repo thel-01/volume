@@ -46,35 +46,48 @@ function stepDecimals(step) {
  * third. The labels are only here for context, so the highest one does not
  * need to sit at the very top.
  */
-function computeYAxis(values, minRange = 0) {
-  const dataMin = Math.min(...values);
-  const dataMax = Math.max(...values);
-  let lo = dataMin;
-  let hi = dataMax;
-
-  if (lo === hi) {
-    // Flat or single-point series — fabricate a window so the point sits
-    // mid-chart instead of on a zero-height axis.
-    const pad = Math.max(1, Math.abs(lo) * 0.1);
-    lo -= pad;
-    hi += pad;
+function computeYAxis(values, minRange = 0, fixedRange = null) {
+  // Some scales are already a meaningful, fixed bound (0-10 pain, for
+  // instance) — auto-fitting to whatever data happens to exist would be
+  // the one thing that could actually mislead there, the opposite problem
+  // minRange below solves. fixedRange skips the data-driven computation
+  // entirely; tick generation afterward is the same either way.
+  let dataMin, dataMax, lo, hi;
+  if (fixedRange) {
+    lo = fixedRange.min;
+    hi = fixedRange.max;
+    dataMin = lo;
+    dataMax = hi;
   } else {
-    // Just enough room that the top and bottom dots aren't clipped.
-    const pad = (hi - lo) * 0.08;
-    lo -= pad;
-    hi += pad;
-  }
+    dataMin = Math.min(...values);
+    dataMax = Math.max(...values);
+    lo = dataMin;
+    hi = dataMax;
 
-  // A genuinely tiny move (0.3kg of bodyweight noise, a 1-point index
-  // wobble) would otherwise stretch to fill the whole chart height and
-  // read as a dramatic swing. minRange floors the span so the chart's
-  // own scale stays honest about how big the real change is — callers
-  // pass a floor sized to their own unit, since e.g. 2kg means nothing
-  // on an index chart and 2 index points means nothing on a weight chart.
-  if (hi - lo < minRange) {
-    const mid = (hi + lo) / 2;
-    lo = mid - minRange / 2;
-    hi = mid + minRange / 2;
+    if (lo === hi) {
+      // Flat or single-point series — fabricate a window so the point sits
+      // mid-chart instead of on a zero-height axis.
+      const pad = Math.max(1, Math.abs(lo) * 0.1);
+      lo -= pad;
+      hi += pad;
+    } else {
+      // Just enough room that the top and bottom dots aren't clipped.
+      const pad = (hi - lo) * 0.08;
+      lo -= pad;
+      hi += pad;
+    }
+
+    // A genuinely tiny move (0.3kg of bodyweight noise, a 1-point index
+    // wobble) would otherwise stretch to fill the whole chart height and
+    // read as a dramatic swing. minRange floors the span so the chart's
+    // own scale stays honest about how big the real change is — callers
+    // pass a floor sized to their own unit, since e.g. 2kg means nothing
+    // on an index chart and 2 index points means nothing on a weight chart.
+    if (hi - lo < minRange) {
+      const mid = (hi + lo) / 2;
+      lo = mid - minRange / 2;
+      hi = mid + minRange / 2;
+    }
   }
 
   if (lo < 0 && dataMin >= 0) lo = 0; // never imply negative weight
@@ -147,9 +160,13 @@ function text(x, y, anchor, size, fill, content) {
  * @param {Function} [opts.ariaLabel]   (point) => string
  * @param {number}   [opts.minRange]    floor on the y-axis span, in the series' own unit — keeps a
  *                                      trivial real-world move from visually filling the whole chart
+ * @param {{min: number, max: number}} [opts.fixedRange] locks the y-axis to an exact range regardless
+ *                                      of the data (e.g. {min:0, max:10} for a 0-10 pain scale) —
+ *                                      the scale itself is already meaningful, so auto-fitting to
+ *                                      whatever data exists would be the one thing that could mislead
  */
 export function renderLineChart(svg, opts) {
-  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange } = opts;
+  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange, fixedRange } = opts;
 
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${VIEW_W} ${VIEW_H}`);
@@ -161,7 +178,7 @@ export function renderLineChart(svg, opts) {
   const times = allPoints.map((p) => new Date(p.date).getTime());
   const minT = Math.min(...times);
   const maxT = Math.max(...times);
-  const axis = computeYAxis(allPoints.map((p) => p.value), minRange || 0);
+  const axis = computeYAxis(allPoints.map((p) => p.value), minRange || 0, fixedRange || null);
 
   const plotW = VIEW_W - MARGIN.left - MARGIN.right;
   const plotH = VIEW_H - MARGIN.top - MARGIN.bottom;
