@@ -566,8 +566,8 @@ button.secondary {
 .page-header h1.wordmark { font-family: var(--font-display); }
 
 .icon-link, .icon-btn {
-  width: 40px;
-  height: 40px;
+  width: var(--tap);
+  height: var(--tap);
   min-height: 0;
   padding: 0;
   flex: 0 0 auto;
@@ -641,7 +641,7 @@ button.danger.secondary {
 }
 .tab {
   flex: 1;
-  min-height: 40px;
+  min-height: var(--tap);
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius);
@@ -879,9 +879,9 @@ button.danger.secondary {
 /* Small round × on a logged set. Hard delete, per CLAUDE.md. */
 .set-delete {
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  min-height: 36px;
+  width: var(--tap);
+  height: var(--tap);
+  min-height: var(--tap);
   padding: 0;
   border-radius: var(--radius);
   background: transparent;
