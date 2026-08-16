@@ -46,6 +46,19 @@
 
       <p class="section-label" style="margin:20px 0 8px;">Check-ins</p>
       <ul id="checkin-list" class="list"></ul>
+
+      <div class="danger-zone">
+        <button id="delete-injury-btn" class="secondary danger uppercase" type="button">Delete this case</button>
+        <div id="delete-injury-confirm" hidden>
+          <p class="muted" style="margin:12px 0;">
+            Delete this case and all its check-ins? This can't be undone.
+          </p>
+          <div class="btn-row">
+            <button id="delete-injury-cancel" class="secondary" type="button">Cancel</button>
+            <button id="delete-injury-confirm-btn" class="danger uppercase" type="button">Yes, delete</button>
+          </div>
+        </div>
+      </div>
     </div>
 
   </main>
@@ -131,6 +144,10 @@
     const sameBtn = document.getElementById('same-btn');
     const openUpdateBtn = document.getElementById('open-update-btn');
     const checkinListEl = document.getElementById('checkin-list');
+    const deleteInjuryBtn = document.getElementById('delete-injury-btn');
+    const deleteInjuryConfirm = document.getElementById('delete-injury-confirm');
+    const deleteInjuryCancel = document.getElementById('delete-injury-cancel');
+    const deleteInjuryConfirmBtn = document.getElementById('delete-injury-confirm-btn');
 
     const updateModal = document.getElementById('update-modal');
     const updateModalTitle = document.getElementById('update-modal-title');
@@ -424,6 +441,34 @@
     }
     updateLogBtn.addEventListener('click', () => submitCheckin({ resolve: false }));
     updateResolveBtn.addEventListener('click', () => submitCheckin({ resolve: true }));
+
+    // ---- Delete this case — hard delete, no recovery. Injuries never got
+    // a soft-delete column (deliberately — a mistracked case is trivial to
+    // redo, same reasoning as hard-deleting a single set), so this is final.
+    // Cascades to every checkin via the FK's own "on delete cascade".
+    deleteInjuryBtn.addEventListener('click', () => {
+      deleteInjuryBtn.hidden = true;
+      deleteInjuryConfirm.hidden = false;
+    });
+    deleteInjuryCancel.addEventListener('click', () => {
+      deleteInjuryConfirm.hidden = true;
+      deleteInjuryBtn.hidden = false;
+    });
+    deleteInjuryConfirmBtn.addEventListener('click', async () => {
+      deleteInjuryConfirmBtn.disabled = true;
+      deleteInjuryConfirmBtn.textContent = 'Deleting…';
+
+      const { error } = await supabase.from('injuries').delete().eq('id', injury.id);
+
+      if (error) {
+        deleteInjuryConfirmBtn.disabled = false;
+        deleteInjuryConfirmBtn.textContent = 'Yes, delete';
+        flash(`Could not delete: ${error.message}`, 'error', 5000);
+        return;
+      }
+
+      window.location.href = './dashboard.html';
+    });
 
     // ------------------------------------------------------------------
     // Boot
