@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Aches &amp; Injuries</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div class="page-header">
+      <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
+      <h1 id="heading">…</h1>
+      <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+    </div>
+
+    <p id="loading" class="muted">Loading…</p>
+
+    <div id="content" hidden>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
+        <div id="status-badge-wrap"><span id="status-badge" class="badge"></span></div>
+      </div>
+      <p id="started-line" class="muted" style="margin:0 0 16px;"></p>
+
+      <div class="chart-card">
+        <svg id="pain-chart" viewBox="0 0 340 180" role="img" aria-label="Pain over time"></svg>
+      </div>
+      <p id="chart-empty" class="empty-state" hidden>No check-ins yet.</p>
+
+      <div class="btn-row" id="active-actions" style="margin-top:16px;">
+        <button type="button" class="secondary" id="same-btn">Same</button>
+        <button type="button" class="secondary" style="color:var(--muted);" id="open-update-btn">Update</button>
+      </div>
+
+      <p class="section-label" style="margin:20px 0 8px;">Check-ins</p>
+      <ul id="checkin-list" class="list"></ul>
+    </div>
+
+  </main>
+
+  <!-- Quicklog: update. Same popup design as dashboard.html's — duplicated
+       here per this app's existing per-page-owns-its-UI architecture, not
+       shared markup across pages. -->
+  <div class="modal-backdrop" id="update-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="update-modal-title">Update</h2>
+        <button type="button" class="modal-close" id="update-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="field" style="margin-bottom:8px;">
+        <div class="pain-label-row">
+          <label style="margin:0;">Pain now</label>
+          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">i</button>
+        </div>
+        <div class="pain-readout"><span class="value" id="update-pain-value">0<span>/10</span></span></div>
+        <div class="pain-grid" id="update-pain-grid"></div>
+      </div>
+      <button type="button" class="detail-toggle" id="update-note-toggle">+ Add a note</button>
+      <div id="update-note-field" hidden style="margin-top:16px;">
+        <div class="field" style="margin-bottom:0;">
+          <textarea id="update-note" placeholder="Add anything worth remembering"></textarea>
+        </div>
+      </div>
+      <div id="update-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button type="button" class="secondary" style="color:var(--muted);" id="update-resolve">Resolve</button>
+        <button type="button" class="uppercase" id="update-log">Log update</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pain scale info — one shared modal, every "i" opens it. -->
+  <div class="modal-backdrop" id="pain-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Pain scale</h2>
+        <button type="button" class="modal-close" id="pain-info-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="pain-info-row">
+        <span class="pain-info-num">0</span>
+        <span class="pain-info-text"><span class="pain-info-adjective">None</span></span>
+      </div>
+      <div class="pain-info-row">
+        <span class="pain-info-num">1–3</span>
+        <span class="pain-info-text"><span class="pain-info-adjective">Mild</span> <span class="pain-info-detail">— noticeable but doesn't limit activities</span></span>
+      </div>
+      <div class="pain-info-row">
+        <span class="pain-info-num">4–6</span>
+        <span class="pain-info-text"><span class="pain-info-adjective">Moderate</span> <span class="pain-info-detail">— interferes with some daily activities</span></span>
+      </div>
+      <div class="pain-info-row">
+        <span class="pain-info-num">7–9</span>
+        <span class="pain-info-text"><span class="pain-info-adjective">Severe</span> <span class="pain-info-detail">— hard to concentrate, significantly limits activities</span></span>
+      </div>
+      <div class="pain-info-row">
+        <span class="pain-info-num">10</span>
+        <span class="pain-info-text"><span class="pain-info-adjective">Worst imaginable</span> <span class="pain-info-detail">— unable to function</span></span>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { supabase, requireSession } from './supabase-client.js';
+    import { renderLineChart } from './chart.js';
+    import { showToast } from './toast.js';
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const topStatus = document.getElementById('top-status');
+    const heading = document.getElementById('heading');
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('content');
+    const statusBadge = document.getElementById('status-badge');
+    const startedLine = document.getElementById('started-line');
+    const painChart = document.getElementById('pain-chart');
+    const chartEmpty = document.getElementById('chart-empty');
+    const activeActions = document.getElementById('active-actions');
+    const sameBtn = document.getElementById('same-btn');
+    const openUpdateBtn = document.getElementById('open-update-btn');
+    const checkinListEl = document.getElementById('checkin-list');
+
+    const updateModal = document.getElementById('update-modal');
+    const updateModalTitle = document.getElementById('update-modal-title');
+    const updatePainValue = document.getElementById('update-pain-value');
+    const updatePainGrid = document.getElementById('update-pain-grid');
+    const updateNoteToggle = document.getElementById('update-note-toggle');
+    const updateNoteField = document.getElementById('update-note-field');
+    const updateNote = document.getElementById('update-note');
+    const updateStatus = document.getElementById('update-status');
+    const updateResolveBtn = document.getElementById('update-resolve');
+    const updateLogBtn = document.getElementById('update-log');
+    const painInfoModal = document.getElementById('pain-info-modal');
+
+    // Same two icons every page uses for a status message.
+    const STATUS_ICONS = {
+      ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L10 19 L20 5"/></svg>',
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
+      el.hidden = false;
+    }
+    function hide(el) { el.hidden = true; el.innerHTML = ''; }
+    function flash(message, kind = 'ok', ms = 3000) { showToast(message, kind, { ms }); }
+
+    function formatFullDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function formatCompactDate(iso, showYear) {
+      const d = new Date(iso);
+      const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
+    }
+    function relativeWhen(iso) {
+      const h = (Date.now() - new Date(iso).getTime()) / 3600000;
+      if (h < 1) return 'just now';
+      if (h < 24) return `${Math.floor(h)}h ago`;
+      const d = Math.floor(h / 24);
+      if (d === 0) return 'today';
+      return d === 1 ? '1 day ago' : `${d} days ago`;
+    }
+    function dayCount(startedAt) {
+      return Math.floor((Date.now() - new Date(startedAt).getTime()) / 86400000) + 1;
+    }
+    function painSeverityColor(pain) {
+      if (pain <= 2) return 'var(--chart-status-good)';
+      if (pain <= 5) return 'var(--chart-status-warning)';
+      if (pain <= 8) return 'var(--chart-status-serious)';
+      return 'var(--chart-status-critical)';
+    }
+
+    // Same fixed-grid chip pattern the pain scale is locked to everywhere.
+    function buildPainScale(container, initial, onChange) {
+      container.innerHTML = '';
+      for (let i = 1; i <= 10; i++) {
+        const cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'chip chip-num';
+        cell.textContent = String(i);
+        cell.dataset.value = String(i);
+        if (i === initial) cell.classList.add('selected');
+        cell.addEventListener('click', () => selectPainCell(container, cell, i, onChange));
+        container.appendChild(cell);
+      }
+      const noPain = document.createElement('button');
+      noPain.type = 'button';
+      noPain.className = 'chip chip-nopain';
+      noPain.textContent = 'No pain';
+      noPain.dataset.value = '0';
+      if (initial === 0) noPain.classList.add('selected');
+      noPain.addEventListener('click', () => selectPainCell(container, noPain, 0, onChange));
+      container.appendChild(noPain);
+      paintPainCell(container);
+    }
+    function selectPainCell(container, cell, value, onChange) {
+      container.querySelectorAll('.chip-num, .chip-nopain').forEach((c) => {
+        c.classList.remove('selected');
+        c.style.background = '';
+        c.style.borderColor = '';
+        c.style.color = '';
+      });
+      cell.classList.add('selected');
+      onChange(value);
+      paintPainCell(container);
+    }
+    function paintPainCell(container) {
+      const selected = container.querySelector('.selected');
+      if (!selected) return;
+      const c = painSeverityColor(Number(selected.dataset.value));
+      selected.style.background = c;
+      selected.style.borderColor = c;
+      selected.style.color = '#000';
+    }
+
+    function openModal(el) { el.hidden = false; }
+    function closeModal(el) { el.hidden = true; }
+    document.querySelectorAll('.modal-backdrop').forEach((backdrop) => {
+      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.hidden = true; });
+    });
+    document.querySelectorAll('.pain-info-trigger').forEach((btn) => {
+      btn.addEventListener('click', () => openModal(painInfoModal));
+    });
+    document.getElementById('pain-info-close').addEventListener('click', () => closeModal(painInfoModal));
+
+    // ------------------------------------------------------------------
+    // Load
+    // ------------------------------------------------------------------
+    const params = new URLSearchParams(window.location.search);
+    const injuryId = params.get('id');
+
+    let injury = null;
+    let checkins = [];
+
+    async function loadAll() {
+      if (!injuryId) {
+        loading.hidden = true;
+        show(topStatus, 'error', 'No injury specified.');
+        return;
+      }
+
+      const [injuryRes, checkinsRes] = await Promise.all([
+        supabase.from('injuries').select('*').eq('id', injuryId).maybeSingle(),
+        supabase.from('injury_checkins').select('*').eq('injury_id', injuryId).order('created_at'),
+      ]);
+
+      const err = injuryRes.error || checkinsRes.error;
+      if (err) {
+        loading.hidden = true;
+        show(topStatus, 'error', `Could not load this injury: ${err.message}`);
+        return;
+      }
+      if (!injuryRes.data) {
+        loading.hidden = true;
+        show(topStatus, 'error', 'Could not find that injury. It may have been deleted.');
+        return;
+      }
+
+      injury = injuryRes.data;
+      checkins = checkinsRes.data || [];
+
+      loading.hidden = true;
+      content.hidden = false;
+      renderAll();
+    }
+
+    function renderAll() {
+      heading.textContent = injury.name;
+      document.title = `Volume — ${injury.name}`;
+
+      const resolved = injury.status === 'resolved';
+      statusBadge.textContent = resolved ? `resolved · day ${dayCount(injury.started_at)}` : `active · day ${dayCount(injury.started_at)}`;
+      statusBadge.className = resolved ? 'badge' : 'badge badge-warning';
+      startedLine.textContent = `Started ${formatFullDate(injury.started_at)}`;
+      activeActions.hidden = resolved;
+
+      renderChart();
+      renderCheckinList();
+    }
+
+    function renderChart() {
+      if (checkins.length === 0) {
+        painChart.closest('.chart-card').hidden = true;
+        chartEmpty.hidden = false;
+        return;
+      }
+      painChart.closest('.chart-card').hidden = false;
+      chartEmpty.hidden = true;
+
+      const points = checkins.map((c) => ({ date: c.created_at, value: c.pain, checkin: c }));
+      renderLineChart(painChart, {
+        series: [{ points, color: 'var(--live)', width: '2.2', dots: true, tappable: true }],
+        // Fixed 0-10, always — the scale itself is already the meaningful
+        // bound, so auto-fitting to whatever's been logged so far would be
+        // the one thing that could actually mislead here.
+        fixedRange: { min: 0, max: 10 },
+        formatValue: (v) => String(Math.round(v)),
+        formatDate: formatCompactDate,
+        tooltipLines: (p) => [`${p.value} / 10`, formatFullDate(p.date)],
+        ariaLabel: (p) => `Pain ${p.value} on ${formatFullDate(p.date)}`,
+      });
+    }
+
+    function renderCheckinList() {
+      checkinListEl.innerHTML = '';
+      const ordered = [...checkins].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      for (const c of ordered) {
+        const li = document.createElement('li');
+        li.className = 'list-item';
+        li.style.cursor = 'default';
+        const body = document.createElement('div');
+        body.className = 'list-item-body';
+        const name = document.createElement('div');
+        name.className = 'list-item-name';
+        name.innerHTML = `${c.pain} <span class="muted" style="font-size:13px;font-weight:400;">/ 10</span>`;
+        body.appendChild(name);
+        const meta = document.createElement('div');
+        meta.className = 'list-item-meta';
+        meta.textContent = c.note ? `${relativeWhen(c.created_at)} · "${c.note}"` : relativeWhen(c.created_at);
+        body.appendChild(meta);
+        li.appendChild(body);
+        checkinListEl.appendChild(li);
+      }
+    }
+
+    function latestCheckin() {
+      if (checkins.length === 0) return null;
+      return checkins.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+    }
+
+    // ---- Same — zero-popup, one tap ----
+    sameBtn.addEventListener('click', async () => {
+      const latest = latestCheckin();
+      const pain = latest ? latest.pain : 0;
+      const { error } = await supabase.from('injury_checkins').insert({ injury_id: injury.id, pain });
+      if (error) {
+        flash(`Could not log: ${error.message}`, 'error');
+        return;
+      }
+      flash(`Logged — still around a ${pain}.`);
+      await loadAll();
+    });
+
+    // ---- Update popup ----
+    let updatePain = 0;
+    openUpdateBtn.addEventListener('click', () => {
+      const latest = latestCheckin();
+      updatePain = latest ? latest.pain : 0;
+      updateModalTitle.textContent = injury.name;
+      buildPainScale(updatePainGrid, updatePain, (v) => {
+        updatePain = v;
+        updatePainValue.firstChild.textContent = String(v);
+      });
+      updatePainValue.firstChild.textContent = String(updatePain);
+      updateNoteField.hidden = true;
+      updateNoteToggle.textContent = '+ Add a note';
+      updateNote.value = '';
+      hide(updateStatus);
+      updateResolveBtn.disabled = false;
+      updateLogBtn.disabled = false;
+      updateLogBtn.textContent = 'Log update';
+      updateResolveBtn.textContent = 'Resolve';
+      openModal(updateModal);
+    });
+    document.getElementById('update-close').addEventListener('click', () => closeModal(updateModal));
+    updateNoteToggle.addEventListener('click', () => {
+      updateNoteField.hidden = !updateNoteField.hidden;
+      updateNoteToggle.textContent = updateNoteField.hidden ? '+ Add a note' : '− Hide note';
+    });
+    async function submitCheckin({ resolve }) {
+      hide(updateStatus);
+      updateResolveBtn.disabled = true;
+      updateLogBtn.disabled = true;
+      updateLogBtn.textContent = resolve ? 'Log update' : 'Logging…';
+      if (resolve) updateResolveBtn.textContent = 'Resolving…';
+
+      const note = updateNote.value.trim() || null;
+      const { error: checkinErr } = await supabase
+        .from('injury_checkins')
+        .insert({ injury_id: injury.id, pain: updatePain, note });
+
+      if (checkinErr) {
+        show(updateStatus, 'error', `Could not log: ${checkinErr.message}`);
+        updateResolveBtn.disabled = false;
+        updateLogBtn.disabled = false;
+        updateLogBtn.textContent = 'Log update';
+        updateResolveBtn.textContent = 'Resolve';
+        return;
+      }
+
+      if (resolve) {
+        const { error: resolveErr } = await supabase
+          .from('injuries')
+          .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+          .eq('id', injury.id);
+        if (resolveErr) {
+          show(updateStatus, 'error', `Logged, but couldn't mark resolved: ${resolveErr.message}`);
+          updateResolveBtn.disabled = false;
+          updateLogBtn.disabled = false;
+          updateLogBtn.textContent = 'Log update';
+          updateResolveBtn.textContent = 'Resolve';
+          await loadAll();
+          return;
+        }
+      }
+
+      closeModal(updateModal);
+      flash(resolve ? 'Resolved.' : 'Logged.');
+      await loadAll();
+    }
+    updateLogBtn.addEventListener('click', () => submitCheckin({ resolve: false }));
+    updateResolveBtn.addEventListener('click', () => submitCheckin({ resolve: true }));
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    const user = await requireSession('./index.html');
+    if (user) {
+      await loadAll();
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>
