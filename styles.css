@@ -458,13 +458,17 @@ button.secondary {
 .chip.chip-nopain { grid-column: 1 / -1; width: 100%; font-family: var(--font-body); }
 .pain-readout { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--space-3); }
 .pain-readout .value { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; }
-.pain-readout .value span { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); }
+.pain-readout .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); }
+/* Fixed-width, right-aligned so the digit count (0-9 vs 10) never moves
+   the "/10" or the info button that follows it — only the padding inside
+   this box changes, not anything after it. */
+.pain-readout .value .pain-num { display: inline-block; min-width: 2ch; text-align: right; }
 
 .pain-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .pain-label-row label { margin: 0; }
-/* Stays visually small next to its one-line label — 56px here would
-   swamp the row. Tap target still reaches 56x56 via the invisible
-   ::after, not a smaller hit area quietly shipped. */
+/* Stays visually small next to the big number — 56px here would swamp
+   the row. Tap target still reaches 56x56 via the invisible ::after,
+   not a smaller hit area quietly shipped. */
 .info-btn {
   position: relative;
   width: 22px; height: 22px;
@@ -476,7 +480,6 @@ button.secondary {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 12px;
-  font-style: italic;
   font-weight: 600;
   display: flex;
   align-items: center;
