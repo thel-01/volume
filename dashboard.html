@@ -1190,7 +1190,7 @@
       if (active.length === 0) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'secondary uppercase';
+        btn.className = 'secondary';
         btn.textContent = '+ Track something';
         btn.addEventListener('click', () => openNewCaseModal());
         injurySlot.appendChild(btn);
@@ -1232,7 +1232,7 @@
         // and blur together.
         const addBtn = document.createElement('button');
         addBtn.type = 'button';
-        addBtn.className = 'secondary uppercase';
+        addBtn.className = 'secondary';
         addBtn.style.marginTop = '12px';
         addBtn.textContent = '+ Track something else';
         addBtn.addEventListener('click', () => openNewCaseModal());
