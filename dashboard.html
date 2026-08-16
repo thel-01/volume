@@ -101,11 +101,8 @@
 
     <div id="content" hidden>
 
-      <p class="section-label">Aches &amp; Injuries</p>
-      <div id="injury-slot"></div>
-
       <div id="index-section" hidden>
-        <p class="section-label" style="margin-top:24px;">Composite strength index</p>
+        <p class="section-label">Composite strength index</p>
         <div class="index-headline">
           <span class="index-value" id="index-value"></span>
           <span class="index-delta" id="index-delta"></span>
@@ -115,6 +112,9 @@
           <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
         </div>
       </div>
+
+      <p class="section-label" style="margin-top:24px;">Injury Journal</p>
+      <div id="injury-slot"></div>
 
       <p class="section-label">Volume &amp; Intensity</p>
       <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;">
@@ -1098,7 +1098,7 @@
     }
 
     // ------------------------------------------------------------------
-    // Aches & Injuries — a permanent dashboard slot (never disappears,
+    // Injury Journal — a permanent dashboard slot (never disappears,
     // content changes: empty prompt / active case(s)), plus the quicklog
     // popups that do all the logging without ever navigating away.
     // ------------------------------------------------------------------

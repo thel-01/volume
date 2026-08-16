@@ -583,7 +583,7 @@ button.secondary {
 /* dashboard.html's header isn't describing the page like every other one —
    it's the app root, so its "Volume" is the same logotype as the login
    screen's, just sitting in the page-header's centered layout. */
-.page-header h1.wordmark { font-family: var(--font-display); }
+.page-header h1.wordmark { font-family: var(--font-display); font-size: var(--fs-2xl); }
 
 .icon-link, .icon-btn {
   width: var(--tap);

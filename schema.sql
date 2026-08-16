@@ -437,7 +437,7 @@ create index if not exists body_weights_user_measured_idx
 
 
 -- ===========================================================================
--- 5c. injuries & injury_checkins — the "Aches & Injuries" case log
+-- 5c. injuries & injury_checkins — the "Injury Journal" case log
 -- ===========================================================================
 -- An injury is a case you're tracking, not a diagnosis: "left shoulder,"
 -- not a clinical entry. Deliberately no link to sessions/exercises/sets —
