@@ -164,9 +164,12 @@ function text(x, y, anchor, size, fill, content) {
  *                                      of the data (e.g. {min:0, max:10} for a 0-10 pain scale) —
  *                                      the scale itself is already meaningful, so auto-fitting to
  *                                      whatever data exists would be the one thing that could mislead
+ * @param {number}   [opts.minTimeSpan] floor on the x-axis span, in milliseconds — the same idea as
+ *                                      minRange but for time: two points three hours apart shouldn't
+ *                                      stretch edge-to-edge and read as a whole day's trend
  */
 export function renderLineChart(svg, opts) {
-  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange, fixedRange } = opts;
+  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange, fixedRange, minTimeSpan } = opts;
 
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${VIEW_W} ${VIEW_H}`);
@@ -176,8 +179,13 @@ export function renderLineChart(svg, opts) {
 
   const allPoints = drawn.flatMap((s) => s.points);
   const times = allPoints.map((p) => new Date(p.date).getTime());
-  const minT = Math.min(...times);
-  const maxT = Math.max(...times);
+  let minT = Math.min(...times);
+  let maxT = Math.max(...times);
+  if (minTimeSpan && maxT - minT < minTimeSpan) {
+    const mid = (minT + maxT) / 2;
+    minT = mid - minTimeSpan / 2;
+    maxT = mid + minTimeSpan / 2;
+  }
   const axis = computeYAxis(allPoints.map((p) => p.value), minRange || 0, fixedRange || null);
 
   const plotW = VIEW_W - MARGIN.left - MARGIN.right;
