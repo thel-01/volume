@@ -733,12 +733,15 @@ button.danger.secondary {
   margin-left: var(--space-2);
 }
 
-/* Something worth a second look — reuses --live rather than a dedicated
-   token, box and text both tint, no outline (an outline read as more
-   alarming than the content warranted). */
+/* Something worth a second look — solid --live fill, same treatment
+   button.live already uses (Resume workout, the stale quicklog button).
+   Chosen over a subtler tint after reviewing options side by side in the
+   stylebook artifact — this reads clearly as amber at badge size, where a
+   16% tint didn't. */
 .badge-warning {
-  background: color-mix(in srgb, var(--live) 16%, var(--surface-2));
-  color: var(--live);
+  background: var(--live);
+  color: var(--accent-ink);
+  border-color: var(--live);
 }
 
 .empty-state {
