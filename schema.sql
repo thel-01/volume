@@ -437,6 +437,80 @@ create index if not exists body_weights_user_measured_idx
 
 
 -- ===========================================================================
+-- 5c. injuries & injury_checkins — the "Aches & Injuries" case log
+-- ===========================================================================
+-- An injury is a case you're tracking, not a diagnosis: "left shoulder,"
+-- not a clinical entry. Deliberately no link to sessions/exercises/sets —
+-- tried during design, then dropped, so this feature stays fully
+-- standalone and small.
+--
+-- Every check-in — including the very first one, logged at creation — is
+-- its own row in injury_checkins, so the pain-over-time chart is just
+-- "every row for this injury." No separate "initial value" column to
+-- keep in sync with the check-in history.
+
+create table if not exists public.injuries (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users (id) on delete cascade,
+
+  -- "Right shoulder," "left calf" — free text on purpose, same reasoning
+  -- as sessions.category: no controlled vocabulary to maintain for
+  -- something meant to fit anything from a tweak to a real injury.
+  name            text not null,
+
+  status          text not null default 'active',
+
+  -- Asked once, at creation, not re-asked on every check-in — matches
+  -- the "New case" popup design. If these need to change over an
+  -- injury's life later, that's a real feature decision to make on
+  -- purpose, not something to half-build now.
+  hurts_at_rest   boolean not null default false,
+  disrupts_sleep  boolean not null default false,
+
+  started_at      timestamptz not null default now(),
+  -- NULL while active; set the moment "Resolve" is tapped.
+  resolved_at     timestamptz,
+
+  created_at      timestamptz not null default now(),
+
+  constraint injuries_name_not_blank check (length(btrim(name)) > 0),
+  constraint injuries_status_valid check (status in ('active', 'resolved')),
+  constraint injuries_resolved_consistency check (
+    (status = 'resolved' and resolved_at is not null) or
+    (status = 'active' and resolved_at is null)
+  )
+);
+
+-- The dashboard slot's own access pattern: this user's active cases.
+create index if not exists injuries_user_status_idx
+  on public.injuries (user_id, status);
+
+
+create table if not exists public.injury_checkins (
+  id          uuid primary key default gen_random_uuid(),
+  injury_id   uuid not null references public.injuries (id) on delete cascade,
+
+  -- 0-10, the standard numeric pain scale. Never auto-fit on the detail
+  -- chart (see chart.js's computeYAxis minRange) — the range itself is
+  -- already the meaningful bound, so cropping it would be the one thing
+  -- that could actually mislead.
+  pain        integer not null,
+
+  note        text,
+
+  created_at  timestamptz not null default now(),
+
+  constraint injury_checkins_pain_valid check (pain >= 0 and pain <= 10)
+);
+
+-- Every access pattern here is "this injury's check-ins in order" — the
+-- dashboard slot's "last checked in Nh ago" and the detail chart both
+-- want exactly this.
+create index if not exists injury_checkins_injury_idx
+  on public.injury_checkins (injury_id, created_at desc);
+
+
+-- ===========================================================================
 -- 6. Lock an exercise's type once sets exist
 -- ===========================================================================
 -- Standing rule from CLAUDE.md. Enforced here rather than in the UI because
@@ -525,6 +599,8 @@ alter table public.session_exercises enable row level security;
 alter table public.sets              enable row level security;
 alter table public.body_weights      enable row level security;
 alter table public.session_types     enable row level security;
+alter table public.injuries          enable row level security;
+alter table public.injury_checkins   enable row level security;
 
 
 -- --- grants -----------------------------------------------------------------
@@ -546,6 +622,8 @@ grant select, insert, update, delete on public.session_exercises to authenticate
 grant select, insert, update, delete on public.sets              to authenticated;
 grant select, insert, update, delete on public.body_weights      to authenticated;
 grant select, insert, update, delete on public.session_types     to authenticated;
+grant select, insert, update, delete on public.injuries          to authenticated;
+grant select, insert, update, delete on public.injury_checkins   to authenticated;
 
 
 -- --- sessions ---------------------------------------------------------------
@@ -828,6 +906,87 @@ create policy session_types_delete_own on public.session_types
   using (user_id = (select auth.uid()));
 
 
+-- --- injuries ------------------------------------------------------------
+-- Directly owned, same shape as sessions.
+
+drop policy if exists injuries_select_own on public.injuries;
+create policy injuries_select_own on public.injuries
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists injuries_insert_own on public.injuries;
+create policy injuries_insert_own on public.injuries
+  for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists injuries_update_own on public.injuries;
+create policy injuries_update_own on public.injuries
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists injuries_delete_own on public.injuries;
+create policy injuries_delete_own on public.injuries
+  for delete to authenticated
+  using (user_id = (select auth.uid()));
+
+
+-- --- injury_checkins -------------------------------------------------------
+-- No user_id of its own, so ownership is proved through the parent
+-- injury, same shape as sets/session_exercises.
+
+drop policy if exists injury_checkins_select_own on public.injury_checkins;
+create policy injury_checkins_select_own on public.injury_checkins
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.injuries i
+      where i.id = injury_checkins.injury_id
+        and i.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists injury_checkins_insert_own on public.injury_checkins;
+create policy injury_checkins_insert_own on public.injury_checkins
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.injuries i
+      where i.id = injury_checkins.injury_id
+        and i.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists injury_checkins_update_own on public.injury_checkins;
+create policy injury_checkins_update_own on public.injury_checkins
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.injuries i
+      where i.id = injury_checkins.injury_id
+        and i.user_id = (select auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.injuries i
+      where i.id = injury_checkins.injury_id
+        and i.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists injury_checkins_delete_own on public.injury_checkins;
+create policy injury_checkins_delete_own on public.injury_checkins
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.injuries i
+      where i.id = injury_checkins.injury_id
+        and i.user_id = (select auth.uid())
+    )
+  );
+
+
 -- ===========================================================================
 -- 8. Health check
 -- ===========================================================================
@@ -844,7 +1003,7 @@ create policy session_types_delete_own on public.session_types
 -- join pg_namespace n on n.oid = c.relnamespace
 -- left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
 -- where n.nspname = 'public'
---   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types')
+--   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins')
 -- group by c.relname, c.relrowsecurity
 -- order by c.relname;
 
@@ -857,6 +1016,6 @@ create policy session_types_delete_own on public.session_types
 -- from information_schema.role_table_grants
 -- where table_schema = 'public'
 --   and grantee = 'authenticated'
---   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types')
+--   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins')
 -- group by table_name
 -- order by table_name;
