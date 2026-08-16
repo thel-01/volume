@@ -195,9 +195,11 @@
       <div class="field" style="margin-bottom:8px;">
         <div class="pain-label-row">
           <label style="margin:0;">Pain right now</label>
-          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">i</button>
         </div>
-        <div class="pain-readout"><span class="value" id="new-case-pain-value">6<span>/10</span></span></div>
+        <div class="pain-readout">
+          <span class="value"><span class="pain-num" id="new-case-pain-value">–</span><span class="unit">/10</span></span>
+          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">?</button>
+        </div>
         <div class="pain-grid" id="new-case-pain-grid"></div>
       </div>
       <button type="button" class="detail-toggle" id="new-case-detail-toggle">+ Add a note</button>
@@ -221,9 +223,11 @@
       <div class="field" style="margin-bottom:8px;">
         <div class="pain-label-row">
           <label style="margin:0;">Pain now</label>
-          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">i</button>
         </div>
-        <div class="pain-readout"><span class="value" id="update-pain-value">0<span>/10</span></span></div>
+        <div class="pain-readout">
+          <span class="value"><span class="pain-num" id="update-pain-value">0</span><span class="unit">/10</span></span>
+          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">?</button>
+        </div>
         <div class="pain-grid" id="update-pain-grid"></div>
       </div>
       <button type="button" class="detail-toggle" id="update-note-toggle">+ Add a note</button>
@@ -1235,13 +1239,17 @@
     }
 
     // ---- New Case popup ----
-    let newCasePain = 6;
+    // Starts with nothing picked — a pre-filled "6" would let someone save
+    // a value they never actually chose. The dash is a real "unset" state,
+    // not a placeholder value.
+    let newCasePain = null;
     function openNewCaseModal() {
       newCaseName.value = '';
-      newCasePain = 6;
+      newCasePain = null;
+      newCasePainValue.textContent = '–';
       buildPainScale(newCasePainGrid, newCasePain, (v) => {
         newCasePain = v;
-        newCasePainValue.firstChild.textContent = String(v);
+        newCasePainValue.textContent = String(v);
       });
       newCaseDetailFields.hidden = true;
       newCaseDetailToggle.textContent = '+ Add a note';
@@ -1263,6 +1271,10 @@
       if (!name) {
         show(newCaseStatus, 'error', 'Enter what, roughly.');
         newCaseName.focus();
+        return;
+      }
+      if (newCasePain === null) {
+        show(newCaseStatus, 'error', 'Pick a pain level.');
         return;
       }
       newCaseSave.disabled = true;
@@ -1312,9 +1324,9 @@
       updateModalTitle.textContent = injury.name;
       buildPainScale(updatePainGrid, updatePain, (v) => {
         updatePain = v;
-        updatePainValue.firstChild.textContent = String(v);
+        updatePainValue.textContent = String(v);
       });
-      updatePainValue.firstChild.textContent = String(updatePain);
+      updatePainValue.textContent = String(updatePain);
       updateNoteField.hidden = true;
       updateNoteToggle.textContent = '+ Add a note';
       updateNote.value = '';

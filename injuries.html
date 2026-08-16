@@ -72,9 +72,11 @@
       <div class="field" style="margin-bottom:8px;">
         <div class="pain-label-row">
           <label style="margin:0;">Pain now</label>
-          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">i</button>
         </div>
-        <div class="pain-readout"><span class="value" id="update-pain-value">0<span>/10</span></span></div>
+        <div class="pain-readout">
+          <span class="value"><span class="pain-num" id="update-pain-value">0</span><span class="unit">/10</span></span>
+          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">?</button>
+        </div>
         <div class="pain-grid" id="update-pain-grid"></div>
       </div>
       <button type="button" class="detail-toggle" id="update-note-toggle">+ Add a note</button>
@@ -391,9 +393,9 @@
       updateModalTitle.textContent = injury.name;
       buildPainScale(updatePainGrid, updatePain, (v) => {
         updatePain = v;
-        updatePainValue.firstChild.textContent = String(v);
+        updatePainValue.textContent = String(v);
       });
-      updatePainValue.firstChild.textContent = String(updatePain);
+      updatePainValue.textContent = String(updatePain);
       updateNoteField.hidden = true;
       updateNoteToggle.textContent = '+ Add a note';
       updateNote.value = '';
