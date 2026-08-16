@@ -1226,11 +1226,14 @@
         }
 
         // Always present once something's already tracked — otherwise
-        // there's no way to add a second case once the first exists.
+        // there's no way to add a second case once the first exists. A
+        // full button, not another link-button — stacked under "Show all
+        // N" those two would read as the same kind of low-emphasis action
+        // and blur together.
         const addBtn = document.createElement('button');
         addBtn.type = 'button';
-        addBtn.className = 'link-button';
-        addBtn.style.cssText = 'display:block;margin-top:8px;';
+        addBtn.className = 'secondary uppercase';
+        addBtn.style.marginTop = '12px';
         addBtn.textContent = '+ Track something else';
         addBtn.addEventListener('click', () => openNewCaseModal());
         injurySlot.appendChild(addBtn);
