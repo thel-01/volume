@@ -50,6 +50,12 @@
           </div>
           <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
         </li>
+        <li class="list-item" id="resolved-injuries-link" tabindex="0" role="button">
+          <div class="list-item-body">
+            <div class="list-item-name">Resolved Aches &amp; Injuries</div>
+          </div>
+          <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
+        </li>
       </ul>
 
       <p class="section-label" style="margin-top:28px;">Account</p>
@@ -130,6 +136,20 @@
       </div>
     </section>
 
+    <!-- =================== RESOLVED ACHES & INJURIES =================== -->
+    <section id="resolved-injuries-view" hidden>
+      <div class="page-header">
+        <button id="ri-back" class="icon-link" type="button" aria-label="Back to settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
+        <h1>Resolved</h1>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+      </div>
+
+      <p id="ri-loading" class="muted">Loading…</p>
+
+      <ul id="resolved-injury-list" class="list" hidden></ul>
+      <p id="empty-resolved-injuries" class="empty-state" hidden>No resolved cases yet.</p>
+    </section>
+
   </main>
 
   <script type="module">
@@ -143,6 +163,13 @@
     const recentlyDeletedView = document.getElementById('recently-deleted-view');
     const recentlyDeletedLink = document.getElementById('recently-deleted-link');
     const rdBack = document.getElementById('rd-back');
+
+    const resolvedInjuriesView = document.getElementById('resolved-injuries-view');
+    const resolvedInjuriesLink = document.getElementById('resolved-injuries-link');
+    const riBack = document.getElementById('ri-back');
+    const riLoading = document.getElementById('ri-loading');
+    const resolvedInjuryListEl = document.getElementById('resolved-injury-list');
+    const emptyResolvedInjuries = document.getElementById('empty-resolved-injuries');
 
     const sessionTypesView = document.getElementById('session-types-view');
     const sessionTypesLink = document.getElementById('session-types-link');
@@ -178,6 +205,9 @@
 
     let sessionTypes = [];
     let sessionTypesLoaded = false;
+
+    let resolvedInjuries = [];
+    let resolvedInjuriesLoaded = false;
 
     // Offered as tap-to-add shortcuts in Settings only — never stored, never
     // shown in the logger or pattern editor. Once added they're just a normal
@@ -220,6 +250,7 @@
       homeView.hidden = view !== 'home';
       recentlyDeletedView.hidden = view !== 'recently-deleted';
       sessionTypesView.hidden = view !== 'session-types';
+      resolvedInjuriesView.hidden = view !== 'resolved-injuries';
     }
 
     // ------------------------------------------------------------------
@@ -244,6 +275,16 @@
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSessionTypes(); }
     });
     stBack.addEventListener('click', () => showView('home'));
+
+    function openResolvedInjuries() {
+      showView('resolved-injuries');
+      if (!resolvedInjuriesLoaded) loadResolvedInjuries();
+    }
+    resolvedInjuriesLink.addEventListener('click', openResolvedInjuries);
+    resolvedInjuriesLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openResolvedInjuries(); }
+    });
+    riBack.addEventListener('click', () => showView('home'));
 
     // ------------------------------------------------------------------
     // Loading
@@ -495,6 +536,79 @@
       deletedSessions = deletedSessions.filter((x) => x.id !== s.id);
       renderSessions();
       flash('Session restored.');
+    }
+
+    // ------------------------------------------------------------------
+    // Aches & Injuries — resolved history. No restore/reopen action here;
+    // that was never designed, so it isn't built — this is a browsable
+    // record only, each row linking out to its full detail page.
+    // ------------------------------------------------------------------
+    async function loadResolvedInjuries() {
+      riLoading.hidden = false;
+      resolvedInjuryListEl.hidden = true;
+      emptyResolvedInjuries.hidden = true;
+      hide(topStatus);
+
+      const { data, error } = await supabase
+        .from('injuries')
+        .select('*')
+        .eq('status', 'resolved')
+        .order('resolved_at', { ascending: false });
+
+      riLoading.hidden = true;
+
+      if (error) {
+        show(topStatus, 'error', `Could not load resolved cases: ${error.message}`);
+        return;
+      }
+
+      resolvedInjuriesLoaded = true;
+      resolvedInjuries = data;
+      renderResolvedInjuries();
+    }
+
+    function renderResolvedInjuries() {
+      resolvedInjuryListEl.innerHTML = '';
+      if (resolvedInjuries.length === 0) {
+        resolvedInjuryListEl.hidden = true;
+        emptyResolvedInjuries.hidden = false;
+      } else {
+        emptyResolvedInjuries.hidden = true;
+        resolvedInjuryListEl.hidden = false;
+        for (const inj of resolvedInjuries) resolvedInjuryListEl.appendChild(buildResolvedInjuryItem(inj));
+      }
+    }
+
+    function buildResolvedInjuryItem(inj) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = inj.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const lasted = Math.floor((new Date(inj.resolved_at) - new Date(inj.started_at)) / 86400000) + 1;
+      meta.textContent = `Resolved ${formatDate(inj.resolved_at)} · lasted ${lasted === 1 ? '1 day' : `${lasted} days`}`;
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
+      li.appendChild(chevron);
+
+      const goToDetail = () => { window.location.href = `./injuries.html?id=${encodeURIComponent(inj.id)}`; };
+      li.addEventListener('click', goToDetail);
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToDetail(); } });
+
+      return li;
     }
 
     // ------------------------------------------------------------------
