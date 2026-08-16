@@ -460,13 +460,6 @@ create table if not exists public.injuries (
 
   status          text not null default 'active',
 
-  -- Asked once, at creation, not re-asked on every check-in — matches
-  -- the "New case" popup design. If these need to change over an
-  -- injury's life later, that's a real feature decision to make on
-  -- purpose, not something to half-build now.
-  hurts_at_rest   boolean not null default false,
-  disrupts_sleep  boolean not null default false,
-
   started_at      timestamptz not null default now(),
   -- NULL while active; set the moment "Resolve" is tapped.
   resolved_at     timestamptz,
