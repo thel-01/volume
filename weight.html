@@ -56,6 +56,11 @@
       font-weight: 600;
       font-size: 16px;
     }
+    /* Scoped to just this row, not .chip globally — at 5 chips ("4W" through
+       "Max"), the shared 16px chip padding wraps "Max" onto its own second
+       row on real small-phone widths (320-360px). Tighter padding here only;
+       height (the actual tap target) is untouched. */
+    #chart-window-row.chips .chip { padding: 0 10px; }
   </style>
 </head>
 <body>
