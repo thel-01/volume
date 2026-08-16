@@ -29,15 +29,12 @@
     <p id="loading" class="muted">Loading…</p>
 
     <div id="content" hidden>
-      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;">
-        <div id="status-badge-wrap"><span id="status-badge" class="badge"></span></div>
-      </div>
-      <p id="started-line" class="muted" style="margin:0 0 16px;"></p>
+      <p id="started-line" class="muted" style="margin:0 0 16px;"><span id="started-text"></span><span id="status-badge" class="badge"></span></p>
 
       <div class="chart-card">
         <svg id="pain-chart" viewBox="0 0 340 180" role="img" aria-label="Pain over time"></svg>
       </div>
-      <p id="chart-empty" class="empty-state" hidden>No check-ins yet.</p>
+      <p id="chart-empty" class="empty-state" hidden>Not enough check-ins logged yet. Come back later.</p>
 
       <div class="btn-row" id="active-actions" style="margin-top:16px;">
         <button type="button" class="secondary" id="same-btn">Same</button>
@@ -137,7 +134,7 @@
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
     const statusBadge = document.getElementById('status-badge');
-    const startedLine = document.getElementById('started-line');
+    const startedText = document.getElementById('started-text');
     const painChart = document.getElementById('pain-chart');
     const chartEmpty = document.getElementById('chart-empty');
     const activeActions = document.getElementById('active-actions');
@@ -191,8 +188,12 @@
       if (d === 0) return 'today';
       return d === 1 ? '1 day ago' : `${d} days ago`;
     }
-    function dayCount(startedAt) {
-      return Math.floor((Date.now() - new Date(startedAt).getTime()) / 86400000) + 1;
+    // "Same" just reconfirms an unchanged value — logging it again minutes
+    // after the last check-in adds nothing, same reasoning as the dashboard
+    // slot's own quiet rule (reused here, not a separate number invented).
+    const QUIET_HOURS = 24;
+    function hoursSince(iso) {
+      return (Date.now() - new Date(iso).getTime()) / 3600000;
     }
     function painSeverityColor(pain) {
       if (pain <= 2) return 'var(--chart-status-good)';
@@ -300,17 +301,24 @@
       document.title = `Volume — ${injury.name}`;
 
       const resolved = injury.status === 'resolved';
-      statusBadge.textContent = resolved ? `resolved · day ${dayCount(injury.started_at)}` : `active · day ${dayCount(injury.started_at)}`;
+      startedText.textContent = `Started ${formatFullDate(injury.started_at)}`;
+      statusBadge.textContent = resolved ? 'resolved' : 'active';
       statusBadge.className = resolved ? 'badge' : 'badge badge-warning';
-      startedLine.textContent = `Started ${formatFullDate(injury.started_at)}`;
       activeActions.hidden = resolved;
+
+      // "Same" only within the quiet window is a no-op tap — hide it, but
+      // Update stays available since a real change can happen any time.
+      const latest = latestCheckin();
+      sameBtn.hidden = !resolved && !!latest && hoursSince(latest.created_at) < QUIET_HOURS;
 
       renderChart();
       renderCheckinList();
     }
 
     function renderChart() {
-      if (checkins.length === 0) {
+      // A single point isn't a trend — same threshold weight.html uses for
+      // its own chart before there's a second reading to draw a line to.
+      if (checkins.length < 2) {
         painChart.closest('.chart-card').hidden = true;
         chartEmpty.hidden = false;
         return;
@@ -325,6 +333,9 @@
         // bound, so auto-fitting to whatever's been logged so far would be
         // the one thing that could actually mislead here.
         fixedRange: { min: 0, max: 10 },
+        // Two check-ins an hour apart shouldn't stretch edge-to-edge and
+        // read as a whole day's worth of trend — floor the timeline at 24h.
+        minTimeSpan: 24 * 60 * 60 * 1000,
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
         tooltipLines: (p) => [`${p.value} / 10`, formatFullDate(p.date)],
