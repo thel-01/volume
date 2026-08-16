@@ -90,8 +90,6 @@
         </div>
       </div>
 
-      <div id="stale-notice" class="status info" role="button" tabindex="0" style="cursor:pointer;" hidden></div>
-
       <div id="chart-window-row" class="chips" style="margin-bottom:10px;" hidden></div>
 
       <div class="chart-card" id="chart-card">
@@ -100,8 +98,11 @@
       </div>
       <p id="chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
 
-      <div style="height:20px;"></div>
-      <button id="add-toggle" type="button">+ Log weight</button>
+      <!-- No longer its own tap target — the button right below it does
+           that job now. Purely informational. -->
+      <div id="stale-notice" class="status info" hidden></div>
+
+      <button id="add-toggle" type="button" style="margin-top:20px;">+ Log weight</button>
 
       <!-- Add form. Date and time stay tucked away: the overwhelmingly common
            case is weighing yourself and logging it there and then. -->
@@ -380,15 +381,19 @@
     // ------------------------------------------------------------------
     // Rendering
     // ------------------------------------------------------------------
-    /** Nudges you to log a fresh reading once the latest one is about a week old. */
+    /** Nudges you to log a fresh reading once the latest one is about a week old.
+        Two signals, same threshold: the banner above the button, and the
+        button itself going --live amber. */
     function renderStaleNotice(latest) {
       const days = Math.floor((Date.now() - new Date(latest.measured_at).getTime()) / DAY_MS);
-      if (days < STALE_AFTER_DAYS) {
+      const stale = days >= STALE_AFTER_DAYS;
+      addToggle.classList.toggle('live', stale);
+      if (!stale) {
         staleNotice.hidden = true;
         return;
       }
-      staleNotice.textContent =
-        `No reading in ${days} days — tap to log one and keep the trend accurate.`;
+      staleNotice.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7 V12 L16 14"/></svg>';
+      staleNotice.appendChild(document.createTextNode(`No reading in ${days} days — tap to log one.`));
       staleNotice.hidden = false;
     }
 
@@ -402,6 +407,7 @@
         chartWindowRow.hidden = true;
         legend.hidden = true;
         staleNotice.hidden = true;
+        addToggle.classList.remove('live');
         entryList.hidden = true;
         emptyEntries.hidden = false;
         return;
@@ -747,10 +753,6 @@
     }
 
     addToggle.addEventListener('click', openAddForm);
-    staleNotice.addEventListener('click', openAddForm);
-    staleNotice.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddForm(); }
-    });
     addCancel.addEventListener('click', closeAddForm);
     addSave.addEventListener('click', saveNew);
     newWeight.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNew(); });
