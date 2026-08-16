@@ -22,6 +22,7 @@ const APP_SHELL = [
   './exercise-trend.html',
   './weight.html',
   './volume.html',
+  './injuries.html',
   './styles.css',
   './supabase-client.js',
   './date-utils.js',
