@@ -140,7 +140,7 @@
 
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
-    import { effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
+    import { effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
 
     const TYPE_LABELS = {
@@ -384,7 +384,8 @@
     // day says less. This also automatically covers outright domination (more
     // reps at every set), since a dominant session's first difference can
     // only ever run in its own favour. Only recency breaks a genuine tie
-    // (identical rep sequences).
+    // (identical rep sequences). Each set's reps run through effectiveReps()
+    // first, so a failed last rep doesn't count toward the comparison.
     //
     // This is deliberately simple and NOT the CLAUDE.md PR definition, which
     // describes a frontier rather than one winner. When that rule gets pinned
@@ -424,10 +425,14 @@
       };
 
       // Positive -> `a` wins, negative -> `b` wins, zero -> genuinely tied.
+      // Each set's reps run through effectiveReps() first — a failed last rep
+      // wasn't actually completed, so it can't out-tiebreak a clean set.
       const repsTiebreak = (a, b) => {
         const len = Math.min(a.length, b.length);
         for (let i = 0; i < len; i++) {
-          const diff = (a[i].reps ?? -Infinity) - (b[i].reps ?? -Infinity);
+          const ar = a[i].reps === null ? -Infinity : effectiveReps(a[i].reps, a[i].quick_tag);
+          const br = b[i].reps === null ? -Infinity : effectiveReps(b[i].reps, b[i].quick_tag);
+          const diff = ar - br;
           if (diff !== 0) return diff;
         }
         return a.length - b.length; // more sets performed edges out a shorter session

@@ -58,7 +58,7 @@
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
-    import { sessionCapacities, displayDepths, effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
+    import { sessionCapacities, displayDepths, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
 
     // Set 1 is the loudest, deeper sets recede — a monochrome fade, not a
     // hue ramp. Order carries the meaning here, same principle as a single-
@@ -171,7 +171,8 @@
     //
     // Deliberately NOT the same "best" the strength index uses: this ranks by
     // weight then reps, the index ranks by estimated 1RM. Each is right for
-    // the question it answers.
+    // the question it answers. Reps run through effectiveReps() before
+    // comparing, so a failure-tagged set's uncompleted last rep doesn't win.
     // ------------------------------------------------------------------
     function computeSessionBests(sets, type) {
       const bySession = new Map();
@@ -195,16 +196,18 @@
           } else if (type === 'bodyweight') {
             // Ranked by effective load (bodyweight ± delta), not the raw
             // delta magnitude — otherwise assisted and added-weight sets
-            // would compare on the wrong number entirely.
+            // would compare on the wrong number entirely. Reps run through
+            // effectiveReps() so a failed last rep doesn't win the tiebreak.
             const load = effectiveLoad(s, type);
             if (load === null) continue;
-            const better = !best || load > bestLoad || (load === bestLoad && s.reps > best.reps);
+            const better = !best || load > bestLoad
+              || (load === bestLoad && effectiveReps(s.reps, s.quick_tag) > effectiveReps(best.reps, best.quick_tag));
             if (better) { best = s; bestLoad = load; }
           } else {
             const w = Number(s.weight);
             const better = !best
               || (type === 'assisted' ? w < Number(best.weight) : w > Number(best.weight))
-              || (w === Number(best.weight) && s.reps > best.reps);
+              || (w === Number(best.weight) && effectiveReps(s.reps, s.quick_tag) > effectiveReps(best.reps, best.quick_tag));
             if (better) best = s;
           }
         }

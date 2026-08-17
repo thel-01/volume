@@ -121,7 +121,7 @@
       <div id="injury-slot"></div>
 
       <p class="section-label">Volume &amp; Intensity</p>
-      <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;">
+      <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
         <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
           <div class="stat">
             <div class="stat-visual"><span class="stat-value lg" id="volume-this-week">—</span></div>
@@ -296,7 +296,7 @@
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
-    import { epley, compositeIndexSeries, effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
+    import { epley, compositeIndexSeries, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
     import { showToast } from './toast.js';
     import {
@@ -927,6 +927,10 @@
     // Assisted (least assistance) and time-based (longest duration) keep
     // their own rules: an estimated 1RM means nothing for either.
     //
+    // A 'failure'-tagged set's reps run through effectiveReps() first, which
+    // knocks one off — "13 reps, failure" means 12 were actually completed,
+    // not 13, so it can't outscore a clean 12 or 13 the way raw reps would.
+    //
     // Ties fall through to tag quality — a clean set beats one taken to
     // failure — and only then to whichever happened most recently.
     // ------------------------------------------------------------------
@@ -939,13 +943,14 @@
       if (type === 'assisted') {
         if (set.weight === null || set.reps === null) return null;
         // Less help is better, so flip it into biggest-wins terms; reps still
-        // break a tie at the same assistance, exactly as before.
-        return [-Number(set.weight), Number(set.reps)];
+        // break a tie at the same assistance, exactly as before — a failed
+        // last rep still doesn't count as a clean one here either.
+        return [-Number(set.weight), effectiveReps(set.reps, set.quick_tag)];
       }
       // weight_reps and bodyweight both rank on an estimated 1RM — for
       // bodyweight that's effective load (bodyweight ± delta), which is what
       // lets a single exercise progress from assisted through added weight.
-      const e = epley(effectiveLoad(set, type), set.reps);
+      const e = epley(effectiveLoad(set, type), effectiveReps(set.reps, set.quick_tag));
       return e === null ? null : [e];
     }
 

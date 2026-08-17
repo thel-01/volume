@@ -29,6 +29,26 @@ export function epley(weight, reps) {
 }
 
 /**
+ * Reps actually earned toward a comparison — a 'failure' tag means the last
+ * rep attempted wasn't completed, so it can't count the same as a clean rep:
+ * "13 reps, failure" is really "12 clean reps, then a failed attempt at a
+ * 13th," not evidence of 13 clean reps. Every site that ranks or compares
+ * sets by reps (the estimated-1RM input here, dashboard.html's PR ranking,
+ * log.html's session-to-beat, exercise-trend.html's per-session best) should
+ * run reps through this first rather than reading `set.reps` directly.
+ *
+ * 'hard' and 'easy' are NOT discounted here — they stay quality signals used
+ * only to break a tie between two sets that already score identically, same
+ * as before. Only 'failure' changes what a set is worth, because only
+ * 'failure' means a rep was actually not completed.
+ */
+export function effectiveReps(reps, tag) {
+  const r = Number(reps);
+  if (!isFinite(r)) return r;
+  return tag === 'failure' ? r - 1 : r;
+}
+
+/**
  * Zero assistance on a legacy 'assisted' exercise isn't an assisted set at
  * all — it's a plain bodyweight rep that happens to live on an exercise
  * still locked to the old type. Treated identically to a 'bodyweight' type's
@@ -96,7 +116,7 @@ export function sessionCapacities(sets, exercises) {
     if (!isScorable(s, type)) continue;
     if (!s.sessions || s.sessions.deleted_at) continue;
 
-    const value = epley(effectiveLoad(s, type), s.reps);
+    const value = epley(effectiveLoad(s, type), effectiveReps(s.reps, s.quick_tag));
     if (value === null) continue;
 
     if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, new Map());
