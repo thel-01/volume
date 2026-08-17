@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.29.0';
+const VERSION = 'v1.30.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
