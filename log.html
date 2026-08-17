@@ -220,6 +220,10 @@
     let latestBodyweightKg = null;
     let bodyweightLoaded = false;
     let selectedCategory = null;
+    // The dismiss() for a still-live "Workout ended… Undo" toast from a stale
+    // auto-close — disarmed the instant a new session starts, so a later tap
+    // can't yank the user out of the new one and back into the stale old one.
+    let staleUndoDismiss = null;
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as exercises.html)
@@ -261,6 +265,13 @@
       const mins = Math.floor(s / 60);
       const secs = s % 60;
       return `${mins}:${String(secs).padStart(2, '0')}`;
+    }
+    /** Compact elapsed time for a workout already under way: "23m", "1h 40m". */
+    function elapsedSince(iso) {
+      const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+      if (mins < 60) return `${mins}m`;
+      const rest = mins % 60;
+      return rest === 0 ? `${Math.floor(mins / 60)}h` : `${Math.floor(mins / 60)}h ${rest}m`;
     }
     function showView(view) {
       startView.hidden = view !== 'start';
@@ -640,6 +651,8 @@
     }
 
     startBtn.addEventListener('click', async () => {
+      staleUndoDismiss?.();
+      staleUndoDismiss = null;
       hide(startStatus);
       const category = selectedCategory;
 
@@ -1981,6 +1994,79 @@
       if (entries.length > 0) entries[entries.length - 1].expanded = true;
     }
 
+    /** Pick up exactly where a phone lock / reload / undo left off. */
+    async function resumeSession(row) {
+      session = row;
+      const [, lastCat] = await Promise.all([
+        restoreSessionEntries(),
+        loadLastCategoryExercises(session.category),
+      ]);
+      lastCategoryExercises = lastCat;
+      enterSession();
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-close a session left open (tab closed, forgot to tap "End") —
+    // neither page has a background mechanism, so each checks on its own
+    // boot. Long enough that no real rest gap ever crosses it.
+    // ------------------------------------------------------------------
+    const STALE_SESSION_AFTER_MS = 4 * 60 * 60 * 1000;
+
+    /** Returns true if the session was closed/discarded (caller should not resume it). */
+    async function closeIfStale(row) {
+      const { data: lastSetRows, error: lastSetErr } = await supabase
+        .from('sets')
+        .select('created_at')
+        .eq('session_id', row.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (lastSetErr) return false; // A nicety, not the point of the page — fail quiet, try again next load.
+
+      const lastSet = lastSetRows && lastSetRows[0];
+      const staleSinceIso = lastSet ? lastSet.created_at : row.start_time;
+      const isStale = Date.now() - new Date(staleSinceIso).getTime() > STALE_SESSION_AFTER_MS;
+      if (!isStale) return false;
+
+      if (!lastSet) {
+        const { error } = await supabase.from('sessions').delete().eq('id', row.id);
+        if (error) return false;
+        flash('Nothing was logged, so the workout was discarded.', 'info');
+        return true;
+      }
+
+      const { error } = await supabase
+        .from('sessions')
+        .update({ end_time: lastSet.created_at })
+        .eq('id', row.id);
+      if (error) return false;
+
+      staleUndoDismiss = showToast(`Workout ended — started ${elapsedSince(row.start_time)} ago`, 'info', {
+        detail: 'Looked left open, so we ended it at your last logged set.',
+        actionLabel: 'Undo',
+        ms: 0,
+        onAction: async () => {
+          staleUndoDismiss = null;
+          // A new workout may have been started since this toast appeared —
+          // refuse rather than yank the user out of it back into this one.
+          if (session && session.id !== row.id) {
+            flash("A new workout has since started — can't undo this.", 'error');
+            return;
+          }
+          const { error: undoErr } = await supabase
+            .from('sessions')
+            .update({ end_time: null })
+            .eq('id', row.id);
+          if (undoErr) {
+            flash(`Could not undo: ${undoErr.message}`, 'error');
+            return;
+          }
+          await resumeSession(row);
+          return 'Undone — still open.';
+        },
+      });
+      return true;
+    }
+
     user = await requireSession('./index.html');
 
     if (user) {
@@ -2007,17 +2093,16 @@
         show(topStatus, 'error', `Could not check for a workout in progress: ${openSession.error.message}`);
       }
 
+      let resumed = false;
       if (openSession.data) {
-        // Pick up exactly where the phone lock / reload left off.
-        session = openSession.data;
-        const [, lastCat] = await Promise.all([
-          restoreSessionEntries(),
-          loadLastCategoryExercises(session.category),
-        ]);
-        lastCategoryExercises = lastCat;
-        enterSession();
-        flash('Picked up your workout in progress.', 'info', 4000);
-      } else {
+        const handled = await closeIfStale(openSession.data);
+        if (!handled) {
+          await resumeSession(openSession.data);
+          flash('Picked up your workout in progress.', 'info', 4000);
+          resumed = true;
+        }
+      }
+      if (!resumed) {
         await loadCategories();
         renderCategoryChips();
         showView('start');
