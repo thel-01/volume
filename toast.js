@@ -39,7 +39,12 @@ function layer() {
  * @param {object} [opts]
  * @param {string} [opts.detail] secondary line, e.g. more context under the headline
  * @param {string} [opts.actionLabel] e.g. "Undo" — omit for a plain notification
- * @param {Function} [opts.onAction] called when actionLabel is tapped; the toast dismisses right after
+ * @param {Function} [opts.onAction] called when actionLabel is tapped, awaited before anything else
+ *                          happens. Return a string to swap the toast's title to it (detail/action
+ *                          row removed) and dismiss shortly after — e.g. "Undone — still open." Return
+ *                          nothing to dismiss immediately, same as today. A thrown/rejected onAction
+ *                          leaves the toast exactly as it was — never fails silently, so the caller's
+ *                          own catch is expected to raise a fresh error toast.
  * @param {number} [opts.ms] auto-dismiss delay in ms. Default 3000. Pass 0 to disable auto-dismiss.
  * @returns {Function} dismiss — call to remove the toast early (e.g. a caller-driven timeout)
  */
@@ -75,9 +80,20 @@ export function showToast(message, kind = 'ok', opts = {}) {
   };
   el.querySelector('.toast-close').addEventListener('click', dismiss);
   if (actionLabel && onAction) {
-    el.querySelector('.toast-action').addEventListener('click', () => {
-      onAction();
-      dismiss();
+    el.querySelector('.toast-action').addEventListener('click', async () => {
+      const result = await onAction();
+      if (typeof result === 'string') {
+        // A confirmation string ("Undone — still open.") replaces the toast's
+        // own content in place, then it dismisses shortly after — the same
+        // toast reporting its own outcome, not a second one layered on top.
+        el.querySelector('.toast-title').textContent = result;
+        el.querySelector('.toast-detail')?.remove();
+        el.querySelector('.toast-actions')?.remove();
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(dismiss, 1400);
+      } else {
+        dismiss();
+      }
     });
   }
   if (ms > 0) timer = setTimeout(dismiss, ms);
