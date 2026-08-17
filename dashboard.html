@@ -166,7 +166,7 @@
       <p id="weight-chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
       <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
 
-      <div class="list-item" id="weight-log-card" role="button" tabindex="0" hidden style="margin-top:12px;">
+      <div class="list-item" id="weight-log-card" role="button" tabindex="0" hidden style="margin-top:8px;">
         <div class="list-item-body">
           <div class="list-item-name" id="weight-log-value">—</div>
           <div class="list-item-meta" id="weight-log-meta"></div>
@@ -174,7 +174,7 @@
         <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
       </div>
 
-      <button type="button" id="weight-quicklog-open" class="uppercase">+ Log weight</button>
+      <button type="button" id="weight-quicklog-open">+ Log weight</button>
 
     </div>
 
@@ -497,7 +497,9 @@
 
       // An open session is a nicety, not the point of the page — if only that
       // lookup fails the button just stays on its default wording.
-      renderWorkoutButton(openRes.error ? null : (openRes.data && openRes.data[0]));
+      const openSession = openRes.error ? null : (openRes.data && openRes.data[0]);
+      renderWorkoutButton(openSession);
+      if (openSession) closeIfStale(openSession);
 
       const err = exercisesRes.error || setsRes.error || sessionsRes.error;
       if (err) {
@@ -731,6 +733,61 @@
       // A genuine "in progress" moment — the one other place --live means
       // exactly this, alongside the log screen's own running clock.
       workoutBtn.classList.toggle('live', Boolean(openSession));
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-close a session left open (tab closed, forgot to tap "End") —
+    // neither page has a background mechanism, so each checks on its own
+    // boot. Long enough that no real rest gap ever crosses it.
+    // ------------------------------------------------------------------
+    const STALE_SESSION_AFTER_MS = 4 * 60 * 60 * 1000;
+
+    async function closeIfStale(openSession) {
+      const { data: lastSetRows, error: lastSetErr } = await supabase
+        .from('sets')
+        .select('created_at')
+        .eq('session_id', openSession.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (lastSetErr) return; // A nicety, not the point of the page — fail quiet, try again next load.
+
+      const lastSet = lastSetRows && lastSetRows[0];
+      const staleSinceIso = lastSet ? lastSet.created_at : openSession.start_time;
+      const isStale = Date.now() - new Date(staleSinceIso).getTime() > STALE_SESSION_AFTER_MS;
+      if (!isStale) return;
+
+      if (!lastSet) {
+        const { error } = await supabase.from('sessions').delete().eq('id', openSession.id);
+        if (error) return;
+        renderWorkoutButton(null);
+        showToast('Nothing was logged, so the workout was discarded.', 'info');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('sessions')
+        .update({ end_time: lastSet.created_at })
+        .eq('id', openSession.id);
+      if (error) return;
+      renderWorkoutButton(null);
+
+      showToast(`Workout ended — started ${elapsedSince(openSession.start_time)} ago`, 'info', {
+        detail: 'Looked left open, so we ended it at your last logged set.',
+        actionLabel: 'Undo',
+        ms: 0,
+        onAction: async () => {
+          const { error: undoErr } = await supabase
+            .from('sessions')
+            .update({ end_time: null })
+            .eq('id', openSession.id);
+          if (undoErr) {
+            flash(`Could not undo: ${undoErr.message}`, 'error');
+            return;
+          }
+          renderWorkoutButton(openSession);
+          return 'Undone — still open.';
+        },
+      });
     }
 
     // ------------------------------------------------------------------
