@@ -741,8 +741,26 @@
     // boot. Long enough that no real rest gap ever crosses it.
     // ------------------------------------------------------------------
     const STALE_SESSION_AFTER_MS = 4 * 60 * 60 * 1000;
+    // Undo doesn't reset the staleness clock (it just re-nulls end_time — the
+    // signal a fresh check is based on, a set's timestamp, hasn't moved) so
+    // without this, tapping Resume right after Undo lands you on log.html's
+    // own fresh boot, which re-detects the same staleness and re-closes it.
+    // A short breadcrumb tells the next check "this one was just handled" —
+    // same sessionStorage technique already used for volume:flash.
+    const RECENTLY_UNDONE_WINDOW_MS = 5 * 60 * 1000;
+    function wasRecentlyUndone(sessionId) {
+      const raw = sessionStorage.getItem('volume:justUndone');
+      if (!raw) return false;
+      try {
+        const { id, at } = JSON.parse(raw);
+        return id === sessionId && Date.now() - at < RECENTLY_UNDONE_WINDOW_MS;
+      } catch {
+        return false;
+      }
+    }
 
     async function closeIfStale(openSession) {
+      if (wasRecentlyUndone(openSession.id)) return;
       const { data: lastSetRows, error: lastSetErr } = await supabase
         .from('sets')
         .select('created_at')
@@ -784,6 +802,7 @@
             flash(`Could not undo: ${undoErr.message}`, 'error');
             return;
           }
+          sessionStorage.setItem('volume:justUndone', JSON.stringify({ id: openSession.id, at: Date.now() }));
           renderWorkoutButton(openSession);
           return 'Undone — still open.';
         },
