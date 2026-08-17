@@ -29,25 +29,25 @@
     <p id="loading" class="muted">Loading…</p>
 
     <div id="content" hidden>
-      <p id="started-line" class="muted" style="margin:0 0 16px;"><span id="started-text"></span><span id="status-badge" class="badge"></span></p>
+      <p id="started-line" class="muted" style="margin:0 0 var(--space-4);"><span id="started-text"></span><span id="status-badge" class="badge"></span></p>
 
       <div class="chart-card">
         <svg id="pain-chart" viewBox="0 0 340 180" role="img" aria-label="Pain over time"></svg>
       </div>
       <p id="chart-empty" class="empty-state" hidden>Not enough check-ins logged yet. Come back later.</p>
 
-      <div class="btn-row" id="active-actions" style="margin-top:16px;">
+      <div class="btn-row" id="active-actions" style="margin-top:var(--space-4);">
         <button type="button" class="secondary" id="same-btn">Same</button>
         <button type="button" class="secondary" style="color:var(--muted);" id="open-update-btn">Update</button>
       </div>
 
-      <p class="section-label" style="margin:24px 0 8px;">Check-ins</p>
+      <p class="section-label" style="margin-top:var(--space-6);">Check-ins</p>
       <ul id="checkin-list" class="list"></ul>
 
       <div class="danger-zone">
         <button id="delete-injury-btn" class="secondary danger uppercase" type="button">Delete this case</button>
         <div id="delete-injury-confirm" hidden>
-          <p class="muted" style="margin:12px 0;">
+          <p class="muted" style="margin:var(--space-3) 0;">
             Delete this case and all its check-ins? This can't be undone.
           </p>
           <div class="btn-row">
@@ -69,7 +69,7 @@
         <h2 id="update-modal-title">Update</h2>
         <button type="button" class="modal-close" id="update-close" aria-label="Close">&times;</button>
       </div>
-      <div class="field" style="margin-bottom:8px;">
+      <div class="field" style="margin-bottom:var(--space-3);">
         <div class="pain-label-row">
           <label style="margin:0;">Pain now</label>
         </div>
@@ -80,13 +80,13 @@
         <div class="pain-grid" id="update-pain-grid"></div>
       </div>
       <button type="button" class="detail-toggle" id="update-note-toggle">+ Add a note</button>
-      <div id="update-note-field" hidden style="margin-top:16px;">
+      <div id="update-note-field" hidden style="margin-top:var(--space-4);">
         <div class="field" style="margin-bottom:0;">
           <textarea id="update-note" placeholder="Add anything worth remembering"></textarea>
         </div>
       </div>
-      <div id="update-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
-      <div class="btn-row" style="margin-top:12px;">
+      <div id="update-status" class="status" role="status" aria-live="polite" hidden style="margin-top:var(--space-4);"></div>
+      <div class="btn-row" style="margin-top:var(--space-3);">
         <button type="button" class="secondary" style="color:var(--muted);" id="update-resolve">Resolve</button>
         <button type="button" class="uppercase" id="update-log">Log update</button>
       </div>
@@ -132,7 +132,7 @@
         <h2>Edit check-in</h2>
         <button type="button" class="modal-close" id="edit-checkin-close" aria-label="Close">&times;</button>
       </div>
-      <div class="field" style="margin-bottom:8px;">
+      <div class="field" style="margin-bottom:var(--space-3);">
         <div class="pain-label-row">
           <label style="margin:0;">Pain</label>
         </div>
@@ -156,9 +156,9 @@
         <label for="edit-checkin-note">Note</label>
         <textarea id="edit-checkin-note" placeholder="Add anything worth remembering"></textarea>
       </div>
-      <div id="edit-checkin-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
-      <button type="button" class="uppercase" id="edit-checkin-save" style="margin-top:20px;">Save</button>
-      <button type="button" class="secondary" id="edit-checkin-delete" style="margin-top:10px;color:var(--danger);">Delete check-in</button>
+      <div id="edit-checkin-status" class="status" role="status" aria-live="polite" hidden style="margin-top:var(--space-4);"></div>
+      <button type="button" class="uppercase" id="edit-checkin-save" style="margin-top:var(--space-5);">Save</button>
+      <button type="button" class="secondary" id="edit-checkin-delete" style="margin-top:var(--space-3);color:var(--danger);">Delete check-in</button>
     </div>
   </div>
 

@@ -30,8 +30,8 @@
       </div>
 
       <p class="section-label">Session type</p>
-      <div id="category-chips" class="chips" style="margin-bottom:8px;"></div>
-      <p id="no-category-types" class="muted" style="margin:-4px 0 16px;" hidden>
+      <div id="category-chips" class="chips" style="margin-bottom:var(--space-3);"></div>
+      <p id="no-category-types" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-4);" hidden>
         No session types yet — add some in Settings, or pick Other for now.
       </p>
 
@@ -57,7 +57,7 @@
         No exercises yet. Add the first one below.
       </p>
 
-      <button id="add-exercise-btn" type="button" style="margin-top:8px;">+ Add exercise</button>
+      <button id="add-exercise-btn" type="button" style="margin-top:var(--space-3);">+ Add exercise</button>
     </section>
 
     <!-- =================== PICKER VIEW (choose / create exercise) =================== -->
@@ -77,8 +77,8 @@
 
       <!-- A prompt, not an auto-opened form: typing something new asks
            first rather than dropping you straight into a 3-field form. -->
-      <p id="picker-no-match-text" class="muted" hidden style="margin:8px 0 10px;"></p>
-      <button id="picker-create-toggle" type="button" class="secondary" hidden style="margin-bottom:12px;"></button>
+      <p id="picker-no-match-text" class="muted" hidden style="margin:var(--space-3) 0;"></p>
+      <button id="picker-create-toggle" type="button" class="secondary" hidden style="margin-bottom:var(--space-3);"></button>
 
       <!-- Revealed by the toggle above: create the exercise without leaving
            the workout, per the CLAUDE.md log-screen exception. -->
@@ -118,11 +118,11 @@
 
       <p id="end-summary-heading" class="subtitle"></p>
 
-      <div class="card" style="margin-bottom:16px;">
+      <div class="card" style="margin-bottom:var(--space-4);">
         <div id="end-summary"></div>
       </div>
 
-      <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add a comment</button>
+      <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:var(--space-4);">+ Add a comment</button>
       <div class="field" id="session-comment-field" hidden>
         <label for="session-comment">How did it go?</label>
         <textarea id="session-comment" placeholder="Add a comment"></textarea>
@@ -904,7 +904,7 @@
       commentField.hidden = !entry.commentExpanded;
 
       const commentRow = document.createElement('div');
-      commentRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start;';
+      commentRow.style.cssText = 'display:flex;gap:var(--space-3);align-items:flex-start;';
       const textareaWrap = document.createElement('div');
       textareaWrap.className = 'field';
       textareaWrap.style.cssText = 'flex:1;min-width:0;margin-bottom:0;';
@@ -937,7 +937,7 @@
 
       const commentState = document.createElement('p');
       commentState.className = 'muted';
-      commentState.style.cssText = 'margin:4px 0 0;min-height:18px;font-size:13px;';
+      commentState.style.cssText = 'margin:var(--space-1) 0 0;min-height:18px;font-size:13px;';
       commentField.appendChild(commentState);
       wireCommentAutosave(entry, comment, commentState);
       body.appendChild(commentField);

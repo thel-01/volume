@@ -166,7 +166,7 @@ body {
   min-height: 100dvh;
   max-width: 460px;
   margin: 0 auto;
-  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+  padding: var(--space-6) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
 }
@@ -177,7 +177,7 @@ body {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .brand img { width: 48px; height: 48px; border-radius: var(--radius); }
 .brand h1 {
@@ -199,14 +199,14 @@ label {
   color: var(--muted);
 }
 
-.field { margin-bottom: 16px; }
+.field { margin-bottom: var(--space-4); }
 
 input[type='email'],
 input[type='password'],
 input[type='text'] {
   width: 100%;
   height: var(--tap);
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -224,7 +224,7 @@ input:focus {
 button {
   width: 100%;
   min-height: var(--tap);
-  padding: 0 20px;
+  padding: 0 var(--space-5);
   border: 0;
   border-radius: var(--radius);
   background: var(--accent);
@@ -265,9 +265,9 @@ button.secondary {
 .status {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 12px 14px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-3) 14px;
   border-radius: var(--radius);
   font-size: 15px;
   border: 1px solid transparent;
@@ -303,8 +303,8 @@ button.secondary {
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: max(12px, env(safe-area-inset-top)) 16px 0;
+  gap: var(--space-2);
+  padding: max(var(--space-3), env(safe-area-inset-top)) var(--space-4) 0;
   pointer-events: none;
 }
 /* First deliberate use of a shadow anywhere in the system — everything
@@ -314,8 +314,8 @@ button.secondary {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 12px 14px;
+  gap: var(--space-2);
+  padding: var(--space-3) 14px;
   border-radius: var(--radius);
   font-size: 15px;
   border: 1px solid transparent;
@@ -348,7 +348,7 @@ button.secondary {
 }
 .toast-body { flex: 1; min-width: 0; }
 .toast-detail { font-size: var(--fs-xs); color: var(--muted); margin-top: 3px; line-height: 1.4; }
-.toast-actions { margin-top: 8px; }
+.toast-actions { margin-top: var(--space-2); }
 .toast-action {
   width: auto;
   flex: 0 0 auto;
@@ -399,9 +399,9 @@ button.secondary {
    a sibling's, while a <div> does — so the same nominal 8px/12px produced
    visibly different real gaps (8/16/20px) depending on which element type
    sat next to which. `gap` sidesteps that entirely. */
-#injury-slot { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+#injury-slot { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
 #injury-slot .list-item { margin-bottom: 0; }
-.injury-actions { display: flex; width: 100%; gap: 8px; }
+.injury-actions { display: flex; width: 100%; gap: var(--space-2); }
 .injury-actions button { flex: 1; }
 
 /* Quicklog popup shell — bottom sheet, shared by the New Case and Update
@@ -454,13 +454,13 @@ button.secondary {
 .stepper-btn { width: var(--tap); height: var(--tap); min-height: 0; padding: 0; flex: 0 0 auto; font-size: 22px; font-weight: 400; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); }
 .stepper-value { flex: 1; text-align: center; }
 .stepper-value .value { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; }
-.stepper-value .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); margin-left: 4px; }
+.stepper-value .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); margin-left: var(--space-1); }
 
 .detail-toggle {
   border: 1px dashed var(--line);
   width: 100%;
   text-align: left;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   background: none;
   color: var(--muted);
   font-size: var(--fs-base);
@@ -473,10 +473,10 @@ button.secondary {
    wider than "1"), fine generically but not for something meant to read
    exactly the same way every time. Not a slider — everything else
    tappable in this app is a big rectangle, never a drag. */
-.pain-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.pain-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-2); }
 .chip.chip-num { width: 100%; padding: 0; justify-content: center; font-family: var(--font-mono); }
 .chip.chip-nopain { grid-column: 1 / -1; width: 100%; font-family: var(--font-body); }
-.pain-readout { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--space-3); }
+.pain-readout { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-3); }
 .pain-readout .value { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; }
 .pain-readout .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); }
 /* Fixed-width, right-aligned so the digit count (0-9 vs 10) never moves
@@ -484,7 +484,7 @@ button.secondary {
    this box changes, not anything after it. */
 .pain-readout .value .pain-num { display: inline-block; min-width: 2ch; text-align: right; }
 
-.pain-label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pain-label-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 6px; }
 .pain-label-row label { margin: 0; }
 /* Stays visually small next to the big number — 56px here would swamp
    the row. Tap target still reaches 56x56 via the invisible ::after,
@@ -514,7 +514,7 @@ button.secondary {
   width: var(--tap); height: var(--tap);
   transform: translate(-50%, -50%);
 }
-.pain-info-row { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.pain-info-row { display: flex; gap: var(--space-3); padding: 10px 0; border-top: 1px solid var(--line); }
 .pain-info-row:first-of-type { border-top: none; }
 .pain-info-num { flex: 0 0 auto; width: 44px; font-family: var(--font-mono); font-size: var(--fs-base); color: var(--muted); padding-top: 1px; }
 .pain-info-text { font-size: var(--fs-base); }
@@ -525,7 +525,7 @@ button.secondary {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: var(--space-5);
   transition: transform var(--motion-fast);
 }
 .card:active { transform: scale(0.99); }
@@ -544,7 +544,7 @@ button.secondary {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px 8px 6px;
+  padding: var(--space-3) var(--space-2) 6px;
 }
 .chart-card svg { display: block; width: 100%; height: auto; }
 .donut-card svg { max-width: 200px; margin: 0 auto; }
@@ -555,7 +555,7 @@ button.secondary {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 14px;
+  gap: var(--space-3);
   margin-top: 10px;
   color: var(--muted);
   font-size: 12px;
@@ -570,8 +570,8 @@ button.secondary {
 .page-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 .page-header h1 {
   flex: 1;
@@ -608,7 +608,7 @@ button.secondary {
 textarea,
 select {
   width: 100%;
-  padding: 14px 16px;
+  padding: 14px var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -624,7 +624,7 @@ select {
   appearance: none;
   -webkit-appearance: none;
   height: var(--tap);
-  padding-right: 40px;
+  padding-right: var(--space-8);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%23999999' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 16px center;
@@ -640,7 +640,7 @@ input:disabled, textarea:disabled, select:disabled {
   cursor: not-allowed;
 }
 
-.btn-row { display: flex; gap: 12px; }
+.btn-row { display: flex; gap: var(--space-3); }
 .btn-row button { flex: 1; }
 
 button.danger { background: var(--danger); color: #fff; }
@@ -652,17 +652,17 @@ button.danger.secondary {
 
 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 4px;
+  padding: var(--space-1);
 }
 .tab {
   flex: 1;
   min-height: var(--tap);
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -678,11 +678,11 @@ button.danger.secondary {
 .list-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
   min-height: var(--tap);
-  padding: 12px 16px;
-  margin-bottom: 8px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -706,7 +706,7 @@ button.danger.secondary {
   margin-top: 2px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--muted);
   font-size: 13px;
 }
@@ -745,21 +745,21 @@ button.danger.secondary {
 }
 
 .empty-state {
-  padding: 32px 16px;
+  padding: var(--space-7) var(--space-4);
   text-align: center;
   color: var(--muted);
   font-size: 15px;
 }
 
 .danger-zone {
-  margin-top: 28px;
-  padding-top: 20px;
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
   border-top: 1px solid var(--line);
 }
 
 /* Context line under a page-header, e.g. "Inside Horizontal Press" */
 .subtitle {
-  margin: -12px 0 20px;
+  margin: calc(-1 * var(--space-3)) 0 var(--space-5);
   text-align: center;
   color: var(--muted);
   font-size: 14px;
@@ -767,7 +767,7 @@ button.danger.secondary {
 
 /* Groups items within "Recently deleted", e.g. "Movement patterns" / "Exercises" */
 .section-label {
-  margin: 24px 0 8px;
+  margin: var(--space-6) 0 var(--space-2);
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
@@ -785,13 +785,13 @@ button.danger.secondary {
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .chip {
   width: auto;
   min-height: var(--tap);
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -812,9 +812,9 @@ button.danger.secondary {
 .session-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  padding: 12px 16px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -840,7 +840,7 @@ button.danger.secondary {
 
 /* One exercise inside the session. Collapsed = header only. */
 .exercise-card {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -851,10 +851,10 @@ button.danger.secondary {
 .exercise-card-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
   min-height: var(--tap);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   background: transparent;
   border: 0;
   border-radius: var(--radius);
@@ -863,14 +863,14 @@ button.danger.secondary {
   cursor: pointer;
 }
 .exercise-card-body {
-  padding: 12px 16px 16px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
 }
 
 /* "Last session: 12 Jul — 30 kg × 12, 12, 12" reference lines. */
 .reference-line {
   display: flex;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -885,7 +885,7 @@ button.danger.secondary {
 .set-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
   font-size: 15px;
@@ -915,7 +915,7 @@ button.danger.secondary {
 }
 .set-delete.confirming {
   width: auto;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   background: var(--danger);
   border-color: var(--danger);
   color: #fff;
@@ -926,11 +926,11 @@ button.danger.secondary {
 /* Weight + reps side by side. */
 .field-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .field-row .field { flex: 1; margin-bottom: 0; }
 
-.entry-block { margin-top: 16px; }
+.entry-block { margin-top: var(--space-4); }
 
 /* "+ Add note" reveal — keeps the common path uncluttered. */
 .link-button {
@@ -950,7 +950,7 @@ button.danger.secondary {
 .summary-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
   font-size: 15px;

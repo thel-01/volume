@@ -30,13 +30,13 @@
         <button id="new-pattern-btn" class="icon-btn" type="button" aria-label="New movement pattern">+</button>
       </div>
 
-      <p class="muted" style="margin:-8px 0 16px;">
+      <p class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-4);">
         Deleted something by mistake? <a href="./settings.html" style="color:var(--accent);">Recover it in Settings</a>.
       </p>
 
       <p id="loading" class="muted">Loading…</p>
 
-      <p id="empty-patterns" class="muted" hidden style="margin-bottom:12px;">
+      <p id="empty-patterns" class="muted" hidden style="margin-bottom:var(--space-3);">
         No movement patterns yet — tap + to create one, e.g. "Horizontal Press".
       </p>
       <ul id="pattern-list" class="list" hidden></ul>
@@ -53,7 +53,7 @@
            this is the one thing that tells them apart. -->
       <p class="subtitle">Movement pattern</p>
 
-      <button id="add-exercise-btn" type="button" style="margin-bottom:16px;">+ Add exercise</button>
+      <button id="add-exercise-btn" type="button" style="margin-bottom:var(--space-4);">+ Add exercise</button>
 
       <ul id="pattern-exercise-list" class="list" hidden></ul>
       <p id="empty-pattern-exercises" class="empty-state" hidden>No exercises here yet.</p>
@@ -75,12 +75,12 @@
         </div>
 
         <p class="section-label">Session type</p>
-        <div id="pattern-category-chips" class="chips" style="margin-bottom:8px;"></div>
-        <p id="pattern-category-orphan" class="muted" style="margin:-4px 0 8px;" hidden></p>
-        <p id="pattern-no-category-types" class="muted" style="margin:-4px 0 8px;" hidden>
+        <div id="pattern-category-chips" class="chips" style="margin-bottom:var(--space-3);"></div>
+        <p id="pattern-category-orphan" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-2);" hidden></p>
+        <p id="pattern-no-category-types" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-2);" hidden>
           No session types yet — add some in Settings, or pick Other for now.
         </p>
-        <p class="muted" style="margin:0 0 16px;">
+        <p class="muted" style="margin:0 0 var(--space-4);">
           When you start a workout of this type on the Log screen, exercises in this
           pattern show up first.
         </p>
@@ -93,7 +93,7 @@
       <div id="pattern-delete-zone" class="danger-zone" hidden>
         <button id="pattern-delete-btn" class="secondary danger uppercase" type="button">Delete movement pattern</button>
         <div id="pattern-delete-confirm" hidden>
-          <p class="muted" id="pattern-delete-copy" style="margin-bottom:12px;"></p>
+          <p class="muted" id="pattern-delete-copy" style="margin-bottom:var(--space-3);"></p>
           <div class="btn-row">
             <button id="pattern-delete-cancel" class="secondary" type="button">Cancel</button>
             <button id="pattern-delete-confirm-btn" class="danger uppercase" type="button">Yes, delete</button>
@@ -146,7 +146,7 @@
           </select>
         </div>
 
-        <button id="ex-notes-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add notes</button>
+        <button id="ex-notes-toggle" type="button" class="link-button" style="margin-bottom:var(--space-4);">+ Add notes</button>
         <div class="field" id="ex-notes-field" hidden>
           <label for="ex-notes">Notes</label>
           <textarea id="ex-notes" placeholder="Add exercise notes"></textarea>
@@ -160,7 +160,7 @@
       <div id="exercise-delete-zone" class="danger-zone" hidden>
         <button id="exercise-delete-btn" class="secondary danger uppercase" type="button">Delete exercise</button>
         <div id="exercise-delete-confirm" hidden>
-          <p class="muted" style="margin-bottom:12px;">
+          <p class="muted" style="margin-bottom:var(--space-3);">
             Delete "<strong id="exercise-delete-name"></strong>"? You can restore it later
             from Settings → Recently Deleted.
           </p>

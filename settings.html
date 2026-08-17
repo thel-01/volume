@@ -67,7 +67,7 @@
         <span class="reference-label">Running:</span>
         <span class="reference-value" id="account-mode">…</span>
       </div>
-      <div style="height:16px;"></div>
+      <div style="height:var(--space-4);"></div>
       <button id="logout" class="secondary danger uppercase" type="button">Log out</button>
 
       <p class="section-label">Backup</p>
@@ -75,7 +75,7 @@
       <p class="muted" style="margin-top:8px;">
         Downloads every session, exercise and set as one file. Keep it somewhere safe.
       </p>
-      <button id="export-weight-btn" class="secondary" type="button" style="margin-top:12px;">Export weight data (CSV)</button>
+      <button id="export-weight-btn" class="secondary" type="button" style="margin-top:var(--space-3);">Export weight data (CSV)</button>
       <p class="muted" style="margin-top:8px;">
         Just your weigh-ins, as a spreadsheet-friendly file.
       </p>
@@ -99,7 +99,7 @@
         <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
-      <p class="muted" style="margin:-8px 0 20px;">
+      <p class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-5);">
         These show up when starting a workout and when assigning a movement
         pattern to a split. "Other" is always available too, for anything
         that doesn't fit — a deadhang, a PT exercise.
@@ -108,9 +108,9 @@
       <ul id="session-type-list" class="list"></ul>
       <p id="empty-session-types" class="empty-state" hidden>No session types yet — add one below.</p>
 
-      <button id="st-add-toggle" type="button" class="link-button" style="display:block;margin-top:16px;">+ Add session type</button>
-      <div id="st-add-panel" hidden style="margin-top:12px;">
-        <div id="st-suggestion-chips" class="chips" style="margin-bottom:12px;"></div>
+      <button id="st-add-toggle" type="button" class="link-button" style="display:block;margin-top:var(--space-4);">+ Add session type</button>
+      <div id="st-add-panel" hidden style="margin-top:var(--space-4);">
+        <div id="st-suggestion-chips" class="chips" style="margin-bottom:var(--space-3);"></div>
         <div class="field">
           <label for="st-custom-input">Custom</label>
           <input id="st-custom-input" type="text" autocomplete="off" autocapitalize="words" placeholder="Enter session type name">

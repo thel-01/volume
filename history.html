@@ -29,7 +29,7 @@
       </div>
 
       <p class="section-label">Filter</p>
-      <div id="category-chips" class="chips" style="margin-bottom:16px;"></div>
+      <div id="category-chips" class="chips" style="margin-bottom:var(--space-4);"></div>
 
       <p id="loading" class="muted">Loading…</p>
       <div id="session-list" hidden></div>
@@ -45,11 +45,11 @@
       </div>
       <p id="detail-subtitle" class="subtitle"></p>
 
-      <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:16px;">+ Add note</button>
+      <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:var(--space-4);">+ Add note</button>
       <div class="field" id="session-comment-field" hidden>
         <label for="session-comment">Session comment</label>
         <textarea id="session-comment" placeholder="Add a comment"></textarea>
-        <p id="session-comment-state" class="muted" style="margin:4px 0 0;min-height:18px;font-size:13px;"></p>
+        <p id="session-comment-state" class="muted" style="margin:var(--space-1) 0 0;min-height:18px;font-size:13px;"></p>
       </div>
 
       <div id="exercise-cards"></div>
@@ -58,7 +58,7 @@
       <div class="danger-zone">
         <button id="delete-session-btn" class="secondary danger uppercase" type="button">Delete this session</button>
         <div id="delete-session-confirm" hidden>
-          <p class="muted" style="margin:12px 0;">
+          <p class="muted" style="margin:var(--space-3) 0;">
             Delete this whole session? You can restore it later from Settings.
           </p>
           <div class="btn-row">
@@ -620,7 +620,7 @@
       // Editable here too, not just live: this is exactly where you'd
       // retroactively flag a set you only recognized as a bonus afterward.
       const commentRow = document.createElement('div');
-      commentRow.style.cssText = 'display:flex;gap:10px;align-items:flex-start;margin-top:4px;';
+      commentRow.style.cssText = 'display:flex;gap:var(--space-3);align-items:flex-start;margin-top:4px;';
       const textareaWrap = document.createElement('div');
       textareaWrap.style.cssText = 'flex:1;min-width:0;';
       const comment = document.createElement('textarea');
@@ -649,7 +649,7 @@
 
       const commentState = document.createElement('p');
       commentState.className = 'muted';
-      commentState.style.cssText = 'margin:4px 0 0;min-height:18px;font-size:13px;';
+      commentState.style.cssText = 'margin:var(--space-1) 0 0;min-height:18px;font-size:13px;';
       commentField.appendChild(commentState);
       wireCommentAutosave(
         'session_exercises', se.id,
@@ -683,13 +683,13 @@
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'link-button';
-      removeBtn.style.cssText = 'margin-top:14px;color:var(--danger);';
+      removeBtn.style.cssText = 'margin-top:var(--space-3);color:var(--danger);';
       removeBtn.textContent = 'Remove from this session';
       body.appendChild(removeBtn);
 
       const removeConfirm = document.createElement('div');
       removeConfirm.hidden = true;
-      removeConfirm.style.marginTop = '10px';
+      removeConfirm.style.marginTop = 'var(--space-3)';
       const removeCopy = document.createElement('p');
       removeCopy.className = 'muted';
       removeCopy.style.marginBottom = '10px';

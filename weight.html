@@ -18,7 +18,7 @@
     .stat-row {
       display: flex;
       gap: 22px;
-      margin-bottom: 14px;
+      margin-bottom: var(--space-3);
       flex-wrap: wrap;
     }
     .stat { display: flex; flex-direction: column; gap: 3px; }
@@ -98,7 +98,7 @@
         </div>
       </div>
 
-      <div id="chart-window-row" class="chips" style="margin-bottom:10px;" hidden></div>
+      <div id="chart-window-row" class="chips" style="margin-bottom:var(--space-3);" hidden></div>
 
       <div class="chart-card" id="chart-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
@@ -110,11 +110,11 @@
            that job now. Purely informational. -->
       <div id="stale-notice" class="status info" hidden></div>
 
-      <button id="add-toggle" type="button" style="margin-top:20px;">+ Log weight</button>
+      <button id="add-toggle" type="button" style="margin-top:var(--space-5);">+ Log weight</button>
 
       <!-- Add form. Date and time stay tucked away: the overwhelmingly common
            case is weighing yourself and logging it there and then. -->
-      <div id="add-form" style="margin-top:12px;" hidden>
+      <div id="add-form" style="margin-top:var(--space-3);" hidden>
         <div class="field">
           <label for="new-weight">Weight (kg)</label>
           <input id="new-weight" type="text" inputmode="decimal" autocomplete="off" placeholder="Log a weigh-in">
@@ -122,7 +122,7 @@
 
         <button id="when-toggle" type="button" class="link-button" style="display:block;">+ Change date &amp; time</button>
         <div id="when-fields" hidden>
-          <div class="field-row" style="margin-top:8px;">
+          <div class="field-row" style="margin-top:var(--space-3);">
             <div class="field">
               <label for="new-date">Date</label>
               <input id="new-date" type="date">
@@ -134,7 +134,7 @@
           </div>
         </div>
 
-        <div class="btn-row" style="margin-top:12px;">
+        <div class="btn-row" style="margin-top:var(--space-3);">
           <button id="add-cancel" class="secondary" type="button">Cancel</button>
           <button id="add-save" type="button">Save</button>
         </div>
@@ -144,7 +144,7 @@
       <!-- Bucket headings ("This week", "Earlier", "2025") do the labelling
            here, exactly as in the session history — a second "All entries"
            heading above them would just stack two labels. -->
-      <div id="entry-list" style="margin-top:28px;"></div>
+      <div id="entry-list" style="margin-top:var(--space-6);"></div>
       <p id="empty-entries" class="empty-state" hidden>No weight logged yet.</p>
 
     </div>
@@ -627,7 +627,7 @@
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'secondary';
-      del.style.cssText = 'margin-top:10px;color:var(--danger);';
+      del.style.cssText = 'margin-top:var(--space-3);color:var(--danger);';
       del.textContent = 'Delete';
       let armed = false;
       del.addEventListener('click', () => {

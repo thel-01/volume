@@ -18,8 +18,8 @@
     .index-headline {
       display: flex;
       align-items: baseline;
-      gap: 10px;
-      margin-bottom: 10px;
+      gap: var(--space-2);
+      margin-bottom: var(--space-3);
     }
     .index-value {
       font-family: var(--font-mono);
@@ -92,7 +92,7 @@
     </div>
 
     <!-- The two things you actually open the app to do. -->
-    <div class="btn-row" style="margin-bottom:24px;">
+    <div class="btn-row" style="margin-bottom:var(--space-5);">
       <a href="./log.html" class="grow-2" style="text-decoration:none;display:flex;">
         <button type="button" id="workout-btn" class="uppercase" style="width:100%;min-height:84px;">Start workout</button>
       </a>
@@ -166,7 +166,7 @@
       <p id="weight-chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
       <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
 
-      <div class="list-item" id="weight-log-card" role="button" tabindex="0" hidden style="margin-top:8px;">
+      <div class="list-item" id="weight-log-card" role="button" tabindex="0" hidden style="margin-top:var(--space-3);">
         <div class="list-item-body">
           <div class="list-item-name" id="weight-log-value">—</div>
           <div class="list-item-meta" id="weight-log-meta"></div>
@@ -191,7 +191,7 @@
         <label for="new-case-name">What, roughly</label>
         <input type="text" id="new-case-name" autocomplete="off" placeholder="e.g. Right shoulder">
       </div>
-      <div class="field" style="margin-bottom:8px;">
+      <div class="field" style="margin-bottom:var(--space-3);">
         <div class="pain-label-row">
           <label style="margin:0;">Pain right now</label>
         </div>
@@ -219,7 +219,7 @@
         <h2 id="update-modal-title">Update</h2>
         <button type="button" class="modal-close" id="update-close" aria-label="Close">&times;</button>
       </div>
-      <div class="field" style="margin-bottom:8px;">
+      <div class="field" style="margin-bottom:var(--space-3);">
         <div class="pain-label-row">
           <label style="margin:0;">Pain now</label>
         </div>
