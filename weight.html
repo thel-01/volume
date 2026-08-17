@@ -93,7 +93,7 @@
           <!-- Coloured to match its line on the chart, so the number and the
                curve are obviously the same thing. -->
           <span class="stat-value live" id="average-weight">—</span>
-          <span class="stat-label">7-day average</span>
+          <span class="stat-label" id="average-weight-label">trend</span>
           <span class="stat-change" id="trend-change"></span>
         </div>
       </div>
@@ -156,14 +156,24 @@
     import { renderLineChart } from './chart.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { showToast } from './toast.js';
+    import {
+      dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
+      TREND_LABEL, DEFAULT_TREND_METHOD,
+    } from './weight-utils.js';
 
     // Bodyweight swings a kilo or more day to day on food and water alone, so
-    // a single reading says very little. A 7-day trailing mean is the usual
-    // way to see past that, and 14 days is far enough back for the comparison
-    // to mean something without being ancient history.
-    const AVERAGE_DAYS = 7;
+    // a single reading says very little. The trend line smooths past that —
+    // see weight-utils.js for the maths (EWMA by default, or the old 7-day
+    // average if switched back in Settings). 14 days is far enough back for
+    // the "vs N days ago" comparison to mean something without being ancient
+    // history.
     const COMPARE_DAYS = 14;
     const DAY_MS = 86400000;
+    // Set once at boot from user_settings, read by render(). Defaults to
+    // DEFAULT_TREND_METHOD if the row doesn't exist yet or the fetch errors —
+    // a nicety, not the point of the page, same as this app's other
+    // best-effort boot lookups.
+    let trendMethod = DEFAULT_TREND_METHOD;
     // Roughly "about a week", per the standing rule that a stale reading
     // shouldn't just sit there looking current.
     const STALE_AFTER_DAYS = 7;
@@ -192,6 +202,7 @@
     const currentWeight = document.getElementById('current-weight');
     const currentWhen = document.getElementById('current-when');
     const averageWeight = document.getElementById('average-weight');
+    const averageWeightLabel = document.getElementById('average-weight-label');
     const trendChange = document.getElementById('trend-change');
     const chart = document.getElementById('chart');
     const chartCard = document.getElementById('chart-card');
@@ -315,32 +326,6 @@
     }
 
     /**
-     * Mean of every reading in the `days` window ending at `endMs`.
-     * Time-based rather than "last N readings", because the readings are
-     * irregular — three in one day, then nothing for a week.
-     */
-    function windowMean(list, endMs, days) {
-      const startMs = endMs - days * DAY_MS;
-      const inWindow = list.filter((e) => {
-        const t = new Date(e.measured_at).getTime();
-        return t > startMs && t <= endMs;
-      });
-      if (inWindow.length === 0) return null;
-      return inWindow.reduce((sum, e) => sum + Number(e.weight_kg), 0) / inWindow.length;
-    }
-
-    /** Trailing mean at each reading, for the smoothed overlay line. */
-    function trailingAverageSeries(ascending) {
-      const out = [];
-      for (const e of ascending) {
-        const t = new Date(e.measured_at).getTime();
-        const mean = windowMean(ascending, t, AVERAGE_DAYS);
-        if (mean !== null) out.push({ date: e.measured_at, value: mean });
-      }
-      return out;
-    }
-
-    /**
      * Which window buttons are worth showing, given the actual history span.
      * A window only earns a button if picking it would actually hide some
      * data compared to "Max" — offering a "12M" button when you've only ever
@@ -429,36 +414,41 @@
       currentWhen.textContent = relativeWhen(entries[0]);
       renderStaleNotice(entries[0]);
 
-      // Compare like with like: the current 7-day mean against the 7-day mean
-      // as it stood a fortnight ago. Comparing single readings would mostly
+      // Compare like with like: the current trend against the trend as it
+      // stood a fortnight ago. Comparing single readings would mostly
       // measure what you ate yesterday.
-      // The change belongs to the average, not the latest reading, so it sits
-      // under the average — a single reading swings a kilo on lunch alone.
+      // The change belongs to the trend, not the latest reading, so it sits
+      // under the trend — a single reading swings a kilo on lunch alone.
       const now = Date.now();
-      const avgNow = windowMean(ascending, now, AVERAGE_DAYS);
-      const avgThen = windowMean(ascending, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
+      averageWeightLabel.textContent = TREND_LABEL[trendMethod];
+      const daily = dailyValues(ascending);
+      const trendNow = currentTrend(daily, trendMethod);
+      const trendThen = trendAsOf(daily, now - COMPARE_DAYS * DAY_MS, trendMethod);
 
-      // A "7-day average" over less than 7 days of actual history isn't a
-      // 7-day average — it's a partial window silently passed off as the
-      // full one. Wait until there's enough tracked history to back it up.
-      const enoughHistoryForAverage = now - new Date(ascending[0].measured_at).getTime() >= AVERAGE_DAYS * DAY_MS;
+      // A trend over less than 7 days of actual history isn't honest yet —
+      // it's a partial window (or, for EWMA, a barely-smoothed single
+      // reading) passed off as a real one. Wait until there's enough tracked
+      // history to back it up.
+      const enoughHistoryForTrend = hasEnoughHistory(daily, now);
 
-      averageWeight.innerHTML = (!enoughHistoryForAverage || avgNow === null) ? '—' : `${fmtKg(avgNow)}<span class="unit">kg</span>`;
+      averageWeight.innerHTML = (!enoughHistoryForTrend || trendNow === null) ? '—' : `${fmtKg(trendNow)}<span class="unit">kg</span>`;
 
-      if (!enoughHistoryForAverage || avgNow === null || avgThen === null) {
+      if (!enoughHistoryForTrend || trendNow === null || trendThen === null) {
         trendChange.textContent = '';
       } else {
-        const diff = avgNow - avgThen;
+        const diff = trendNow - trendThen;
         const sign = diff >= 0 ? '+' : '−';
         trendChange.textContent = Math.abs(diff) < 0.05
           ? `steady vs ${COMPARE_DAYS} days ago`
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
-      // A single reading isn't a trend — the stat values above remain valid,
-      // but the chart (and the window picker that filters it) needs a second
-      // point before there's a line worth drawing.
-      if (ascending.length < 2) {
+      // A single day of history isn't a trend — the stat values above remain
+      // valid, but the chart (and the window picker that filters it) needs a
+      // second distinct day before there's a line worth drawing. Same-day
+      // readings collapse to one point in `daily`, so this counts days, not
+      // raw entries — logging 3 readings on day one alone still isn't a trend.
+      if (daily.length < 2) {
         chartWindowRow.hidden = true;
         chartCard.hidden = true;
         legend.hidden = true;
@@ -478,13 +468,16 @@
       const readings = filterByWindow(ascending.map((e) => ({
         date: e.measured_at, value: Number(e.weight_kg), entry: e,
       })), chartWindow);
-      const average = filterByWindow(trailingAverageSeries(ascending), chartWindow);
+      // Computed over the FULL history, then clipped to the window — filtering
+      // `daily` first would re-seed the trend's bootstrap at the window's
+      // edge and silently draw a wrong curve near it.
+      const trend = filterByWindow(trendSeries(daily, trendMethod), chartWindow);
 
       renderLineChart(chart, {
         series: [
-          { key: 'avg', points: average, color: 'var(--live)', width: '2.2' },
+          { key: 'trend', points: trend, color: 'var(--live)', width: '2.2' },
           // Scatter, not a line: joining the raw readings drew a jagged shape
-          // that isn't real and pulled the eye away from the average, which is
+          // that isn't real and pulled the eye away from the trend, which is
           // the honest interpolation between them.
           { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
@@ -501,10 +494,11 @@
         ariaLabel: (p) => `${fmtKg(p.value)} kg on ${formatEntryWhen(p.entry)}`,
       });
 
+      const trendLabel = TREND_LABEL[trendMethod];
       legend.innerHTML = `
-        <span><i style="background:var(--live)"></i>${AVERAGE_DAYS}-day average</span>
+        <span><i style="background:var(--live)"></i>${trendLabel[0].toUpperCase()}${trendLabel.slice(1)}</span>
         <span><i class="dot" style="background:var(--muted)"></i>Reading</span>`;
-      legend.hidden = average.length === 0;
+      legend.hidden = trend.length === 0;
 
       renderEntries();
     }
@@ -778,10 +772,20 @@
     // Boot
     // ------------------------------------------------------------------
     async function loadAll() {
-      const { data, error } = await supabase
-        .from('body_weights')
-        .select('*')
-        .order('measured_at', { ascending: false });
+      const [{ data, error }, settingsRes] = await Promise.all([
+        supabase
+          .from('body_weights')
+          .select('*')
+          .order('measured_at', { ascending: false }),
+        // A nicety, not the point of the page — if this fails or the row
+        // doesn't exist yet, just fall back to the shipped default.
+        supabase
+          .from('user_settings')
+          .select('weight_trend_method')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+      ]);
+      trendMethod = (!settingsRes.error && settingsRes.data) ? settingsRes.data.weight_trend_method : DEFAULT_TREND_METHOD;
 
       loading.hidden = true;
       if (error) {

@@ -504,6 +504,27 @@ create index if not exists injury_checkins_injury_idx
 
 
 -- ===========================================================================
+-- 5d. user_settings — per-user preferences, one row each
+-- ===========================================================================
+-- Single row per user (user_id is the primary key, no separate id column)
+-- rather than a general key-value blob — holds nothing but the bodyweight
+-- trend method for now. Add columns here later if another per-user
+-- preference actually needs one; not pre-building for hypothetical ones.
+
+create table if not exists public.user_settings (
+  user_id              uuid primary key references auth.users (id) on delete cascade,
+
+  -- 'ewma' (the default) or 'sma', the pre-EWMA fallback. See weight-utils.js
+  -- and CLAUDE.md's "Bodyweight trend" rule for why both exist.
+  weight_trend_method  text not null default 'ewma'
+    check (weight_trend_method in ('ewma', 'sma')),
+
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+
+-- ===========================================================================
 -- 6. Lock an exercise's type once sets exist
 -- ===========================================================================
 -- Standing rule from CLAUDE.md. Enforced here rather than in the UI because
@@ -594,6 +615,7 @@ alter table public.body_weights      enable row level security;
 alter table public.session_types     enable row level security;
 alter table public.injuries          enable row level security;
 alter table public.injury_checkins   enable row level security;
+alter table public.user_settings     enable row level security;
 
 
 -- --- grants -----------------------------------------------------------------
@@ -617,6 +639,8 @@ grant select, insert, update, delete on public.body_weights      to authenticate
 grant select, insert, update, delete on public.session_types     to authenticated;
 grant select, insert, update, delete on public.injuries          to authenticated;
 grant select, insert, update, delete on public.injury_checkins   to authenticated;
+-- No delete — a settings row is never independently deleted.
+grant select, insert, update         on public.user_settings     to authenticated;
 
 
 -- --- sessions ---------------------------------------------------------------
@@ -980,12 +1004,36 @@ create policy injury_checkins_delete_own on public.injury_checkins
   );
 
 
+-- --- user_settings ------------------------------------------------------------
+-- Directly owned via user_id, which is the primary key itself here (one row
+-- per user) rather than a separate id column — no delete policy, a settings
+-- row is never independently deleted.
+
+drop policy if exists user_settings_select_own on public.user_settings;
+create policy user_settings_select_own on public.user_settings
+  for select to authenticated
+  using (user_id = (select auth.uid()));
+
+drop policy if exists user_settings_insert_own on public.user_settings;
+create policy user_settings_insert_own on public.user_settings
+  for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+drop policy if exists user_settings_update_own on public.user_settings;
+create policy user_settings_update_own on public.user_settings
+  for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+
 -- ===========================================================================
 -- 8. Health check
 -- ===========================================================================
 -- Run this after the rest. Every row must read: rls_enabled = true AND
--- policy_count = 4. A table with RLS on and 0 policies is the silent-empty
--- trap — it returns no rows and no error, and looks identical to "no data yet".
+-- policy_count = 4 — except user_settings, which is 3 by design (no delete
+-- policy, a settings row is never independently deleted). A table with RLS
+-- on and 0 policies is the silent-empty trap — it returns no rows and no
+-- error, and looks identical to "no data yet".
 
 -- select
 --   c.relname                        as table_name,
@@ -996,12 +1044,13 @@ create policy injury_checkins_delete_own on public.injury_checkins
 -- join pg_namespace n on n.oid = c.relnamespace
 -- left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
 -- where n.nspname = 'public'
---   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins')
+--   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings')
 -- group by c.relname, c.relrowsecurity
 -- order by c.relname;
 
 -- The other half of the check: does `authenticated` actually hold the grant?
--- Every row should list all four: DELETE, INSERT, SELECT, UPDATE.
+-- Every row should list all four: DELETE, INSERT, SELECT, UPDATE — except
+-- user_settings, which should list only INSERT, SELECT, UPDATE.
 
 -- select
 --   table_name,
@@ -1009,6 +1058,6 @@ create policy injury_checkins_delete_own on public.injury_checkins
 -- from information_schema.role_table_grants
 -- where table_schema = 'public'
 --   and grantee = 'authenticated'
---   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins')
+--   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings')
 -- group by table_name
 -- order by table_name;

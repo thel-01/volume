@@ -155,7 +155,7 @@
              moved down into the log card, where "what did I last log" lives. -->
         <span class="stat-value lg live" id="weight-average">—</span>
         <div class="sub-row">
-          <span class="stat-label">7-day average</span>
+          <span class="stat-label" id="weight-average-label">trend</span>
           <span class="stat-change" id="weight-change"></span>
         </div>
       </div>
@@ -299,6 +299,10 @@
     import { epley, compositeIndexSeries, effectiveLoad, isBodyweightEquivalent } from './strength-index.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
     import { showToast } from './toast.js';
+    import {
+      dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
+      TREND_LABEL, DEFAULT_TREND_METHOD,
+    } from './weight-utils.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -351,6 +355,7 @@
     const emptyCategories = document.getElementById('empty-categories');
 
     const weightAverage = document.getElementById('weight-average');
+    const weightAverageLabel = document.getElementById('weight-average-label');
     const weightChange = document.getElementById('weight-change');
     const weightCard = document.getElementById('weight-card');
     const weightChart = document.getElementById('weight-chart');
@@ -479,7 +484,7 @@
       loading.hidden = false;
       content.hidden = true;
 
-      const [exercisesRes, setsRes, sessionsRes, openRes] = await Promise.all([
+      const [exercisesRes, setsRes, sessionsRes, openRes, settingsRes] = await Promise.all([
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
         supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
         supabase.from('sessions').select('id, category, start_time')
@@ -493,7 +498,11 @@
           .is('end_time', null)
           .order('start_time', { ascending: false })
           .limit(1),
+        // A nicety, not the point of the page — if this fails or the row
+        // doesn't exist yet, loadWeight() just falls back to the default.
+        supabase.from('user_settings').select('weight_trend_method').eq('user_id', user.id).maybeSingle(),
       ]);
+      trendMethod = (!settingsRes.error && settingsRes.data) ? settingsRes.data.weight_trend_method : DEFAULT_TREND_METHOD;
 
       // An open session is a nicety, not the point of the page — if only that
       // lookup fails the button just stays on its default wording.
@@ -524,10 +533,9 @@
     }
 
     // ------------------------------------------------------------------
-    // Bodyweight — the same 7-day mean weight.html uses, so the two pages
-    // can't disagree about which way you're heading.
+    // Bodyweight — the same trend calc weight.html uses (weight-utils.js),
+    // so the two pages can't disagree about which way you're heading.
     // ------------------------------------------------------------------
-    const AVERAGE_DAYS = 7;
     const COMPARE_DAYS = 14;
     const DAY_MS = 86400000;
     const STALE_AFTER_DAYS = 7;
@@ -535,16 +543,9 @@
     // expanding at 3 months back so one long-tracked weigh-in habit doesn't
     // squash the recent trend into a sliver. Full history lives on weight.html.
     const CHART_WINDOW_DAYS = 91;
-
-    function windowMean(list, endMs, days) {
-      const startMs = endMs - days * DAY_MS;
-      const inWindow = list.filter((e) => {
-        const t = new Date(e.measured_at).getTime();
-        return t > startMs && t <= endMs;
-      });
-      if (inWindow.length === 0) return null;
-      return inWindow.reduce((sum, e) => sum + Number(e.weight_kg), 0) / inWindow.length;
-    }
+    // Set once at boot from user_settings, read by loadWeight(). Defaults to
+    // DEFAULT_TREND_METHOD if the row doesn't exist yet or the fetch errors.
+    let trendMethod = DEFAULT_TREND_METHOD;
 
     /** "Today"/"Yesterday"/weekday/etc, per date-utils, plus the clock time if known. */
     function relativeWhen(entry) {
@@ -598,24 +599,30 @@
       weightQuicklogOpen.classList.toggle('live', stale);
 
       const now = Date.now();
-      const avgNow = windowMean(data, now, AVERAGE_DAYS);
-      const avgThen = windowMean(data, now - COMPARE_DAYS * DAY_MS, AVERAGE_DAYS);
-      // The change sits under the average because that's what it measures —
+      const daily = dailyValues(data);
+      const trendNow = currentTrend(daily, trendMethod);
+      const trendThen = trendAsOf(daily, now - COMPARE_DAYS * DAY_MS, trendMethod);
+      // A trend over less than 7 days of actual history isn't honest yet —
+      // weight.html has always gated on this; this page never did until now.
+      const enoughHistoryForTrend = hasEnoughHistory(daily, now);
+      weightAverageLabel.textContent = TREND_LABEL[trendMethod];
+      // The change sits under the trend because that's what it measures —
       // comparing single readings would mostly measure yesterday's dinner.
-      weightAverage.innerHTML = avgNow === null ? '—' : `${avgNow.toFixed(1)}<span class="unit">kg</span>`;
-      if (avgNow === null || avgThen === null) {
+      weightAverage.innerHTML = (!enoughHistoryForTrend || trendNow === null) ? '—' : `${trendNow.toFixed(1)}<span class="unit">kg</span>`;
+      if (!enoughHistoryForTrend || trendNow === null || trendThen === null) {
         weightChange.textContent = '';
       } else {
-        const diff = avgNow - avgThen;
+        const diff = trendNow - trendThen;
         const sign = diff >= 0 ? '+' : '−';
         weightChange.textContent = Math.abs(diff) < 0.05
           ? `steady vs ${COMPARE_DAYS} days ago`
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
 
-      // A single reading isn't a trend — the stat values above stay valid,
-      // but the chart needs a second point before there's a line to draw.
-      if (data.length < 2) {
+      // A single distinct day isn't a trend — the stat values above stay
+      // valid, but the chart needs a second one before there's a line to
+      // draw. Counts days (post-dedup), not raw entries.
+      if (daily.length < 2) {
         weightCard.hidden = true;
         weightChartEmpty.hidden = false;
         return;
@@ -623,26 +630,21 @@
       weightChartEmpty.hidden = true;
       weightCard.hidden = false;
 
-      // Trailing averages are computed over the FULL history (so the mean at
-      // the window's edge still counts the days just before it), then only
-      // the display is clipped to the last 3 months.
+      // Computed over the FULL history (so the trend at the window's edge
+      // still reflects the days just before it), then only the display is
+      // clipped to the last 3 months.
       const windowCutoff = now - CHART_WINDOW_DAYS * DAY_MS;
       const readings = data
         .filter((e) => new Date(e.measured_at).getTime() >= windowCutoff)
         .map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
-      const average = [];
-      for (const e of data) {
-        const t = new Date(e.measured_at).getTime();
-        if (t < windowCutoff) continue;
-        const mean = windowMean(data, t, AVERAGE_DAYS);
-        if (mean !== null) average.push({ date: e.measured_at, value: mean });
-      }
+      const trend = trendSeries(daily, trendMethod)
+        .filter((p) => new Date(p.date).getTime() >= windowCutoff);
 
       renderLineChart(weightChart, {
         series: [
-          { key: 'avg', points: average, color: 'var(--live)', width: '2.2' },
+          { key: 'trend', points: trend, color: 'var(--live)', width: '2.2' },
           // Scatter: joining noisy readings invents a shape and steals
-          // attention from the average, which is the real signal.
+          // attention from the trend, which is the real signal.
           { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
         ],
         // Every tick on this axis shares the same decimal precision, so

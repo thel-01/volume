@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.31.0';
+const VERSION = 'v1.32.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -28,6 +28,7 @@ const APP_SHELL = [
   './date-utils.js',
   './chart.js',
   './strength-index.js',
+  './weight-utils.js',
   './toast.js',
   './register-sw.js',
   './manifest.json',

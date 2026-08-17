@@ -80,6 +80,15 @@
         Just your weigh-ins, as a spreadsheet-friendly file.
       </p>
       <div id="export-status" class="status" role="status" aria-live="polite" hidden></div>
+
+      <p class="section-label">Bodyweight trend</p>
+      <div class="chips" id="trend-method-chips">
+        <button type="button" class="chip" data-method="ewma">Trend</button>
+        <button type="button" class="chip" data-method="sma">7-day average</button>
+      </div>
+      <p class="muted" style="margin-top:8px;">
+        Which calculation weight.html and the dashboard use for your bodyweight trend line. Trend is smoother through gaps in logging — this is the default.
+      </p>
     </section>
 
     <!-- =================== SESSION TYPES =================== -->
@@ -155,6 +164,7 @@
   <script type="module">
     import { supabase, requireSession } from './supabase-client.js';
     import { showToast } from './toast.js';
+    import { DEFAULT_TREND_METHOD } from './weight-utils.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -904,10 +914,51 @@
     });
 
     // ------------------------------------------------------------------
+    // Bodyweight trend — which calc weight.html/dashboard.html use
+    // ------------------------------------------------------------------
+    const trendMethodChips = document.getElementById('trend-method-chips');
+
+    function renderTrendMethodChips(method) {
+      for (const chip of trendMethodChips.children) {
+        chip.classList.toggle('selected', chip.dataset.method === method);
+      }
+    }
+
+    async function loadTrendMethod() {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('weight_trend_method')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      renderTrendMethodChips(error || !data ? DEFAULT_TREND_METHOD : data.weight_trend_method);
+    }
+
+    trendMethodChips.addEventListener('click', async (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip || chip.classList.contains('selected')) return;
+      const method = chip.dataset.method;
+
+      const { error } = await supabase.from('user_settings').upsert({
+        user_id: user.id,
+        weight_trend_method: method,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        flash(`Could not save: ${error.message}`, 'error');
+        return;
+      }
+      renderTrendMethodChips(method);
+      flash(method === 'sma' ? 'Switched to the 7-day average.' : 'Switched to trend.');
+    });
+
+    // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
     user = await requireSession('./index.html');
-    if (user) renderAccount(user);
+    if (user) {
+      renderAccount(user);
+      loadTrendMethod();
+    }
   </script>
 
   <script src="register-sw.js"></script>
