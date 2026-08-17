@@ -900,12 +900,12 @@
       commentToggle.type = 'button';
       commentToggle.className = 'link-button';
       commentToggle.style.display = 'block';
-      commentToggle.style.marginTop = '14px';
+      commentToggle.style.marginTop = 'var(--space-3)';
       commentToggle.textContent = entry.commentExpanded ? '− Hide note' : '+ Add note for today';
       body.appendChild(commentToggle);
 
       const commentField = document.createElement('div');
-      commentField.style.marginTop = '8px';
+      commentField.style.marginTop = 'var(--space-3)';
       commentField.hidden = !entry.commentExpanded;
 
       const commentRow = document.createElement('div');
@@ -1007,7 +1007,7 @@
      */
     function buildReferenceBlock(labelText, entry, group, emptyText) {
       const container = document.createElement('div');
-      container.style.marginBottom = '10px';
+      container.style.marginBottom = 'var(--space-3)';
 
       const header = document.createElement('div');
       header.className = 'reference-line';
@@ -1145,7 +1145,7 @@
       } else if (type === 'bodyweight') {
         const modeChips = document.createElement('div');
         modeChips.className = 'chips';
-        modeChips.style.marginBottom = '14px';
+        modeChips.style.marginBottom = 'var(--space-3)';
         block.appendChild(modeChips);
 
         const magField = document.createElement('div');
@@ -1238,7 +1238,7 @@
       let activeSide = null;
       const chips = document.createElement('div');
       chips.className = 'chips';
-      chips.style.marginTop = '12px';
+      chips.style.marginTop = 'var(--space-3)';
       for (const tag of QUICK_TAGS) {
         const chip = document.createElement('button');
         chip.type = 'button';
@@ -1271,7 +1271,7 @@
       if (entry.exercise.unilateral) {
         sideWrap = document.createElement('div');
         sideWrap.hidden = true;
-        sideWrap.style.marginTop = '12px';
+        sideWrap.style.marginTop = 'var(--space-3)';
         const sideLabel = document.createElement('p');
         sideLabel.className = 'muted';
         sideLabel.style.margin = '0 0 6px';
@@ -1298,7 +1298,7 @@
       const logBtn = document.createElement('button');
       logBtn.type = 'button';
       logBtn.textContent = 'Log set';
-      logBtn.style.marginTop = '14px';
+      logBtn.style.marginTop = 'var(--space-3)';
       block.appendChild(logBtn);
 
       const localStatus = document.createElement('div');
@@ -1315,7 +1315,7 @@
       finishBtn.type = 'button';
       finishBtn.className = 'secondary';
       finishBtn.textContent = entry.sets.length === 0 ? 'Discard exercise' : 'Finish exercise';
-      finishBtn.style.marginTop = '10px';
+      finishBtn.style.marginTop = 'var(--space-3)';
       block.appendChild(finishBtn);
 
       finishBtn.addEventListener('click', () => {
@@ -1449,7 +1449,7 @@
       const saveBtn = document.createElement('button');
       saveBtn.type = 'button';
       saveBtn.textContent = 'Save bodyweight';
-      saveBtn.style.marginTop = '14px';
+      saveBtn.style.marginTop = 'var(--space-3)';
       block.appendChild(saveBtn);
 
       const status = document.createElement('div');

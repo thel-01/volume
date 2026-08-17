@@ -608,7 +608,7 @@
       body.appendChild(commentToggle);
 
       const commentField = document.createElement('div');
-      commentField.style.marginTop = '8px';
+      commentField.style.marginTop = 'var(--space-3)';
       commentField.hidden = !se._commentExpanded;
       const commentLabel = document.createElement('label');
       commentLabel.textContent = 'Notes for this session';
@@ -692,7 +692,7 @@
       removeConfirm.style.marginTop = 'var(--space-3)';
       const removeCopy = document.createElement('p');
       removeCopy.className = 'muted';
-      removeCopy.style.marginBottom = '10px';
+      removeCopy.style.marginBottom = 'var(--space-3)';
       const n = entry.sets.length;
       removeCopy.textContent = `Remove "${entry.exercise.name}" and its ${n} set${n === 1 ? '' : 's'} from this session? This can't be undone.`;
       removeConfirm.appendChild(removeCopy);
@@ -761,7 +761,7 @@
     function buildAddSetSection(entry) {
       const se = entry.sessionExercise;
       const wrap = document.createElement('div');
-      wrap.style.marginTop = '14px';
+      wrap.style.marginTop = 'var(--space-3)';
 
       const toggle = document.createElement('button');
       toggle.type = 'button';
@@ -770,7 +770,7 @@
       wrap.appendChild(toggle);
 
       const formWrap = document.createElement('div');
-      formWrap.style.marginTop = '10px';
+      formWrap.style.marginTop = 'var(--space-3)';
       formWrap.hidden = !se._addingSet;
       wrap.appendChild(formWrap);
 
