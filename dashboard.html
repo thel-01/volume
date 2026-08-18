@@ -73,10 +73,10 @@
       color: var(--muted);
       font-variant-numeric: tabular-nums;
     }
-    .weight-hero { margin-bottom: 16px; }
-    /* Label and the 14-day change share one row instead of stacking —
-       same two facts, one fewer line of vertical space. */
-    .weight-hero .sub-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 3px; }
+    /* Value / label+info / change, each its own line — same stacked shape
+       weight.html's own stat blocks already use. */
+    .weight-hero { margin-bottom: 16px; display: flex; flex-direction: column; gap: 3px; }
+    .weight-hero .label-row { display: flex; align-items: center; gap: var(--space-2); }
   </style>
 </head>
 <body>
@@ -154,10 +154,11 @@
              this is the number worth looking at; the latest single reading
              moved down into the log card, where "what did I last log" lives. -->
         <span class="stat-value lg live" id="weight-average">—</span>
-        <div class="sub-row">
-          <span class="stat-label" id="weight-average-label">trend</span>
-          <span class="stat-change" id="weight-change"></span>
+        <div class="label-row">
+          <span class="stat-label" id="weight-average-label">Exponential moving average</span>
+          <button type="button" class="info-btn" id="weight-trend-info-trigger" aria-label="How is this calculated?">?</button>
         </div>
+        <span class="stat-change" id="weight-change"></span>
       </div>
 
       <div class="chart-card" id="weight-card" hidden>
@@ -273,6 +274,19 @@
     </div>
   </div>
 
+  <!-- Bodyweight trend info — explains whichever calculation (EWMA/SMA) is
+       currently active in Settings, so it stays correct either way. -->
+  <div class="modal-backdrop" id="weight-trend-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="weight-trend-info-title">Exponential moving average</h2>
+        <button type="button" class="modal-close" id="weight-trend-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" id="weight-trend-info-body" style="font-size:var(--fs-base);line-height:1.5;"></p>
+      <a href="./settings.html" class="link-button" style="display:block;margin-top:var(--space-3);text-decoration:none;">Change in Settings</a>
+    </div>
+  </div>
+
   <!-- Quicklog: weight. Dashboard only — captures just the one number,
        always "right now", no date field. weight.html's own full form
        keeps free-text entry and a date/time for backdating a forgotten
@@ -301,8 +315,18 @@
     import { showToast } from './toast.js';
     import {
       dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
-      TREND_LABEL, DEFAULT_TREND_METHOD,
+      DEFAULT_TREND_METHOD,
     } from './weight-utils.js';
+
+    // Spelled out in full here (weight.html's own stat-row and chart legend
+    // stay on the shorter TREND_LABEL from weight-utils.js — this hero card
+    // is the one place with room, and the first thing you see, so it's
+    // worth being unambiguous rather than compact).
+    const HERO_TREND_LABEL = { ewma: 'Exponential moving average', sma: '7-day average' };
+    const HERO_TREND_EXPLANATION = {
+      ewma: 'Every new weigh-in blends into the running average — the most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
+      sma: 'This is a plain average of every weigh-in from the last 7 days. Go a week without logging and there’s nothing left in that window to average, so it shows "—" until a new reading starts it again.',
+    };
 
     // ------------------------------------------------------------------
     // Element refs
@@ -357,6 +381,9 @@
     const weightAverage = document.getElementById('weight-average');
     const weightAverageLabel = document.getElementById('weight-average-label');
     const weightChange = document.getElementById('weight-change');
+    const weightTrendInfoModal = document.getElementById('weight-trend-info-modal');
+    const weightTrendInfoTitle = document.getElementById('weight-trend-info-title');
+    const weightTrendInfoBody = document.getElementById('weight-trend-info-body');
     const weightCard = document.getElementById('weight-card');
     const weightChart = document.getElementById('weight-chart');
     const weightChartEmpty = document.getElementById('weight-chart-empty');
@@ -605,7 +632,9 @@
       // A trend over less than 7 days of actual history isn't honest yet —
       // weight.html has always gated on this; this page never did until now.
       const enoughHistoryForTrend = hasEnoughHistory(daily, now);
-      weightAverageLabel.textContent = TREND_LABEL[trendMethod];
+      weightAverageLabel.textContent = HERO_TREND_LABEL[trendMethod];
+      weightTrendInfoTitle.textContent = HERO_TREND_LABEL[trendMethod];
+      weightTrendInfoBody.textContent = HERO_TREND_EXPLANATION[trendMethod];
       // The change sits under the trend because that's what it measures —
       // comparing single readings would mostly measure yesterday's dinner.
       weightAverage.innerHTML = (!enoughHistoryForTrend || trendNow === null) ? '—' : `${trendNow.toFixed(1)}<span class="unit">kg</span>`;
@@ -1273,6 +1302,9 @@
       btn.addEventListener('click', () => openModal(painInfoModal));
     });
     document.getElementById('pain-info-close').addEventListener('click', () => closeModal(painInfoModal));
+
+    document.getElementById('weight-trend-info-trigger').addEventListener('click', () => openModal(weightTrendInfoModal));
+    document.getElementById('weight-trend-info-close').addEventListener('click', () => closeModal(weightTrendInfoModal));
 
     let liveInjuries = [];
 

@@ -83,11 +83,11 @@
 
       <p class="section-label">Bodyweight trend</p>
       <div class="chips" id="trend-method-chips">
-        <button type="button" class="chip" data-method="ewma">Trend</button>
+        <button type="button" class="chip" data-method="ewma">Exponential moving average</button>
         <button type="button" class="chip" data-method="sma">7-day average</button>
       </div>
       <p class="muted" style="margin-top:var(--space-3);">
-        Which calculation weight.html and the dashboard use for your bodyweight trend line. Trend is smoother through gaps in logging — this is the default.
+        Which calculation weight.html and the dashboard use for your bodyweight trend line. Exponential moving average is smoother through gaps in logging — this is the default.
       </p>
     </section>
 
@@ -948,7 +948,7 @@
         return;
       }
       renderTrendMethodChips(method);
-      flash(method === 'sma' ? 'Switched to the 7-day average.' : 'Switched to trend.');
+      flash(method === 'sma' ? 'Switched to the 7-day average.' : 'Switched to the exponential moving average.');
     });
 
     // ------------------------------------------------------------------
