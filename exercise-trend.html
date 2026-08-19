@@ -56,7 +56,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { sessionCapacities, displayDepths, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
 
@@ -308,10 +308,21 @@
     // Boot
     // ------------------------------------------------------------------
     async function loadAll(exerciseId) {
-      const [exerciseRes, setsRes] = await Promise.all([
+      const fetchExerciseTrendData = () => Promise.all([
         supabase.from('exercises').select('*').eq('id', exerciseId).is('deleted_at', null).maybeSingle(),
         supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').eq('exercise_id', exerciseId).order('created_at'),
       ]);
+
+      let [exerciseRes, setsRes] = await fetchExerciseTrendData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(exerciseRes.error || setsRes.error)) {
+        await supabase.auth.refreshSession();
+        [exerciseRes, setsRes] = await fetchExerciseTrendData();
+      }
 
       const err = exerciseRes.error || setsRes.error;
       if (err) {

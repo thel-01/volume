@@ -308,7 +308,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
     import { epley, compositeIndexSeries, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
@@ -507,11 +507,8 @@
     // Loading — 3 queries total, none scoped per-exercise. Everything else
     // below is a single pass over the results, grouped in memory.
     // ------------------------------------------------------------------
-    async function loadAll() {
-      loading.hidden = false;
-      content.hidden = true;
-
-      const [exercisesRes, setsRes, sessionsRes, openRes, settingsRes] = await Promise.all([
+    function fetchDashboardData() {
+      return Promise.all([
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
         supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
         supabase.from('sessions').select('id, category, start_time')
@@ -529,6 +526,23 @@
         // doesn't exist yet, loadWeight() just falls back to the default.
         supabase.from('user_settings').select('weight_trend_method').eq('user_id', user.id).maybeSingle(),
       ]);
+    }
+
+    async function loadAll() {
+      loading.hidden = false;
+      content.hidden = true;
+
+      let [exercisesRes, setsRes, sessionsRes, openRes, settingsRes] = await fetchDashboardData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(exercisesRes.error || setsRes.error || sessionsRes.error)) {
+        await supabase.auth.refreshSession();
+        [exercisesRes, setsRes, sessionsRes, openRes, settingsRes] = await fetchDashboardData();
+      }
+
       trendMethod = (!settingsRes.error && settingsRes.data) ? settingsRes.data.weight_trend_method : DEFAULT_TREND_METHOD;
 
       // An open session is a nicety, not the point of the page — if only that

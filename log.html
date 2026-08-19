@@ -139,7 +139,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
 
@@ -2094,7 +2094,7 @@
     user = await requireSession('./index.html');
 
     if (user) {
-      const [openSession, exercisesRes, patternsRes] = await Promise.all([
+      const fetchLogBootData = () => Promise.all([
         supabase.from('sessions').select('*')
           .is('deleted_at', null)
           .is('end_time', null)
@@ -2104,6 +2104,17 @@
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
         supabase.from('movement_patterns').select('*').is('deleted_at', null).order('name'),
       ]);
+
+      let [openSession, exercisesRes, patternsRes] = await fetchLogBootData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(openSession.error || exercisesRes.error || patternsRes.error)) {
+        await supabase.auth.refreshSession();
+        [openSession, exercisesRes, patternsRes] = await fetchLogBootData();
+      }
 
       if (exercisesRes.error || patternsRes.error) {
         const err = exercisesRes.error || patternsRes.error;

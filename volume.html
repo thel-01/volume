@@ -100,7 +100,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart, renderDonutChart, renderGaugeChart } from './chart.js';
     import { mondayOf } from './date-utils.js';
 
@@ -450,8 +450,8 @@
     // ------------------------------------------------------------------
     // Loading
     // ------------------------------------------------------------------
-    async function loadAll() {
-      const [setsRes, exercisesRes, sessionExercisesRes] = await Promise.all([
+    function fetchVolumeData() {
+      return Promise.all([
         supabase.from('sets')
           .select('*, sessions(id, start_time, end_time, category, deleted_at)')
           .order('created_at'),
@@ -462,6 +462,19 @@
         // push day shouldn't blend into Push (or Pull) volume either way.
         supabase.from('session_exercises').select('session_id, exercise_id').eq('is_extra', true),
       ]);
+    }
+
+    async function loadAll() {
+      let [setsRes, exercisesRes, sessionExercisesRes] = await fetchVolumeData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(setsRes.error || exercisesRes.error || sessionExercisesRes.error)) {
+        await supabase.auth.refreshSession();
+        [setsRes, exercisesRes, sessionExercisesRes] = await fetchVolumeData();
+      }
 
       const err = setsRes.error || exercisesRes.error || sessionExercisesRes.error;
       if (err) {

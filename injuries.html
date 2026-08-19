@@ -163,7 +163,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { showToast } from './toast.js';
 
@@ -334,10 +334,21 @@
         return;
       }
 
-      const [injuryRes, checkinsRes] = await Promise.all([
+      const fetchInjuryData = () => Promise.all([
         supabase.from('injuries').select('*').eq('id', injuryId).maybeSingle(),
         supabase.from('injury_checkins').select('*').eq('injury_id', injuryId).order('created_at'),
       ]);
+
+      let [injuryRes, checkinsRes] = await fetchInjuryData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(injuryRes.error || checkinsRes.error)) {
+        await supabase.auth.refreshSession();
+        [injuryRes, checkinsRes] = await fetchInjuryData();
+      }
 
       const err = injuryRes.error || checkinsRes.error;
       if (err) {

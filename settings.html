@@ -162,7 +162,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { showToast } from './toast.js';
     import { DEFAULT_TREND_METHOD } from './weight-utils.js';
 
@@ -299,16 +299,29 @@
     // ------------------------------------------------------------------
     // Loading
     // ------------------------------------------------------------------
+    function fetchDeletedData() {
+      return Promise.all([
+        supabase.from('movement_patterns').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+        supabase.from('exercises').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+        supabase.from('sessions').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+      ]);
+    }
+
     async function loadAll() {
       loading.hidden = false;
       lists.hidden = true;
       hide(topStatus);
 
-      const [dp, de, ds] = await Promise.all([
-        supabase.from('movement_patterns').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
-        supabase.from('exercises').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
-        supabase.from('sessions').select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
-      ]);
+      let [dp, de, ds] = await fetchDeletedData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(dp.error || de.error || ds.error)) {
+        await supabase.auth.refreshSession();
+        [dp, de, ds] = await fetchDeletedData();
+      }
 
       loading.hidden = true;
       lists.hidden = false;

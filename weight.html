@@ -152,7 +152,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { showToast } from './toast.js';
@@ -771,8 +771,8 @@
     // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
-    async function loadAll() {
-      const [{ data, error }, settingsRes] = await Promise.all([
+    function fetchWeightData() {
+      return Promise.all([
         supabase
           .from('body_weights')
           .select('*')
@@ -785,6 +785,20 @@
           .eq('user_id', user.id)
           .maybeSingle(),
       ]);
+    }
+
+    async function loadAll() {
+      let [{ data, error }, settingsRes] = await fetchWeightData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(error)) {
+        await supabase.auth.refreshSession();
+        [{ data, error }, settingsRes] = await fetchWeightData();
+      }
+
       trendMethod = (!settingsRes.error && settingsRes.data) ? settingsRes.data.weight_trend_method : DEFAULT_TREND_METHOD;
 
       loading.hidden = true;

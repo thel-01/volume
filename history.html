@@ -72,7 +72,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
@@ -302,12 +302,8 @@
     // ------------------------------------------------------------------
     // Loading
     // ------------------------------------------------------------------
-    async function loadAll() {
-      loading.hidden = false;
-      sessionListEl.hidden = true;
-      hide(topStatus);
-
-      const [sessionsRes, seRes, setsRes] = await Promise.all([
+    function fetchHistoryData() {
+      return Promise.all([
         supabase.from('sessions').select('*')
           .is('deleted_at', null)
           .not('end_time', 'is', null)
@@ -315,6 +311,23 @@
         supabase.from('session_exercises').select('*, exercises(*)').order('created_at'),
         supabase.from('sets').select('*').order('created_at'),
       ]);
+    }
+
+    async function loadAll() {
+      loading.hidden = false;
+      sessionListEl.hidden = true;
+      hide(topStatus);
+
+      let [sessionsRes, seRes, setsRes] = await fetchHistoryData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(sessionsRes.error || seRes.error || setsRes.error)) {
+        await supabase.auth.refreshSession();
+        [sessionsRes, seRes, setsRes] = await fetchHistoryData();
+      }
 
       loading.hidden = true;
 

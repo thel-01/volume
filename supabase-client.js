@@ -51,6 +51,22 @@ export async function requireSession(loginPage = './index.html') {
 }
 
 /**
+ * True if a query error looks like it's caused by a stale/invalid access
+ * token rather than a real data problem. Standalone iOS PWAs freeze all JS
+ * (including the library's own background token refresh) while backgrounded,
+ * so the token can go stale during that time; the first query fired right
+ * after reopening then hits this before the library's refresh has caught up.
+ * Callers use this to refresh the session and retry once instead of showing
+ * a raw error for something that isn't really a failure.
+ */
+export function isAuthError(error) {
+  if (!error) return false;
+  if (error.status === 401 || error.code === 'PGRST301') return true;
+  const message = (error.message || '').toLowerCase();
+  return message.includes('jwt') || message.includes('token');
+}
+
+/**
  * Human-readable version of a Supabase auth error.
  * Supabase's raw messages are terse; this adds the likely cause.
  */

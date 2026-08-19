@@ -175,7 +175,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { showToast } from './toast.js';
 
     const TYPE_LABELS = {
@@ -298,15 +298,28 @@
     // ------------------------------------------------------------------
     // Loading
     // ------------------------------------------------------------------
+    function fetchExercisesData() {
+      return Promise.all([
+        supabase.from('movement_patterns').select('*').is('deleted_at', null).order('name'),
+        supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
+      ]);
+    }
+
     async function loadAll() {
       loading.hidden = false;
       patternListEl.hidden = true;
       hide(topStatus);
 
-      const [lp, le] = await Promise.all([
-        supabase.from('movement_patterns').select('*').is('deleted_at', null).order('name'),
-        supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
-      ]);
+      let [lp, le] = await fetchExercisesData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(lp.error || le.error)) {
+        await supabase.auth.refreshSession();
+        [lp, le] = await fetchExercisesData();
+      }
 
       loading.hidden = true;
 
