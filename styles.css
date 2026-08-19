@@ -359,7 +359,6 @@ button.secondary {
   color: var(--text);
   font-weight: 600;
   font-size: 14px;
-  text-decoration: underline;
   cursor: pointer;
 }
 .toast-close {
@@ -944,6 +943,20 @@ button.danger.secondary {
   font-weight: 500;
   text-align: left;
   cursor: pointer;
+}
+
+/* Text link that navigates to a different page — same size/weight as
+   .link-button, but white + underlined, so "does this leave the page"
+   reads consistently everywhere it shows up (three call sites: dashboard
+   .html's "Change in Settings", exercises.html's "Recover it in Settings",
+   app.html's noscript fallback). Unlike .link-button this isn't always a
+   <button> — some of these sit mid-sentence in a <p> — so it doesn't set
+   width/min-height/display; each call site keeps controlling that itself. */
+.nav-link {
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: underline;
 }
 
 /* End-of-session summary rows. */
