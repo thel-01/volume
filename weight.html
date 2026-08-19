@@ -41,6 +41,7 @@
       margin-left: 3px;
     }
     .stat-label { font-size: 13px; color: var(--muted); }
+    .label-row { display: flex; align-items: center; gap: var(--space-2); }
     /* Deliberately uncoloured: gaining weight isn't inherently bad, so
        painting one direction green and the other red would editorialise. */
     .stat-change {
@@ -81,6 +82,18 @@
     @media (max-width: 380px) {
       #chart-window-row.chips .chip { padding: 0 10px; }
     }
+    /* The EWMA label spelled out in full ("Exponential moving average")
+       plus its "?" button is wide enough that, on the narrowest phones, its
+       own unwrapped width — not the row's actual available space — is what
+       the browser uses to decide whether the two stat columns fit side by
+       side, so they stack instead of the label just wrapping (measured:
+       stacks at 350, clears at 360). flex-basis:0 makes the row-fit decision
+       ignore that unwrapped width and shrink the column instead — same
+       columns, same "7-day average" wording untouched, just lets the long
+       EWMA label wrap under itself rather than pushing the whole row. */
+    @media (max-width: 359px) {
+      .stat-row .stat { flex: 1 1 0%; min-width: 0; }
+    }
   </style>
 </head>
 <body>
@@ -110,7 +123,10 @@
           <!-- Coloured to match its line on the chart, so the number and the
                curve are obviously the same thing. -->
           <span class="stat-value live" id="average-weight">—</span>
-          <span class="stat-label" id="average-weight-label">trend</span>
+          <div class="label-row">
+            <span class="stat-label" id="average-weight-label">trend</span>
+            <button type="button" class="info-btn" id="weight-trend-info-trigger" aria-label="How is this calculated?">?</button>
+          </div>
           <span class="stat-change" id="trend-change"></span>
         </div>
       </div>
@@ -173,6 +189,16 @@
 
   </main>
 
+  <div class="modal-backdrop" id="weight-trend-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="weight-trend-info-title">Exponential moving average</h2>
+        <button type="button" class="modal-close" id="weight-trend-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" id="weight-trend-info-body" style="font-size:var(--fs-base);line-height:1.5;"></p>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="noise-info-modal" hidden>
     <div class="modal-card">
       <div class="modal-header">
@@ -191,8 +217,21 @@
     import {
       dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
       personalizedNoiseBand, genericNoiseBand,
-      TREND_LABEL, DEFAULT_TREND_METHOD,
+      DEFAULT_TREND_METHOD,
     } from './weight-utils.js';
+
+    // Spelled out in full, same copy as dashboard.html's hero card — this
+    // used to stay on weight-utils.js's shorter TREND_LABEL ("trend"), but
+    // that's no longer true; only the chart legend below still stays short.
+    const HERO_TREND_LABEL = { ewma: 'Exponential moving average', sma: '7-day average' };
+    const HERO_TREND_EXPLANATION = {
+      ewma: 'Every new weigh-in blends into the running average — the most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
+      sma: 'This is a plain average of every weigh-in from the last 7 days. Go a week without logging and there’s nothing left in that window to average, so it shows "—" until a new reading starts it again.',
+    };
+    // Chart-legend only — stays short on purpose (it's a swatch caption, not
+    // a stat label). "Average" rather than weight-utils.js's own "trend" for
+    // EWMA specifically; the SMA wording was already this.
+    const LEGEND_LABEL = { ewma: 'Average', sma: '7-day average' };
 
     // Daily Noise modal copy — plain-language, and deliberately tells the
     // user which case they're in (their own history vs. a population
@@ -242,6 +281,11 @@
     const currentWhen = document.getElementById('current-when');
     const averageWeight = document.getElementById('average-weight');
     const averageWeightLabel = document.getElementById('average-weight-label');
+    const weightTrendInfoTrigger = document.getElementById('weight-trend-info-trigger');
+    const weightTrendInfoModal = document.getElementById('weight-trend-info-modal');
+    const weightTrendInfoClose = document.getElementById('weight-trend-info-close');
+    const weightTrendInfoTitle = document.getElementById('weight-trend-info-title');
+    const weightTrendInfoBody = document.getElementById('weight-trend-info-body');
     const trendChange = document.getElementById('trend-change');
     const chart = document.getElementById('chart');
     const chartCard = document.getElementById('chart-card');
@@ -506,7 +550,9 @@
       // The change belongs to the trend, not the latest reading, so it sits
       // under the trend — a single reading swings a kilo on lunch alone.
       const now = Date.now();
-      averageWeightLabel.textContent = TREND_LABEL[trendMethod];
+      averageWeightLabel.textContent = HERO_TREND_LABEL[trendMethod];
+      weightTrendInfoTitle.textContent = HERO_TREND_LABEL[trendMethod];
+      weightTrendInfoBody.textContent = HERO_TREND_EXPLANATION[trendMethod];
       const daily = dailyValues(ascending);
       const trendNow = currentTrend(daily, trendMethod);
       const trendThen = trendAsOf(daily, now - COMPARE_DAYS * DAY_MS, trendMethod);
@@ -581,7 +627,7 @@
         ariaLabel: (p) => `${fmtKg(p.value)} kg on ${formatEntryWhen(p.entry)}`,
       });
 
-      const trendLabel = TREND_LABEL[trendMethod];
+      const trendLabel = LEGEND_LABEL[trendMethod];
       legend.innerHTML = `
         <span><i style="background:var(--live)"></i>${trendLabel[0].toUpperCase()}${trendLabel.slice(1)}</span>
         <span><i class="dot" style="background:var(--muted)"></i>Reading</span>`;
@@ -840,6 +886,10 @@
       addForm.hidden = true;
       addToggle.hidden = false;
     }
+
+    weightTrendInfoTrigger.addEventListener('click', () => { weightTrendInfoModal.hidden = false; });
+    weightTrendInfoClose.addEventListener('click', () => { weightTrendInfoModal.hidden = true; });
+    weightTrendInfoModal.addEventListener('click', (e) => { if (e.target === weightTrendInfoModal) weightTrendInfoModal.hidden = true; });
 
     noiseInfoTrigger.addEventListener('click', () => { noiseInfoModal.hidden = false; });
     noiseInfoClose.addEventListener('click', () => { noiseInfoModal.hidden = true; });

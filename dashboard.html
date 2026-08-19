@@ -318,10 +318,9 @@
       DEFAULT_TREND_METHOD,
     } from './weight-utils.js';
 
-    // Spelled out in full here (weight.html's own stat-row and chart legend
-    // stay on the shorter TREND_LABEL from weight-utils.js — this hero card
-    // is the one place with room, and the first thing you see, so it's
-    // worth being unambiguous rather than compact).
+    // Spelled out in full — weight.html's own hero stat now shows this same
+    // full copy (with its own matching info popup); only its chart legend
+    // still stays short, since that's a swatch caption, not a stat label.
     const HERO_TREND_LABEL = { ewma: 'Exponential moving average', sma: '7-day average' };
     const HERO_TREND_EXPLANATION = {
       ewma: 'Every new weigh-in blends into the running average — the most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
