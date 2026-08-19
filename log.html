@@ -2133,7 +2133,15 @@
         const handled = await closeIfStale(openSession.data);
         if (!handled) {
           await resumeSession(openSession.data);
-          flash('Picked up your workout in progress.', 'info', 4000);
+          // The dashboard's start-workout popup leaves this breadcrumb right
+          // before handing off here — "picked up in progress" is misleading
+          // for a session started a second ago, not one left open earlier.
+          const justStarted = sessionStorage.getItem('volume:justStarted') === openSession.data.id;
+          if (justStarted) {
+            sessionStorage.removeItem('volume:justStarted');
+          } else {
+            flash('Picked up your workout in progress.', 'info', 4000);
+          }
           resumed = true;
         }
       }

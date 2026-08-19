@@ -93,9 +93,7 @@
 
     <!-- The two things you actually open the app to do. -->
     <div class="btn-row" style="margin-bottom:var(--space-5);">
-      <a href="./log.html" class="grow-2" style="text-decoration:none;display:flex;">
-        <button type="button" id="workout-btn" class="uppercase" style="width:100%;min-height:84px;">Start workout</button>
-      </a>
+      <button type="button" id="workout-btn" class="uppercase grow-2" style="min-height:84px;">Start workout</button>
       <a href="./history.html" style="text-decoration:none;display:flex;flex:1;">
         <button class="secondary" type="button" style="width:100%;min-height:84px;">History</button>
       </a>
@@ -307,6 +305,28 @@
     </div>
   </div>
 
+  <!-- Quicklog: start workout. Trivial enough (pick a session type, that's
+       it) that the old dedicated log.html screen for it was just a page hop
+       gating entry to the page you actually came for — this creates the
+       session right here and hands off straight into log.html's session
+       view. log.html's own #start-view stays put as the fallback for
+       landing there directly with no open session. -->
+  <div class="modal-backdrop" id="start-workout-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Start workout</h2>
+        <button type="button" class="modal-close" id="start-workout-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="section-label" style="margin-top:0;">Session type</p>
+      <div id="start-workout-chips" class="chips" style="margin-bottom:var(--space-4);"></div>
+      <p id="start-workout-no-types" class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-4);" hidden>
+        No session types yet — add some in Settings, or pick Other for now.
+      </p>
+      <div id="start-workout-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
+      <button type="button" class="uppercase" id="start-workout-save" style="margin-top:20px;" disabled>Start workout</button>
+    </div>
+  </div>
+
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
@@ -398,6 +418,12 @@
     const weightQuicklogPlus = document.getElementById('weight-quicklog-plus');
     const weightQuicklogStatus = document.getElementById('weight-quicklog-status');
     const weightQuicklogSave = document.getElementById('weight-quicklog-save');
+
+    const startWorkoutModal = document.getElementById('start-workout-modal');
+    const startWorkoutChips = document.getElementById('start-workout-chips');
+    const startWorkoutNoTypes = document.getElementById('start-workout-no-types');
+    const startWorkoutStatus = document.getElementById('start-workout-status');
+    const startWorkoutSave = document.getElementById('start-workout-save');
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
@@ -524,6 +550,9 @@
         // A nicety, not the point of the page — if this fails or the row
         // doesn't exist yet, loadWeight() just falls back to the default.
         supabase.from('user_settings').select('weight_trend_method').eq('user_id', user.id).maybeSingle(),
+        // Seeds the start-workout popup's chips — same query log.html's own
+        // loadCategories() runs.
+        supabase.from('session_types').select('name').order('created_at'),
       ]);
     }
 
@@ -531,7 +560,7 @@
       loading.hidden = false;
       content.hidden = true;
 
-      let [exercisesRes, setsRes, sessionsRes, openRes, settingsRes] = await fetchDashboardData();
+      let [exercisesRes, setsRes, sessionsRes, openRes, settingsRes, sessionTypesRes] = await fetchDashboardData();
 
       // A standalone iOS PWA freezes its JS (including the library's own
       // background token refresh) while backgrounded, so the very first
@@ -539,8 +568,12 @@
       // before showing an error for something that isn't a real failure.
       if (isAuthError(exercisesRes.error || setsRes.error || sessionsRes.error)) {
         await supabase.auth.refreshSession();
-        [exercisesRes, setsRes, sessionsRes, openRes, settingsRes] = await fetchDashboardData();
+        [exercisesRes, setsRes, sessionsRes, openRes, settingsRes, sessionTypesRes] = await fetchDashboardData();
       }
+
+      // A load failure here shouldn't block starting a workout — Other still
+      // works. It just means the chip row is short until the next reload.
+      sessionTypeNames = sessionTypesRes.error ? [] : sessionTypesRes.data.map((row) => row.name);
 
       trendMethod = (!settingsRes.error && settingsRes.data) ? settingsRes.data.weight_trend_method : DEFAULT_TREND_METHOD;
 
@@ -586,6 +619,17 @@
     // Set once at boot from user_settings, read by loadWeight(). Defaults to
     // DEFAULT_TREND_METHOD if the row doesn't exist yet or the fetch errors.
     let trendMethod = DEFAULT_TREND_METHOD;
+
+    // Set once at boot from session_types, read when the start-workout popup
+    // opens — your Settings-managed list, by name (mirrors log.html's own
+    // module-scope variable of the same name).
+    let sessionTypeNames = [];
+    const OTHER_CATEGORY = 'Other';
+    // Set/cleared by renderWorkoutButton() — the single place the button's
+    // Start/Resume state changes — so the click handler always sees the
+    // current truth, not a stale snapshot from page load.
+    let currentOpenSession = null;
+    let selectedCategory = null;
 
     /** "Today"/"Yesterday"/weekday/etc, per date-utils, plus the clock time if known. */
     function relativeWhen(entry) {
@@ -762,6 +806,70 @@
       await loadWeight();
     });
 
+    // ---- Quicklog: start workout — the only quicklog here that doesn't
+    // finish in the popup. Picking a session type is the one trivial thing
+    // that used to gate a whole page hop through log.html's own start
+    // screen; this creates the session right here and hands off straight
+    // into log.html's session view, same as resuming one already open.
+    function renderStartWorkoutChips() {
+      startWorkoutChips.innerHTML = '';
+      startWorkoutNoTypes.hidden = sessionTypeNames.length > 0;
+      const options = [...sessionTypeNames, OTHER_CATEGORY];
+      for (const cat of options) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip' + (selectedCategory === cat ? ' selected' : '');
+        chip.textContent = cat;
+        chip.addEventListener('click', () => {
+          selectedCategory = cat;
+          renderStartWorkoutChips();
+          startWorkoutSave.disabled = !selectedCategory;
+        });
+        startWorkoutChips.appendChild(chip);
+      }
+    }
+    workoutBtn.addEventListener('click', () => {
+      // A workout's already open — same destination it's always been,
+      // never the popup (there's nothing trivial left to ask).
+      if (currentOpenSession) {
+        window.location.href = './log.html';
+        return;
+      }
+      selectedCategory = null;
+      renderStartWorkoutChips();
+      hide(startWorkoutStatus);
+      startWorkoutSave.disabled = true;
+      startWorkoutSave.textContent = 'Start workout';
+      openModal(startWorkoutModal);
+    });
+    document.getElementById('start-workout-close').addEventListener('click', () => closeModal(startWorkoutModal));
+    startWorkoutSave.addEventListener('click', async () => {
+      hide(startWorkoutStatus);
+      startWorkoutSave.disabled = true;
+      startWorkoutSave.textContent = 'Starting…';
+
+      const { data, error } = await supabase
+        .from('sessions')
+        .insert({ user_id: user.id, category: selectedCategory })
+        .select()
+        .single();
+
+      startWorkoutSave.disabled = false;
+      startWorkoutSave.textContent = 'Start workout';
+
+      if (error) {
+        show(startWorkoutStatus, 'error', `Could not start the workout: ${error.message}`);
+        return;
+      }
+
+      // log.html's boot picks this up and skips its own "picked up your
+      // workout in progress" flash — that copy is for resuming one left
+      // open, not one started a second ago. Same breadcrumb technique as
+      // volume:justUndone below.
+      sessionStorage.setItem('volume:justStarted', data.id);
+      window.location.href = './log.html';
+    });
+
     /** Compact elapsed time for a workout already under way: "23m", "1h 40m". */
     function elapsedSince(iso) {
       const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
@@ -771,6 +879,7 @@
     }
 
     function renderWorkoutButton(openSession) {
+      currentOpenSession = openSession;
       workoutBtn.textContent = openSession
         ? `Resume · ${elapsedSince(openSession.start_time)}`
         : 'Start workout';
