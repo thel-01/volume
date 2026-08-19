@@ -54,12 +54,20 @@
     /* Control-caption gap (13px muted, --space-3 below the control it
        explains), same tier the stylebook already locked in elsewhere.
        Wraps normally — no ellipsis, the "?" just stays put at the end. */
-    .noise-row { display: flex; align-items: flex-start; gap: 8px; margin-top: var(--space-3); }
+    /* align-items:center, not flex-start — the "?" circle's own center
+       should line up with the text's center, whether the text holds to one
+       line or (rarely) wraps to two. */
+    .noise-row { display: flex; align-items: center; gap: 8px; margin-top: var(--space-3); }
     /* flex:1 + min-width:0 so this actually wraps under the fixed-width "?"
        when it's too long, instead of the default flex-item behavior of
        refusing to shrink below its own unwrapped content width and
        overflowing past the row instead. */
     .noise-line { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.4; }
+    /* Applied by JS only when the line actually wrapped at the normal size —
+       narrow phones with the longer generic copy, mainly. Smaller but still
+       legible; avoids burning a whole two-line caption on a stat row for
+       what's normally a one-liner. */
+    .noise-line.compact { font-size: var(--fs-2xs); }
     .entry-weight {
       font-variant-numeric: tabular-nums;
       font-weight: 600;
@@ -428,6 +436,20 @@
     }
 
     /**
+     * Drops the caption to a smaller size, but only if it actually wrapped
+     * to a second line at the normal size — most phones never trigger this,
+     * it's a fallback for the narrower ones with the longer (generic) copy.
+     * Must run after the row is unhidden — a hidden element measures 0.
+     */
+    function fitNoiseLine() {
+      noiseText.classList.remove('compact');
+      const lineHeightPx = parseFloat(getComputedStyle(noiseText).lineHeight);
+      if (noiseText.scrollHeight > lineHeightPx * 1.5) {
+        noiseText.classList.add('compact');
+      }
+    }
+
+    /**
      * Personalized when the density gate passes (enough recent, regular
      * readings), otherwise a population-average fallback — never nothing,
      * as long as there's a trend value to hang either one on. Called
@@ -450,6 +472,7 @@
         noiseInfoBody.textContent = NOISE_EXPLANATION_GENERIC;
       }
       noiseRow.hidden = false;
+      fitNoiseLine();
     }
 
     function render() {
