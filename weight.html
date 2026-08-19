@@ -51,6 +51,15 @@
     .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
     /* The readings are drawn as points now, so their key is a point too. */
     .legend i.dot { width: 7px; height: 7px; border-radius: 50%; }
+    /* Control-caption gap (13px muted, --space-3 below the control it
+       explains), same tier the stylebook already locked in elsewhere.
+       Wraps normally — no ellipsis, the "?" just stays put at the end. */
+    .noise-row { display: flex; align-items: flex-start; gap: 8px; margin-top: var(--space-3); }
+    /* flex:1 + min-width:0 so this actually wraps under the fixed-width "?"
+       when it's too long, instead of the default flex-item behavior of
+       refusing to shrink below its own unwrapped content width and
+       overflowing past the row instead. */
+    .noise-line { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.4; }
     .entry-weight {
       font-variant-numeric: tabular-nums;
       font-weight: 600;
@@ -106,6 +115,11 @@
       </div>
       <p id="chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
 
+      <div id="noise-row" class="noise-row" hidden>
+        <p class="noise-line" id="noise-text"></p>
+        <button type="button" class="info-btn" id="noise-info-trigger" aria-label="How is this calculated?">?</button>
+      </div>
+
       <!-- No longer its own tap target — the button right below it does
            that job now. Purely informational. -->
       <div id="stale-notice" class="status info" hidden></div>
@@ -151,6 +165,16 @@
 
   </main>
 
+  <div class="modal-backdrop" id="noise-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Daily Noise</h2>
+        <button type="button" class="modal-close" id="noise-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" id="noise-info-body" style="font-size:var(--fs-base);line-height:1.5;"></p>
+    </div>
+  </div>
+
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
@@ -158,8 +182,15 @@
     import { showToast } from './toast.js';
     import {
       dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
+      personalizedNoiseBand, genericNoiseBand,
       TREND_LABEL, DEFAULT_TREND_METHOD,
     } from './weight-utils.js';
+
+    // Daily Noise modal copy — plain-language, and deliberately tells the
+    // user which case they're in (their own history vs. a population
+    // estimate) rather than presenting both the same way.
+    const NOISE_EXPLANATION_PERSONALIZED = 'This number comes from your own weigh-ins — not a general guess.\n\nWe looked at your last 45 days of readings and figured out how much your weight normally bounces around from one day to the next, just from water and food. If a new reading falls inside this range, it’s nothing to worry about.';
+    const NOISE_EXPLANATION_GENERIC = 'You haven’t logged enough yet for a number based on your own history — so this one is a general estimate instead, from published research on typical day-to-day weight changes for someone your size.\n\nKeep weighing in regularly and this switches to a number based on your own weigh-ins.';
 
     // Bodyweight swings a kilo or more day to day on food and water alone, so
     // a single reading says very little. The trend line smooths past that —
@@ -209,6 +240,12 @@
     const chartEmpty = document.getElementById('chart-empty');
     const chartWindowRow = document.getElementById('chart-window-row');
     const legend = document.getElementById('legend');
+    const noiseRow = document.getElementById('noise-row');
+    const noiseText = document.getElementById('noise-text');
+    const noiseInfoTrigger = document.getElementById('noise-info-trigger');
+    const noiseInfoModal = document.getElementById('noise-info-modal');
+    const noiseInfoClose = document.getElementById('noise-info-close');
+    const noiseInfoBody = document.getElementById('noise-info-body');
     const staleNotice = document.getElementById('stale-notice');
     const addToggle = document.getElementById('add-toggle');
     const addForm = document.getElementById('add-form');
@@ -390,6 +427,31 @@
       staleNotice.hidden = false;
     }
 
+    /**
+     * Personalized when the density gate passes (enough recent, regular
+     * readings), otherwise a population-average fallback — never nothing,
+     * as long as there's a trend value to hang either one on. Called
+     * BEFORE render()'s daily.length < 2 early-return: that branch skips
+     * the rest of the function (including the chart), so if this ran after
+     * it, the sparse-history state would leave the row silently stale.
+     */
+    function renderDailyNoise(daily, trendNow, enoughHistoryForTrend, now) {
+      if (!enoughHistoryForTrend || trendNow === null) {
+        noiseRow.hidden = true;
+        return;
+      }
+      const personalBand = personalizedNoiseBand(daily, now);
+      if (personalBand !== null) {
+        noiseText.textContent = `Daily swings of ±${fmtKg(personalBand)} kg are normal for you.`;
+        noiseInfoBody.textContent = NOISE_EXPLANATION_PERSONALIZED;
+      } else {
+        const band = genericNoiseBand(trendNow);
+        noiseText.textContent = `Daily swings of ±${fmtKg(band)} kg are normal for someone your weight.`;
+        noiseInfoBody.textContent = NOISE_EXPLANATION_GENERIC;
+      }
+      noiseRow.hidden = false;
+    }
+
     function render() {
       if (entries.length === 0) {
         currentWeight.textContent = '—';
@@ -399,6 +461,7 @@
         chart.innerHTML = '';
         chartWindowRow.hidden = true;
         legend.hidden = true;
+        noiseRow.hidden = true;
         staleNotice.hidden = true;
         addToggle.classList.remove('live');
         entryList.hidden = true;
@@ -430,6 +493,7 @@
       // reading) passed off as a real one. Wait until there's enough tracked
       // history to back it up.
       const enoughHistoryForTrend = hasEnoughHistory(daily, now);
+      renderDailyNoise(daily, trendNow, enoughHistoryForTrend, now);
 
       averageWeight.innerHTML = (!enoughHistoryForTrend || trendNow === null) ? '—' : `${fmtKg(trendNow)}<span class="unit">kg</span>`;
 
@@ -753,6 +817,10 @@
       addForm.hidden = true;
       addToggle.hidden = false;
     }
+
+    noiseInfoTrigger.addEventListener('click', () => { noiseInfoModal.hidden = false; });
+    noiseInfoClose.addEventListener('click', () => { noiseInfoModal.hidden = true; });
+    noiseInfoModal.addEventListener('click', (e) => { if (e.target === noiseInfoModal) noiseInfoModal.hidden = true; });
 
     addToggle.addEventListener('click', openAddForm);
     addCancel.addEventListener('click', closeAddForm);

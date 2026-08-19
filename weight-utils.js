@@ -143,3 +143,96 @@ export function hasEnoughHistory(daily, nowMs = Date.now()) {
   if (daily.length === 0) return false;
   return nowMs - new Date(daily[0].date).getTime() >= TREND_WARMUP_DAYS * DAY_MS;
 }
+
+// ---------------------------------------------------------------------------
+// Daily Noise — "how big a day-to-day swing is normal for you".
+//
+// Deliberately a SEPARATE detrending step from the trend line above, not a
+// reuse of it: the displayed trend is causal (EWMA/SMA), so it lags behind
+// real weight change — comparing raw readings against it would count some of
+// that lag as "noise" whenever the user is actually gaining or losing. A
+// centered moving average has no lag (it looks both forward and backward), so
+// residuals against it reflect noise, not a mix of noise and trend-catch-up.
+// ---------------------------------------------------------------------------
+
+const NOISE_RADIUS_DAYS = 7;
+const NOISE_BUFFER_DAYS = 45;
+const NOISE_MIN_READINGS = 10;
+const NOISE_MAX_MEDIAN_GAP_DAYS = 2;
+const NOISE_PERCENTILE = 0.8;
+const NOISE_GENERIC_PCT = 0.006;
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** Linear-interpolation percentile, p in [0,1], over an already-sorted array. */
+function percentile(sorted, p) {
+  if (sorted.length === 0) return null;
+  if (sorted.length === 1) return sorted[0];
+  const idx = p * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+/**
+ * Residual of each day's value against a centered (non-causal) ±radiusDays
+ * moving average — gaps in the surrounding window are just skipped, not
+ * interpolated, per spec. Edge-trimmed: a day only gets a residual once it
+ * has a genuinely full window on both sides, which — since there's no such
+ * thing as future data — means dropping the most recent radiusDays days
+ * (relative to `now`, the same anchor hasEnoughHistory/STALE_AFTER_DAYS
+ * already use elsewhere, not the most recent logged entry) and the first
+ * radiusDays days of the user's whole history (no past data yet there).
+ */
+export function centeredInnovations(daily, radiusDays = NOISE_RADIUS_DAYS, now = Date.now()) {
+  if (daily.length === 0) return [];
+  const firstMs = new Date(daily[0].date).getTime();
+  const radiusMs = radiusDays * DAY_MS;
+  const out = [];
+  for (const point of daily) {
+    const t = new Date(point.date).getTime();
+    if (t < firstMs + radiusMs || t > now - radiusMs) continue;
+    const window = daily.filter((d) => {
+      const dt = new Date(d.date).getTime();
+      return dt >= t - radiusMs && dt <= t + radiusMs;
+    });
+    const centeredMean = window.reduce((sum, d) => sum + d.value, 0) / window.length;
+    out.push({ date: point.date, innovation: point.value - centeredMean });
+  }
+  return out;
+}
+
+/** The trailing bufferDays-calendar-day slice of centeredInnovations — the one window used for both the density gate and the percentile below. */
+export function dailyNoiseBuffer(daily, bufferDays = NOISE_BUFFER_DAYS, now = Date.now()) {
+  const cutoff = now - bufferDays * DAY_MS;
+  return centeredInnovations(daily, NOISE_RADIUS_DAYS, now).filter((p) => new Date(p.date).getTime() >= cutoff);
+}
+
+/**
+ * Personalized "normal swing" band in kg, or null if the density gate fails
+ * (too few readings, or too gappy) — callers should fall back to
+ * genericNoiseBand() in that case, not show nothing.
+ */
+export function personalizedNoiseBand(daily, now = Date.now()) {
+  const buffer = dailyNoiseBuffer(daily, NOISE_BUFFER_DAYS, now);
+  if (buffer.length < NOISE_MIN_READINGS) return null;
+
+  const times = buffer.map((p) => new Date(p.date).getTime()).sort((a, b) => a - b);
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) gaps.push((times[i] - times[i - 1]) / DAY_MS);
+  if (median(gaps) >= NOISE_MAX_MEDIAN_GAP_DAYS) return null;
+
+  const absSorted = buffer.map((p) => Math.abs(p.innovation)).sort((a, b) => a - b);
+  const band = percentile(absSorted, NOISE_PERCENTILE);
+  return Math.round(band * 10) / 10;
+}
+
+/** Population-average fallback when personalizedNoiseBand() can't earn a personal number yet — 0.6% of the current trend weight, per published day-to-day weight variability data. */
+export function genericNoiseBand(trendKg) {
+  return Math.round(trendKg * NOISE_GENERIC_PCT * 10) / 10;
+}
