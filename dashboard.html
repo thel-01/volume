@@ -31,8 +31,13 @@
     .index-delta { font-size: 14px; color: var(--muted); }
     .index-delta.up { color: var(--ok); }
     .index-delta.down { color: var(--danger); }
-    /* Starting a workout is the primary action, so it gets the wider half. */
-    .grow-2 { flex: 2; }
+    /* Starting a workout is the primary action, so it gets the wider half.
+       Scoped to .btn-row (not just .grow-2 alone) so it reliably outranks
+       styles.css's .btn-row button { flex: 1 } — .grow-2 used to sit on the
+       wrapping <a>, which that rule doesn't match at all (it's not a
+       button), so this never mattered until workout-btn became a direct
+       .btn-row child itself. */
+    .btn-row .grow-2 { flex: 2; }
     .stat-row {
       display: flex;
       gap: 22px;
