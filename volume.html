@@ -101,7 +101,7 @@
 
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
-    import { renderLineChart, renderDonutChart, renderGaugeChart } from './chart.js';
+    import { renderBarChart, renderDonutChart, renderGaugeChart } from './chart.js';
     import { mondayOf } from './date-utils.js';
 
     const AVERAGE_WEEKS = 4;
@@ -221,8 +221,9 @@
     // Rendering
     // ------------------------------------------------------------------
     /**
-     * One point per week, counting sets. Weeks with nothing logged still get a
-     * zero point — a gap in training is part of the trend, not missing data.
+     * One bar per week, counting sets. Weeks with nothing logged still get a
+     * zero-value bar (drawn as a thin visible sliver, not an empty gap) — a
+     * rest week is part of the picture, not missing data.
      */
     function renderWeekly(sets, firstMonday, thisMonday) {
       const counts = new Map(); // week-start ms -> set count
@@ -237,7 +238,7 @@
         points.push({ date: new Date(t).toISOString(), value: counts.get(t) || 0 });
       }
 
-      // One point is a flat line that says nothing about a trend.
+      // One bar has nothing to compare against.
       if (points.length < 2) {
         weeklyChart.closest('.chart-card').hidden = true;
         weeklyEmpty.textContent = 'Not enough weeks logged yet. Come back later.';
@@ -247,13 +248,9 @@
 
       weeklyChart.closest('.chart-card').hidden = false;
       weeklyEmpty.hidden = true;
-      renderLineChart(weeklyChart, {
-        series: [{ points, color: 'var(--accent)', width: '2.2', dots: true, tappable: true }],
-        formatValue: (v) => String(Math.round(v)),
+      renderBarChart(weeklyChart, {
+        weeks: points,
         formatDate: formatCompactDate,
-        // A 1-2 set week-to-week wobble is normal variance, not a trend —
-        // without a floor it would fill the whole chart like a real one.
-        minRange: 4,
         tooltipLines: (p) => [setsLabel(p.value), `week of ${formatFullDate(p.date)}`],
         ariaLabel: (p) => `${setsLabel(p.value)} in the week of ${formatFullDate(p.date)}`,
       });

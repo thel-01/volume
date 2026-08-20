@@ -357,6 +357,299 @@ export function renderLineChart(svg, opts) {
 }
 
 // ---------------------------------------------------------------------------
+// Bar chart — one bar per calendar week, e.g. sets logged per week.
+//
+// Deliberately not the line chart re-skinned: a bar's length IS the value,
+// so unlike computeYAxis this always anchors at 0 — padding the baseline
+// the way the line chart does would make every bar-to-bar comparison
+// quietly wrong. The most recent bar is always a week still being lived,
+// not a finished one, so it gets its own amber diagonal-stripe fill
+// instead of blending in with the rest.
+// ---------------------------------------------------------------------------
+
+const BAR_VIEW_W = 340;
+const BAR_VIEW_H = 180;
+const BAR_MARGIN = { top: 16, right: 12, bottom: 24, left: 28 };
+const BAR_MAX_WIDTH = 30;
+const BAR_LABEL_GUTTER = 6;
+const CURRENT_STRIPE_ANGLE = 45;
+const BAR_TICK_STEPS = [1, 2, 5, 10, 15, 20, 25, 50, 100, 150, 200, 250, 500, 1000];
+
+/**
+ * Zero-anchored, unlike computeYAxis — a bar's length is the value, so the
+ * axis can never start anywhere but 0. Tick selection otherwise mirrors
+ * computeYAxis: the coarsest, roundest step that still clears a 3-label
+ * floor, capped at 5 labels.
+ */
+function computeBarYAxis(values) {
+  const dataMax = Math.max(...values, 1);
+  const hi = dataMax * 1.15; // headroom so the tallest bar isn't flush with the top edge
+
+  let ticks = [];
+  for (const step of BAR_TICK_STEPS) {
+    const candidate = [];
+    for (let v = step; v <= hi + 1e-9; v += step) candidate.push(v);
+    if (candidate.length < 3) break;
+    ticks = candidate;
+  }
+  if (ticks.length === 0) {
+    for (let v = BAR_TICK_STEPS[0]; v <= hi + 1e-9; v += BAR_TICK_STEPS[0]) ticks.push(v);
+  }
+  if (ticks.length > 5) ticks = ticks.slice(0, 5);
+
+  return { max: hi, ticks };
+}
+
+/** 4px on a wide, few-weeks bar, tapering to 2px once bars get thin. */
+function stripeSizeForBarWidth(barW) {
+  const NARROW = 8, WIDE = 30; // observed bar-width range across the 2..26-week span
+  const t = Math.max(0, Math.min(1, (barW - NARROW) / (WIDE - NARROW)));
+  return 2 + t * 2;
+}
+
+let barStripeIdCounter = 0;
+/** Negative-space diagonal stripe — the bar's own material reads as "still being poured." */
+function addCurrentWeekStripe(svg, size) {
+  const id = `bar-stripe-${barStripeIdCounter++}`;
+  const tile = size * 2;
+  const defs = document.createElementNS(NS, 'defs');
+  const pattern = document.createElementNS(NS, 'pattern');
+  pattern.setAttribute('id', id);
+  pattern.setAttribute('width', tile);
+  pattern.setAttribute('height', tile);
+  pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+  pattern.setAttribute('patternTransform', `rotate(${CURRENT_STRIPE_ANGLE})`);
+  const base = document.createElementNS(NS, 'rect');
+  base.setAttribute('width', tile);
+  base.setAttribute('height', tile);
+  base.setAttribute('fill', 'var(--surface)');
+  const stripe = document.createElementNS(NS, 'rect');
+  stripe.setAttribute('width', size);
+  stripe.setAttribute('height', tile);
+  stripe.setAttribute('fill', 'var(--live)');
+  pattern.appendChild(base);
+  pattern.appendChild(stripe);
+  defs.appendChild(pattern);
+  svg.appendChild(defs);
+  return `url(#${id})`;
+}
+
+function labelExtent(anchor, x, w) {
+  if (anchor === 'start') return [x, x + w];
+  if (anchor === 'end') return [x - w, x];
+  return [x - w / 2, x + w / 2];
+}
+
+/**
+ * An edge label prefers to center on its own bar, like every label in
+ * between — it only pins to the plot margin, growing inward, once
+ * centering would push it past that margin. Keeps a few, widely-spaced
+ * bars' labels sitting under them instead of drifting toward edges the
+ * bars themselves never reach, while a dense chart's outermost bars
+ * (which do sit near the margin) still get the anti-overflow pin.
+ */
+function placeEdgeLabel(barCenter, w, side, leftBound, rightBound) {
+  const idealLeft = barCenter - w / 2;
+  const idealRight = barCenter + w / 2;
+  if (idealLeft >= leftBound && idealRight <= rightBound) return { anchor: 'middle', x: barCenter };
+  return side === 'first' ? { anchor: 'start', x: leftBound } : { anchor: 'end', x: rightBound };
+}
+
+/**
+ * Draw a bar chart into an <svg>, one bar per week.
+ *
+ * @param {SVGElement} svg
+ * @param {object}   opts
+ * @param {Array}    opts.weeks        [{ date, value }], oldest first — the last entry is
+ *                                      always treated as the current, in-progress week
+ * @param {Function} opts.formatDate   (iso, showYear) => x-axis label for a week
+ * @param {Function} opts.tooltipLines (week) => [primary, secondary]
+ * @param {Function} [opts.ariaLabel]  (week) => string
+ */
+export function renderBarChart(svg, opts) {
+  const { weeks, formatDate, tooltipLines, ariaLabel } = opts;
+
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', `0 0 ${BAR_VIEW_W} ${BAR_VIEW_H}`);
+  if (!weeks || weeks.length === 0) return;
+
+  const n = weeks.length;
+  const M = BAR_MARGIN;
+  const plotW = BAR_VIEW_W - M.left - M.right;
+  const plotH = BAR_VIEW_H - M.top - M.bottom;
+  const baseline = M.top + plotH;
+
+  const { max: axisMax, ticks } = computeBarYAxis(weeks.map((w) => w.value));
+  const yScale = (v) => baseline - (v / axisMax) * plotH;
+
+  // Invisible backdrop: tapping empty chart space dismisses any open tooltip.
+  const backdrop = document.createElementNS(NS, 'rect');
+  backdrop.setAttribute('x', 0);
+  backdrop.setAttribute('y', 0);
+  backdrop.setAttribute('width', BAR_VIEW_W);
+  backdrop.setAttribute('height', BAR_VIEW_H);
+  backdrop.setAttribute('fill', 'transparent');
+  backdrop.addEventListener('click', () => clearTooltip());
+  svg.appendChild(backdrop);
+
+  // Y-axis labels only — no tick marks, no grid lines, same as the line chart.
+  for (const tv of ticks) {
+    svg.appendChild(text(M.left - 8, yScale(tv) + 3.5, 'end', '11', 'var(--muted)', String(Math.round(tv))));
+  }
+
+  const bandW = plotW / n;
+  const barW = Math.max(3, Math.min(bandW - 3, BAR_MAX_WIDTH));
+  const xOfIndex = (i) => M.left + bandW * i + bandW / 2;
+  const currentFill = addCurrentWeekStripe(svg, stripeSizeForBarWidth(barW));
+
+  let activeKey = null;
+
+  weeks.forEach((wk, i) => {
+    const cx = xOfIndex(i);
+    const h = Math.max(3, (wk.value / axisMax) * plotH); // 3px floor keeps a 0-set week visible
+    const y = baseline - h;
+    const isCurrent = i === n - 1;
+
+    const bar = document.createElementNS(NS, 'rect');
+    bar.setAttribute('x', cx - barW / 2);
+    bar.setAttribute('y', y);
+    bar.setAttribute('width', barW);
+    bar.setAttribute('height', h);
+    bar.setAttribute('fill', isCurrent ? currentFill : 'var(--accent)');
+    svg.appendChild(bar);
+
+    // Hit target is the full band, not just the bar — a thin bar at 26
+    // weeks is still a full band-width tappable column.
+    const hit = document.createElementNS(NS, 'rect');
+    hit.setAttribute('x', M.left + bandW * i);
+    hit.setAttribute('y', M.top);
+    hit.setAttribute('width', bandW);
+    hit.setAttribute('height', plotH);
+    hit.setAttribute('fill', 'transparent');
+    hit.setAttribute('pointer-events', 'all');
+    hit.style.cursor = 'pointer';
+    hit.setAttribute('tabindex', '0');
+    hit.setAttribute('role', 'button');
+    if (ariaLabel) hit.setAttribute('aria-label', ariaLabel(wk));
+    const toggle = (e) => {
+      e.stopPropagation();
+      if (activeKey === i) { clearTooltip(); return; }
+      activeKey = i;
+      showTooltip(cx, y, tooltipLines(wk));
+    };
+    hit.addEventListener('click', toggle);
+    hit.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
+    });
+    svg.appendChild(hit);
+  });
+
+  // X-axis labels — measured, not guessed. "This week" is reserved first
+  // and never dropped, colored to match its bar (the one case it can
+  // visually stretch back over a neighboring bar, so color is what still
+  // ties it to the right one). The oldest week is reserved next and is the
+  // only label allowed to drop. Everything else is tried left-to-right and
+  // kept only if its real measured width clears both its neighbor and the
+  // reserved "This week" zone.
+  const leftBound = M.left, rightBound = BAR_VIEW_W - M.right;
+  const labelSize = 10.5;
+
+  function measure(content, bold) {
+    const t = text(0, 0, 'start', labelSize, 'var(--muted)', content);
+    if (bold) t.setAttribute('font-weight', '600');
+    svg.appendChild(t);
+    const w = t.getComputedTextLength();
+    svg.removeChild(t);
+    return w;
+  }
+
+  const lastW = measure('This week', true);
+  const lastPlace = placeEdgeLabel(xOfIndex(n - 1), lastW, 'last', leftBound, rightBound);
+  const lastLeft = labelExtent(lastPlace.anchor, lastPlace.x, lastW)[0];
+
+  const firstLabel = formatDate(weeks[0].date, false);
+  const firstW = measure(firstLabel, false);
+  const firstPlace = placeEdgeLabel(xOfIndex(0), firstW, 'first', leftBound, rightBound);
+  const firstRight = labelExtent(firstPlace.anchor, firstPlace.x, firstW)[1];
+
+  const showFirst = n < 2 || (firstRight + BAR_LABEL_GUTTER <= lastLeft);
+  const keep = [{ i: n - 1, ...lastPlace, txt: 'This week', current: true }];
+  if (showFirst) keep.push({ i: 0, ...firstPlace, txt: firstLabel });
+
+  let cursor = showFirst ? firstRight : -Infinity;
+  for (let i = 1; i <= n - 2; i++) {
+    const cx = xOfIndex(i);
+    const label = formatDate(weeks[i].date, false);
+    const w = measure(label, false);
+    const left = cx - w / 2, right = cx + w / 2;
+    if (left < cursor + BAR_LABEL_GUTTER) continue;
+    if (right > lastLeft - BAR_LABEL_GUTTER) continue;
+    keep.push({ i, x: cx, anchor: 'middle', txt: label });
+    cursor = right;
+  }
+
+  keep.sort((a, b) => a.i - b.i);
+  for (const k of keep) {
+    const t = text(k.x, BAR_VIEW_H - 6, k.anchor, labelSize, k.current ? 'var(--live)' : 'var(--muted)', k.txt);
+    if (k.current) t.setAttribute('font-weight', '600');
+    svg.appendChild(t);
+  }
+
+  function clearTooltip() {
+    activeKey = null;
+    const existing = svg.querySelector('.chart-tip');
+    if (existing) existing.remove();
+  }
+
+  function showTooltip(cx, topY, lines) {
+    clearTooltip();
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('class', 'chart-tip');
+    g.setAttribute('pointer-events', 'none');
+
+    const rectEl = document.createElementNS(NS, 'rect');
+    rectEl.setAttribute('fill', 'var(--surface-2)');
+    rectEl.setAttribute('stroke', 'var(--line)');
+    g.appendChild(rectEl);
+
+    const label = document.createElementNS(NS, 'text');
+    label.setAttribute('font-size', '11');
+    label.setAttribute('fill', 'var(--text)');
+    lines.forEach((line, i) => {
+      const tspan = document.createElementNS(NS, 'tspan');
+      tspan.setAttribute('x', 0);
+      tspan.setAttribute('dy', i === 0 ? 0 : 13);
+      if (i > 0) tspan.setAttribute('fill', 'var(--muted)');
+      tspan.textContent = line;
+      label.appendChild(tspan);
+    });
+    g.appendChild(label);
+    svg.appendChild(g);
+
+    const bbox = label.getBBox();
+    const padX = 8, padY = 6;
+    const boxW = bbox.width + padX * 2;
+    const boxH = bbox.height + padY * 2;
+
+    let boxX = cx - boxW / 2;
+    boxX = Math.max(2, Math.min(BAR_VIEW_W - 2 - boxW, boxX));
+    let boxY = topY - boxH - 12;
+    if (boxY < 2) boxY = topY + 12;
+
+    rectEl.setAttribute('x', boxX);
+    rectEl.setAttribute('y', boxY);
+    rectEl.setAttribute('width', boxW);
+    rectEl.setAttribute('height', boxH);
+
+    const textX = boxX + padX;
+    const textY = boxY + padY + 9;
+    label.setAttribute('x', textX);
+    label.setAttribute('y', textY);
+    for (const tspan of label.querySelectorAll('tspan')) tspan.setAttribute('x', textX);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Donut chart — a share-of-total breakdown, e.g. sets per session type.
 //
 // Drawn as one <circle> per slice using stroke-dasharray, rather than arc
