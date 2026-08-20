@@ -46,7 +46,7 @@ function stepDecimals(step) {
  * third. The labels are only here for context, so the highest one does not
  * need to sit at the very top.
  */
-function computeYAxis(values, minRange = 0, fixedRange = null) {
+function computeYAxis(values, minRange = 0, fixedRange = null, paddingPct = 0.08) {
   // Some scales are already a meaningful, fixed bound (0-10 pain, for
   // instance) — auto-fitting to whatever data happens to exist would be
   // the one thing that could actually mislead there, the opposite problem
@@ -72,7 +72,11 @@ function computeYAxis(values, minRange = 0, fixedRange = null) {
       hi += pad;
     } else {
       // Just enough room that the top and bottom dots aren't clipped.
-      const pad = (hi - lo) * 0.08;
+      // paddingPct defaults to 8% everywhere; a chart whose points read as
+      // a discrete jump rather than a smooth trend (a step chart) needs
+      // more — the flat segment right before a jump reads as touching the
+      // edge otherwise, in a way a single dot brushing it doesn't.
+      const pad = (hi - lo) * paddingPct;
       lo -= pad;
       hi += pad;
     }
@@ -148,9 +152,14 @@ function text(x, y, anchor, size, fill, content) {
  *
  * @param {SVGElement} svg
  * @param {object}   opts
- * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, tappable, line }]
+ * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, tappable, line, step }]
  *                                      Axes span every series; only `tappable` ones get tooltips.
  *                                      `line: false` draws the points alone, with no segments joining them.
+ *                                      `step: true` connects points with a step-after path (flat at a point's
+ *                                      own value until the next point, then a sharp-cornered vertical jump)
+ *                                      instead of a straight diagonal — for a series where an in-between value
+ *                                      never really existed (a logged PR holds until it's beaten, it doesn't
+ *                                      climb gradually toward the next session).
  * @param {Function} opts.formatValue   (value, decimals) => y-axis label — decimals is the shared
  *                                      precision every tick on this axis was rounded to, so "80" next
  *                                      to a real "80.5" can render as "80.0" instead of implying more
@@ -167,9 +176,13 @@ function text(x, y, anchor, size, fill, content) {
  * @param {number}   [opts.minTimeSpan] floor on the x-axis span, in milliseconds — the same idea as
  *                                      minRange but for time: two points three hours apart shouldn't
  *                                      stretch edge-to-edge and read as a whole day's trend
+ * @param {number}   [opts.paddingPct]  y-axis headroom above/below the data's own range, as a fraction
+ *                                      of that range — defaults to 0.08 (8%), same as every other chart.
+ *                                      A step chart's flat segments read as touching the edge more than a
+ *                                      smooth line's does, so exercise-trend.html's top-set chart raises this.
  */
 export function renderLineChart(svg, opts) {
-  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange, fixedRange, minTimeSpan } = opts;
+  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange, fixedRange, minTimeSpan, paddingPct } = opts;
 
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${VIEW_W} ${VIEW_H}`);
@@ -186,7 +199,7 @@ export function renderLineChart(svg, opts) {
     minT = mid - minTimeSpan / 2;
     maxT = mid + minTimeSpan / 2;
   }
-  const axis = computeYAxis(allPoints.map((p) => p.value), minRange || 0, fixedRange || null);
+  const axis = computeYAxis(allPoints.map((p) => p.value), minRange || 0, fixedRange || null, paddingPct);
 
   const plotW = VIEW_W - MARGIN.left - MARGIN.right;
   const plotH = VIEW_H - MARGIN.top - MARGIN.bottom;
@@ -239,15 +252,29 @@ export function renderLineChart(svg, opts) {
     // signal.
     if (s.line === false) continue;
     if (s.points.length < 2) continue;
-    const d = s.points
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(new Date(p.date).getTime())},${yScale(p.value)}`)
-      .join(' ');
+    // step-after: flat at a point's own value until the next point's x,
+    // then a vertical riser — two segments per point instead of one
+    // diagonal. Corners are sharp (miter), not rounded like a normal
+    // line's — a rounded jump reads as still interpolating, which is
+    // exactly what step exists to rule out.
+    let d = '';
+    s.points.forEach((p, i) => {
+      const x = xScale(new Date(p.date).getTime());
+      const y = yScale(p.value);
+      if (i === 0) { d += `M ${x},${y}`; return; }
+      if (s.step) {
+        const prevY = yScale(s.points[i - 1].value);
+        d += ` L ${x},${prevY} L ${x},${y}`;
+      } else {
+        d += ` L ${x},${y}`;
+      }
+    });
     const path = document.createElementNS(NS, 'path');
     path.setAttribute('d', d);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', s.color || 'var(--accent)');
     path.setAttribute('stroke-width', s.width || '2');
-    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('stroke-linejoin', s.step ? 'miter' : 'round');
     path.setAttribute('stroke-linecap', 'round');
     if (s.dashed) path.setAttribute('stroke-dasharray', '4 4');
     if (s.opacity) path.setAttribute('opacity', s.opacity);

@@ -295,10 +295,17 @@
           ? Math.max(5, maxValue * 0.08)
           : Math.max(2, maxValue * 0.05);
       renderLineChart(svg, {
-        series: [{ points, dots: true, tappable: true }],
+        // step: a top set holds until it's beaten in a later session, it
+        // never gradually climbed toward the next one — a straight line
+        // between two points would draw a change that didn't happen.
+        // paddingPct is raised to match: a step's flat segment right before
+        // a jump reads as touching the chart edge at the usual 8%, in a way
+        // a single dot passing through doesn't.
+        series: [{ points, dots: true, tappable: true, step: true }],
         formatValue: (v, decimals) => formatAxisValue(v, type, useMinutes, decimals),
         formatDate: formatCompactDate,
         minRange,
+        paddingPct: 0.18,
         tooltipLines: (p) => [describeSet(p.set, type), formatFullDate(p.date)],
         ariaLabel: (p) => `${describeSet(p.set, type)} on ${formatFullDate(p.date)}`,
       });
