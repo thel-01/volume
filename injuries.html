@@ -26,7 +26,11 @@
       <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
     </div>
 
-    <p id="loading" class="muted">Loading…</p>
+    <div id="loading" class="loading-state">
+      <svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" role="status" aria-label="Loading">
+        <path d="M 6,30 L 18,30 L 18,18 L 30,18 L 30,6" pathLength="1" />
+      </svg>
+    </div>
 
     <div id="content" hidden>
       <p id="started-line" class="muted" style="margin:0 0 var(--space-4);"><span id="started-text"></span><span id="status-badge" class="badge"></span></p>

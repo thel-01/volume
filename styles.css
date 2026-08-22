@@ -169,6 +169,7 @@ body {
   padding: var(--space-6) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 /* Pushes the form into the lower half of the screen, in thumb reach. */
@@ -450,7 +451,9 @@ button.secondary {
 
 /* ---- quicklog: shared popup shell for instant, in-place logging ---- */
 .stepper-row { display: flex; align-items: center; gap: var(--space-3); }
-.stepper-btn { width: var(--tap); height: var(--tap); min-height: 0; padding: 0; flex: 0 0 auto; font-size: 22px; font-weight: 400; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); }
+/* touch-action: manipulation stops the browser from treating quick repeated
+   taps as a double-tap-to-zoom gesture, without disabling pinch-zoom app-wide */
+.stepper-btn { width: var(--tap); height: var(--tap); min-height: 0; padding: 0; flex: 0 0 auto; font-size: 22px; font-weight: 400; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); touch-action: manipulation; }
 .stepper-value { flex: 1; text-align: center; }
 .stepper-value .value { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; }
 .stepper-value .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); margin-left: var(--space-1); }
@@ -530,6 +533,32 @@ button.secondary {
 .card:active { transform: scale(0.99); }
 
 .muted { color: var(--muted); font-size: 14px; }
+
+/* ---- loading state: centered step-function line, replaces "Loading…" text ----
+   Absolutely positioned against .screen (not flex:1) so it centers correctly
+   regardless of whether it sits directly in .screen or inside a wrapping
+   <section> (history.html, exercises.html, settings.html's sub-views) — those
+   sections aren't flex containers, so flex:1 would silently do nothing there. */
+.loading-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.loading-state[hidden] { display: none; }
+.step-loader path {
+  fill: none;
+  stroke: var(--chart-status-warning);
+  stroke-width: 3;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-dasharray: 1;
+  animation: step-loader-draw 1.8s steps(4, jump-end) infinite;
+}
+@keyframes step-loader-draw {
+  0%   { stroke-dashoffset: 1; }
+  45%  { stroke-dashoffset: 0; }
+  55%  { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-loader path { animation-duration: 3.6s; }
+}
 
 /* ---------------------------------------------------------------------
    Chart system — shared by every page that draws one (dashboard, volume,
