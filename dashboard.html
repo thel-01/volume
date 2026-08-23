@@ -113,15 +113,21 @@
     <div id="content" hidden>
 
       <div id="index-section" hidden>
-        <p class="section-label">Composite strength index</p>
+        <p class="section-label">Training Progress</p>
         <div class="index-headline">
           <span class="index-value" id="index-value"></span>
           <span class="index-delta" id="index-delta"></span>
         </div>
         <p id="index-note" class="muted" hidden>Log more workouts and progress your lifts to see this number increase.</p>
-        <div class="chart-card" id="index-chart-card">
-          <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
-        </div>
+        <a href="./progress.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
+          <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
+            <div class="stat">
+              <div class="stat-visual"><span class="stat-value lg" id="pr-count">—</span></div>
+              <span class="stat-label" id="pr-count-label">PRs in the last 4 weeks</span>
+            </div>
+          </div>
+          <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
+        </a>
       </div>
 
       <p class="section-label" style="margin-top:24px;">Injury Journal</p>
@@ -144,11 +150,6 @@
         </div>
         <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
       </a>
-
-      <p class="section-label">Recent PRs</p>
-      <ul id="pr-list" class="list" hidden></ul>
-      <button id="pr-toggle" type="button" class="link-button" hidden></button>
-      <p id="empty-prs" class="empty-state" hidden>No sets logged yet.</p>
 
       <p class="section-label">Time since last session</p>
       <ul id="category-list" class="list" hidden></ul>
@@ -339,7 +340,7 @@
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
-    import { epley, compositeIndexSeries, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
+    import { epley, compositeIndexSeries, deltaVsDaysAgo, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
     import { showToast } from './toast.js';
     import {
@@ -392,16 +393,12 @@
     const indexValue = document.getElementById('index-value');
     const indexDelta = document.getElementById('index-delta');
     const indexNote = document.getElementById('index-note');
-    const indexChartCard = document.getElementById('index-chart-card');
-    const indexChart = document.getElementById('index-chart');
+    const prCount = document.getElementById('pr-count');
+    const prCountLabel = document.getElementById('pr-count-label');
 
     const volumeThisWeek = document.getElementById('volume-this-week');
     const volumeIntensityGauge = document.getElementById('volume-intensity-gauge');
     const volumeIntensityEmpty = document.getElementById('volume-intensity-empty');
-
-    const prListEl = document.getElementById('pr-list');
-    const prToggle = document.getElementById('pr-toggle');
-    const emptyPrs = document.getElementById('empty-prs');
 
     const categoryListEl = document.getElementById('category-list');
     const emptyCategories = document.getElementById('empty-categories');
@@ -608,7 +605,7 @@
 
       renderVolume(liveSets);
       renderStrengthIndex(exercisesRes.data, liveSets);
-      renderPrs(exercisesRes.data, liveSets);
+      renderPrSummary(exercisesRes.data, liveSets);
       renderCategories(sessionsRes.data);
       loadWeight();
       loadInjuries();
@@ -982,18 +979,15 @@
       // Under two points there's nothing to chain yet — every pattern is
       // still sitting at its starting level. Show that starting point rather
       // than hiding the section entirely; the number is meaningless on its
-      // own, but it's worth establishing as a baseline to grow from. No
-      // chart yet — a flat two-pixel line would tease a trend that isn't there.
+      // own, but it's worth establishing as a baseline to grow from.
       if (series.length < 2) {
         indexValue.textContent = '100';
         indexDelta.textContent = '';
         indexDelta.className = 'index-delta';
         indexNote.hidden = false;
-        indexChartCard.hidden = true;
         return;
       }
       indexNote.hidden = true;
-      indexChartCard.hidden = false;
 
       const latest = series[series.length - 1].value;
       indexValue.textContent = latest.toFixed(0);
@@ -1001,10 +995,8 @@
       // Compared against roughly a month back, so the number next to it isn't
       // just the last session's noise. Shown as a percentage: the index has no
       // unit, so "+15 points" means nothing on its own.
-      const monthAgo = Date.now() - 28 * 86400000;
-      const earlier = [...series].reverse().find((p) => new Date(p.date).getTime() <= monthAgo);
-      if (earlier && earlier.value > 0) {
-        const pct = (latest / earlier.value - 1) * 100;
+      const pct = deltaVsDaysAgo(series, 28);
+      if (pct !== null) {
         const sign = pct >= 0 ? '+' : '−';
         indexDelta.textContent = `${sign}${Math.abs(pct).toFixed(1)}% vs 4 weeks ago`;
         indexDelta.className = `index-delta ${pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : ''}`;
@@ -1013,17 +1005,40 @@
         indexDelta.className = 'index-delta';
       }
 
-      renderLineChart(indexChart, {
-        series: [{ points: series, dots: true, tappable: true }],
-        formatValue: (v) => String(Math.round(v)),
-        formatDate: formatCompactDate,
-        // The index is a regression fit with its own margin of error, not a
-        // precise instrument — without a floor a quiet month's 1-2 point
-        // drift would fill the whole chart like a real swing.
-        minRange: 8,
-        tooltipLines: (p) => [p.value.toFixed(1), formatFullDate(p.date)],
-        ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
-      });
+      // The chart used to live here — moved to progress.html, along with the
+      // pattern-level breakdown of why this number moved. This card now
+      // leads to it.
+    }
+
+    // ------------------------------------------------------------------
+    // PR summary card — the count is the exposition; the full ranked list
+    // and the "why did the index move" breakdown both live on progress.html.
+    // A PR here means a genuine improvement (more than one session), not a
+    // first-ever log of a new exercise — trying something new isn't a
+    // record beaten yet, so it shouldn't inflate this count.
+    // ------------------------------------------------------------------
+    const PR_WINDOW_DAYS = 28;
+
+    function renderPrSummary(exercises, liveSets) {
+      const setsByExercise = new Map();
+      for (const s of liveSets) {
+        if (!setsByExercise.has(s.exercise_id)) setsByExercise.set(s.exercise_id, []);
+        setsByExercise.get(s.exercise_id).push(s);
+      }
+
+      const cutoff = Date.now() - PR_WINDOW_DAYS * 86400000;
+      let count = 0;
+      for (const ex of exercises) {
+        const sets = setsByExercise.get(ex.id) || [];
+        const pr = findPr(sets, ex.type);
+        if (!pr) continue;
+        const isFirstLog = new Set(sets.map((s) => s.session_id)).size === 1;
+        if (isFirstLog) continue;
+        if (new Date(pr.date).getTime() >= cutoff) count++;
+      }
+
+      prCount.textContent = String(count);
+      prCountLabel.textContent = 'PRs in the last 4 weeks';
     }
 
     // ------------------------------------------------------------------
@@ -1143,153 +1158,6 @@
       if (!best) return null;
       // Always shows the real set. The estimate ranks; it is never displayed.
       return { description: describeSet(best, type), date: best.sessions.start_time };
-    }
-
-    /**
-     * How many points the trend chart would have for this exercise — one
-     * per workout with a valid set. Mirrors exercise-trend.html's own
-     * per-session grouping, so "tappable here" always matches "has a real
-     * chart there."
-     */
-    function countTrendPoints(sets, type) {
-      const sessionIds = new Set();
-      for (const s of sets) {
-        if (type === 'time_based') {
-          if (s.duration_seconds === null) continue;
-        } else {
-          if (s.weight === null || s.reps === null) continue;
-        }
-        sessionIds.add(s.session_id);
-      }
-      return sessionIds.size;
-    }
-
-    function renderPrs(exercises, liveSets) {
-      const setsByExercise = new Map();
-      for (const s of liveSets) {
-        if (!setsByExercise.has(s.exercise_id)) setsByExercise.set(s.exercise_id, []);
-        setsByExercise.get(s.exercise_id).push(s);
-      }
-
-      const stats = exercises.map((ex) => {
-        const sets = setsByExercise.get(ex.id) || [];
-        return {
-          exercise: ex,
-          pr: findPr(sets, ex.type),
-          trendPoints: countTrendPoints(sets, ex.type),
-          // Every set so far comes from the same session — you're still
-          // experimenting with weight the first time you do a move, so
-          // nothing's been beaten yet even if you logged several sets.
-          isFirstLog: sets.length > 0 && new Set(sets.map((s) => s.session_id)).size === 1,
-        };
-      });
-
-      // Three tiers: a PR that's actually beaten something (more than one
-      // session) is worth more than "first log" — the only "PR" there is
-      // is having a number at all — which in turn beats never logged.
-      const byRecency = (a, b) => new Date(b.pr.date) - new Date(a.pr.date);
-      const properPrs = stats.filter((s) => s.pr && !s.isFirstLog).sort(byRecency);
-      const firstLogs = stats.filter((s) => s.pr && s.isFirstLog).sort(byRecency);
-      const withoutPr = stats.filter((s) => !s.pr).sort((a, b) => a.exercise.name.localeCompare(b.exercise.name));
-      const ordered = [...properPrs, ...firstLogs, ...withoutPr];
-
-      if (exercises.length === 0) {
-        prListEl.hidden = true;
-        emptyPrs.textContent = 'No sets logged yet.';
-        emptyPrs.hidden = false;
-        prToggle.hidden = true;
-        return;
-      }
-
-      // Collapsed: real PRs only, up to 3, proper ones before first logs —
-      // a section titled "Recent PRs" showing "Never logged" rows just
-      // because the library has few exercises would say the opposite of
-      // what it means. Expanding is still how you see the whole library,
-      // "Never logged" and all.
-      const collapsedPreview = [...properPrs, ...firstLogs].slice(0, 3);
-
-      let expanded = false;
-      const renderList = () => {
-        prListEl.innerHTML = '';
-        const visible = expanded ? ordered : collapsedPreview;
-        if (visible.length === 0) {
-          prListEl.hidden = true;
-          emptyPrs.textContent = 'No PRs yet.';
-          emptyPrs.hidden = false;
-        } else {
-          emptyPrs.hidden = true;
-          prListEl.hidden = false;
-          for (const stat of visible) prListEl.appendChild(buildPrListItem(stat));
-        }
-      };
-      renderList();
-
-      if (ordered.length > collapsedPreview.length) {
-        prToggle.hidden = false;
-        prToggle.textContent = `Show all ${ordered.length}`;
-        prToggle.onclick = () => {
-          expanded = !expanded;
-          prToggle.textContent = expanded ? 'Show fewer' : `Show all ${ordered.length}`;
-          renderList();
-        };
-      } else {
-        prToggle.hidden = true;
-      }
-    }
-
-    function buildPrListItem(stat) {
-      const li = document.createElement('li');
-      li.className = 'list-item';
-
-      // Not enough workouts to draw a trend — no arrow, no tap.
-      const tappable = stat.trendPoints > 1;
-      if (tappable) {
-        li.tabIndex = 0;
-        li.setAttribute('role', 'button');
-        const goToTrend = () => {
-          window.location.href = `./exercise-trend.html?id=${encodeURIComponent(stat.exercise.id)}`;
-        };
-        li.addEventListener('click', goToTrend);
-        li.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToTrend(); }
-        });
-      } else {
-        li.style.cursor = 'default';
-      }
-
-      const body = document.createElement('div');
-      body.className = 'list-item-body';
-      const name = document.createElement('div');
-      name.className = 'list-item-name';
-      name.textContent = stat.exercise.name;
-      body.appendChild(name);
-
-      const meta = document.createElement('div');
-      meta.className = 'list-item-meta';
-      const value = document.createElement('span');
-      if (stat.pr) {
-        value.textContent = `${stat.pr.description} · ${timeAgo(stat.pr.date)}`;
-      } else {
-        value.className = 'muted';
-        value.textContent = 'Never logged';
-      }
-      meta.appendChild(value);
-      if (stat.pr && stat.isFirstLog) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = 'First log';
-        meta.appendChild(badge);
-      }
-      body.appendChild(meta);
-
-      li.appendChild(body);
-      if (tappable) {
-        const chevron = document.createElement('span');
-        chevron.className = 'list-item-chevron';
-        chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
-        li.appendChild(chevron);
-      }
-      return li;
     }
 
     // ------------------------------------------------------------------

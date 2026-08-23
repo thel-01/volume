@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Volume — Training Progress</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Volume">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .index-headline {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      margin-bottom: var(--space-3);
+    }
+    .index-value {
+      font-family: var(--font-mono);
+      font-size: var(--fs-4xl);
+      font-weight: 500;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .index-delta { font-size: 14px; color: var(--muted); }
+    .index-delta.up { color: var(--ok); }
+    .index-delta.down { color: var(--danger); }
+    /* Breakdown rows reuse .list-item/.list-item-meta as-is; only the
+       colored change figure inside the meta line is new. */
+    .change-up { color: var(--ok); }
+    .change-down { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <div class="page-header">
+      <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
+      <h1>Training Progress</h1>
+      <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+    </div>
+
+    <div id="loading" class="loading-state">
+      <svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" role="status" aria-label="Loading">
+        <path d="M 6,30 L 18,30 L 18,18 L 30,18 L 30,6" pathLength="1" />
+      </svg>
+    </div>
+
+    <div id="content" hidden>
+
+      <div class="index-headline">
+        <span class="index-value" id="index-value"></span>
+        <span class="index-delta" id="index-delta"></span>
+      </div>
+      <p id="index-note" class="muted" hidden>Log more workouts and progress your lifts to see this number increase.</p>
+
+      <div class="chart-card" id="index-chart-card" hidden>
+        <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
+      </div>
+
+      <button type="button" class="detail-toggle" id="breakdown-toggle" hidden>+ See how the index is composed</button>
+      <div id="breakdown-panel" hidden>
+        <p class="muted" style="margin:var(--space-3) 0 var(--space-2);">Your composite is the geometric mean of these.</p>
+        <ul class="list" id="breakdown-list"></ul>
+      </div>
+
+      <p class="section-label">Personal records</p>
+      <ul id="pr-list" class="list" hidden></ul>
+      <button id="pr-toggle" type="button" class="link-button" hidden></button>
+      <p id="empty-prs" class="empty-state" hidden>No PRs yet.</p>
+
+    </div>
+
+    <p id="empty-state" class="empty-state" hidden></p>
+
+  </main>
+
+  <script type="module">
+    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { renderLineChart } from './chart.js';
+    import {
+      epley, compositeIndexBreakdown, deltaVsDaysAgo,
+      effectiveLoad, effectiveReps, isBodyweightEquivalent,
+    } from './strength-index.js';
+    import { daysAgo } from './date-utils.js';
+
+    // Preview count on the records list — this page's main job is the
+    // records themselves, so it gets a bigger first screen than the
+    // dashboard's old 3-row collapsed list.
+    const PR_PREVIEW = 5;
+
+    // ------------------------------------------------------------------
+    // Element refs
+    // ------------------------------------------------------------------
+    const topStatus = document.getElementById('top-status');
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('content');
+    const emptyState = document.getElementById('empty-state');
+
+    const indexValue = document.getElementById('index-value');
+    const indexDelta = document.getElementById('index-delta');
+    const indexNote = document.getElementById('index-note');
+    const indexChartCard = document.getElementById('index-chart-card');
+    const indexChart = document.getElementById('index-chart');
+
+    const breakdownToggle = document.getElementById('breakdown-toggle');
+    const breakdownPanel = document.getElementById('breakdown-panel');
+    const breakdownList = document.getElementById('breakdown-list');
+
+    const prListEl = document.getElementById('pr-list');
+    const prToggle = document.getElementById('pr-toggle');
+    const emptyPrs = document.getElementById('empty-prs');
+
+    // ------------------------------------------------------------------
+    // Small shared helpers (same shape as the rest of the app — see
+    // dashboard.html's own copies of these; duplicated per-page rather
+    // than pulled into a shared module, same as formatWeight/describeSet
+    // already are across dashboard.html/history.html/log.html/
+    // exercise-trend.html)
+    // ------------------------------------------------------------------
+    const STATUS_ICONS = {
+      error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L22 20 H2 Z"/><line x1="12" y1="9" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.9" fill="var(--danger)" stroke="none"/></svg>',
+    };
+    function show(el, kind, message) {
+      el.className = `status ${kind}`;
+      el.innerHTML = STATUS_ICONS[kind] || '';
+      el.appendChild(document.createTextNode(message));
+      el.hidden = false;
+    }
+    function formatWeight(value) {
+      if (value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+    function formatDuration(seconds) {
+      if (seconds === null || seconds === undefined) return '';
+      const s = Number(seconds);
+      if (s < 60) return `${s}s`;
+      const mins = Math.floor(s / 60);
+      const rest = s % 60;
+      return rest === 0 ? `${mins}m` : `${mins}m ${rest}s`;
+    }
+    function tagLetter(quickTag) {
+      if (quickTag === 'easy') return 'e';
+      if (quickTag === 'hard') return 'h';
+      if (quickTag === 'failure') return 'f';
+      return '';
+    }
+    function describeSet(set, type) {
+      if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
+      if (isBodyweightEquivalent(set, type)) return describeBodyweightSet(set);
+      const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
+      const suffix = type === 'assisted' ? ' assist' : '';
+      const parts = [];
+      if (weight) parts.push(weight + suffix);
+      if (set.reps !== null && set.reps !== undefined) parts.push(`× ${set.reps}${tagLetter(set.quick_tag)}`);
+      return parts.join(' ') || '—';
+    }
+    function describeBodyweightSet(set) {
+      const magnitude = Number(set.weight || 0);
+      let prefix;
+      if (magnitude === 0) prefix = 'BW';
+      else if (set.weight_direction === 'assist') prefix = `−${formatWeight(magnitude)} kg`;
+      else prefix = `+${formatWeight(magnitude)} kg`;
+      const reps = set.reps !== null && set.reps !== undefined ? ` × ${set.reps}${tagLetter(set.quick_tag)}` : '';
+      return prefix + reps;
+    }
+    function tagQuality(quickTag) {
+      if (quickTag === 'easy') return 2;
+      if (quickTag === 'hard') return 0;
+      if (quickTag === 'failure') return -1;
+      return 1;
+    }
+    function formatFullDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function formatCompactDate(iso, showYear) {
+      const d = new Date(iso);
+      const base = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return showYear ? `${base} '${String(d.getFullYear()).slice(-2)}` : base;
+    }
+    function timeAgo(iso) {
+      const days = daysAgo(iso);
+      if (days <= 0) return 'today';
+      if (days === 1) return 'yesterday';
+      if (days < 7) return `${days} days ago`;
+      const weeks = Math.floor(days / 7);
+      if (weeks < 5) return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+      const months = Math.floor(days / 30.44);
+      if (months < 12) return months <= 1 ? '1 month ago' : `${months} months ago`;
+      const years = Math.floor(days / 365.25);
+      return years === 1 ? '1 year ago' : `${years} years ago`;
+    }
+
+    // ------------------------------------------------------------------
+    // PR ranking — identical rule to dashboard.html's old Recent PRs list
+    // (see there, or strength-index.js, for the full reasoning): highest
+    // estimated 1RM for weight_reps/bodyweight, least assistance for
+    // assisted, longest duration for time_based; ties on tag quality, then
+    // recency.
+    // ------------------------------------------------------------------
+    function prScore(set, type) {
+      if (type === 'time_based') {
+        if (set.duration_seconds === null) return null;
+        return [Number(set.duration_seconds)];
+      }
+      if (type === 'assisted') {
+        if (set.weight === null || set.reps === null) return null;
+        return [-Number(set.weight), effectiveReps(set.reps, set.quick_tag)];
+      }
+      const e = epley(effectiveLoad(set, type), effectiveReps(set.reps, set.quick_tag));
+      return e === null ? null : [e];
+    }
+    function compareScores(a, b) {
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
+      }
+      return 0;
+    }
+    function findPr(sets, type) {
+      if (sets.length === 0) return null;
+      let best = null;
+      let bestScore = null;
+      for (const s of sets) {
+        const score = prScore(s, type);
+        if (score === null) continue;
+        const cmp = best ? compareScores(score, bestScore) : 1;
+        const beats = cmp > 0
+          || (cmp === 0 && (
+                tagQuality(s.quick_tag) > tagQuality(best.quick_tag)
+                || (tagQuality(s.quick_tag) === tagQuality(best.quick_tag)
+                    && new Date(s.sessions.start_time) >= new Date(best.sessions.start_time))
+              ));
+        if (beats) { best = s; bestScore = score; }
+      }
+      if (!best) return null;
+      return { description: describeSet(best, type), date: best.sessions.start_time };
+    }
+    /** Mirrors exercise-trend.html's own per-session grouping — "tappable here" always matches "has a real chart there." */
+    function countTrendPoints(sets, type) {
+      const sessionIds = new Set();
+      for (const s of sets) {
+        if (type === 'time_based') {
+          if (s.duration_seconds === null) continue;
+        } else {
+          if (s.weight === null || s.reps === null) continue;
+        }
+        sessionIds.add(s.session_id);
+      }
+      return sessionIds.size;
+    }
+
+    // ------------------------------------------------------------------
+    // Composite index — number, delta, chart. Same shape the dashboard's
+    // own headline used to render in full; the chart and the "why" behind
+    // it live here now instead.
+    // ------------------------------------------------------------------
+    function renderIndex(series) {
+      if (series.length < 2) {
+        indexValue.textContent = '100';
+        indexDelta.textContent = '';
+        indexDelta.className = 'index-delta';
+        indexNote.hidden = false;
+        indexChartCard.hidden = true;
+        breakdownToggle.hidden = true;
+        return;
+      }
+      indexNote.hidden = true;
+      indexChartCard.hidden = false;
+      breakdownToggle.hidden = false;
+
+      const latest = series[series.length - 1].value;
+      indexValue.textContent = latest.toFixed(0);
+
+      const pct = deltaVsDaysAgo(series, 28);
+      if (pct !== null) {
+        const sign = pct >= 0 ? '+' : '−';
+        indexDelta.textContent = `${sign}${Math.abs(pct).toFixed(1)}% vs 4 weeks ago`;
+        indexDelta.className = `index-delta ${pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : ''}`;
+      } else {
+        indexDelta.textContent = '';
+        indexDelta.className = 'index-delta';
+      }
+
+      renderLineChart(indexChart, {
+        series: [{ points: series, dots: true, tappable: true }],
+        formatValue: (v) => String(Math.round(v)),
+        formatDate: formatCompactDate,
+        // The index is a regression fit with its own margin of error, not a
+        // precise instrument — without a floor a quiet month's 1-2 point
+        // drift would fill the whole chart like a real swing.
+        minRange: 8,
+        tooltipLines: (p) => [p.value.toFixed(1), formatFullDate(p.date)],
+        ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
+      });
+    }
+
+    breakdownToggle.addEventListener('click', () => {
+      const open = !breakdownPanel.hidden;
+      breakdownPanel.hidden = open;
+      breakdownToggle.textContent = open ? '+ See how the index is composed' : '− Hide breakdown';
+    });
+
+    // ------------------------------------------------------------------
+    // Breakdown — one row per movement pattern: its level, how far it
+    // moved, and when it was last trained. Biggest mover first, so what's
+    // climbing sits at the top and what's dragging collects at the bottom;
+    // a pattern with no comparison point yet (newer than the window) sorts
+    // last of all — it isn't dragging, there's just nothing to compare it
+    // against.
+    // ------------------------------------------------------------------
+    function renderBreakdown(patternSeries, patternNameById, exerciseNameById) {
+      const rows = [];
+      for (const [key, levelSeries] of patternSeries) {
+        const level = levelSeries[levelSeries.length - 1].level;
+        const lastDate = levelSeries[levelSeries.length - 1].date;
+        const changePct = deltaVsDaysAgo(levelSeries.map((p) => ({ date: p.date, value: p.level })), 28);
+        const label = key.startsWith('p:')
+          ? (patternNameById.get(key.slice(2)) || 'Unknown pattern')
+          : (exerciseNameById.get(key.slice(2)) || 'Unknown exercise');
+        rows.push({ label, level, changePct, lastDate });
+      }
+      rows.sort((a, b) => (b.changePct ?? -Infinity) - (a.changePct ?? -Infinity));
+
+      breakdownList.innerHTML = '';
+      for (const row of rows) breakdownList.appendChild(buildBreakdownRow(row));
+    }
+
+    function buildBreakdownRow(row) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.style.cursor = 'default';
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = row.label;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      meta.appendChild(document.createTextNode(`${row.level.toFixed(1)} · `));
+      const change = document.createElement('span');
+      if (row.changePct === null) {
+        change.className = 'muted';
+        change.textContent = 'new';
+      } else {
+        change.className = row.changePct > 0.05 ? 'change-up' : row.changePct < -0.05 ? 'change-down' : '';
+        const sign = row.changePct >= 0 ? '+' : '−';
+        change.textContent = `${sign}${Math.abs(row.changePct).toFixed(1)}%`;
+      }
+      meta.appendChild(change);
+      meta.appendChild(document.createTextNode(` · ${timeAgo(row.lastDate)}`));
+      body.appendChild(meta);
+
+      li.appendChild(body);
+      return li;
+    }
+
+    // ------------------------------------------------------------------
+    // Personal records — the full ranked list the dashboard used to
+    // truncate to 3. Same tiering rule: a PR that's actually beaten
+    // something outranks a first-ever log, which outranks never logged.
+    // ------------------------------------------------------------------
+    function renderPrs(exercises, liveSets) {
+      const setsByExercise = new Map();
+      for (const s of liveSets) {
+        if (!setsByExercise.has(s.exercise_id)) setsByExercise.set(s.exercise_id, []);
+        setsByExercise.get(s.exercise_id).push(s);
+      }
+
+      const stats = exercises.map((ex) => {
+        const sets = setsByExercise.get(ex.id) || [];
+        return {
+          exercise: ex,
+          pr: findPr(sets, ex.type),
+          trendPoints: countTrendPoints(sets, ex.type),
+          isFirstLog: sets.length > 0 && new Set(sets.map((s) => s.session_id)).size === 1,
+        };
+      });
+
+      const byRecency = (a, b) => new Date(b.pr.date) - new Date(a.pr.date);
+      const properPrs = stats.filter((s) => s.pr && !s.isFirstLog).sort(byRecency);
+      const firstLogs = stats.filter((s) => s.pr && s.isFirstLog).sort(byRecency);
+      const withoutPr = stats.filter((s) => !s.pr).sort((a, b) => a.exercise.name.localeCompare(b.exercise.name));
+      const ordered = [...properPrs, ...firstLogs, ...withoutPr];
+
+      const collapsedPreview = [...properPrs, ...firstLogs].slice(0, PR_PREVIEW);
+
+      let expanded = false;
+      const renderList = () => {
+        prListEl.innerHTML = '';
+        const visible = expanded ? ordered : collapsedPreview;
+        if (visible.length === 0) {
+          prListEl.hidden = true;
+          emptyPrs.hidden = false;
+        } else {
+          emptyPrs.hidden = true;
+          prListEl.hidden = false;
+          for (const stat of visible) prListEl.appendChild(buildPrListItem(stat));
+        }
+      };
+      renderList();
+
+      if (ordered.length > collapsedPreview.length) {
+        prToggle.hidden = false;
+        prToggle.textContent = `Show all ${ordered.length}`;
+        prToggle.onclick = () => {
+          expanded = !expanded;
+          prToggle.textContent = expanded ? 'Show fewer' : `Show all ${ordered.length}`;
+          renderList();
+        };
+      } else {
+        prToggle.hidden = true;
+      }
+    }
+
+    function buildPrListItem(stat) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      const tappable = stat.trendPoints > 1;
+      if (tappable) {
+        li.tabIndex = 0;
+        li.setAttribute('role', 'button');
+        const goToTrend = () => {
+          window.location.href = `./exercise-trend.html?id=${encodeURIComponent(stat.exercise.id)}`;
+        };
+        li.addEventListener('click', goToTrend);
+        li.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToTrend(); }
+        });
+      } else {
+        li.style.cursor = 'default';
+      }
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = stat.exercise.name;
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const value = document.createElement('span');
+      if (stat.pr) {
+        value.textContent = `${stat.pr.description} · ${timeAgo(stat.pr.date)}`;
+      } else {
+        value.className = 'muted';
+        value.textContent = 'Never logged';
+      }
+      meta.appendChild(value);
+      if (stat.pr && stat.isFirstLog) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.textContent = 'First log';
+        meta.appendChild(badge);
+      }
+      body.appendChild(meta);
+
+      li.appendChild(body);
+      if (tappable) {
+        const chevron = document.createElement('span');
+        chevron.className = 'list-item-chevron';
+        chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
+        li.appendChild(chevron);
+      }
+      return li;
+    }
+
+    // ------------------------------------------------------------------
+    // Loading
+    // ------------------------------------------------------------------
+    function fetchProgressData() {
+      return Promise.all([
+        supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
+        supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
+        supabase.from('movement_patterns').select('id, name').is('deleted_at', null),
+      ]);
+    }
+
+    async function loadAll() {
+      let [exercisesRes, setsRes, patternsRes] = await fetchProgressData();
+
+      // A standalone iOS PWA freezes its JS (including the library's own
+      // background token refresh) while backgrounded, so the very first
+      // query after reopening can hit a stale token. Refresh and retry once
+      // before showing an error for something that isn't a real failure.
+      if (isAuthError(exercisesRes.error || setsRes.error || patternsRes.error)) {
+        await supabase.auth.refreshSession();
+        [exercisesRes, setsRes, patternsRes] = await fetchProgressData();
+      }
+
+      const err = exercisesRes.error || setsRes.error || patternsRes.error;
+      if (err) {
+        loading.hidden = true;
+        show(topStatus, 'error', `Could not load your training data: ${err.message}`);
+        return;
+      }
+
+      const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
+      loading.hidden = true;
+
+      if (liveSets.length === 0) {
+        emptyState.textContent = 'No sets logged yet.';
+        emptyState.hidden = false;
+        return;
+      }
+      content.hidden = false;
+
+      const exercises = exercisesRes.data;
+      const patternNameById = new Map(patternsRes.data.map((p) => [p.id, p.name]));
+      const exerciseNameById = new Map(exercises.map((e) => [e.id, e.name]));
+
+      const { composite, patterns } = compositeIndexBreakdown(liveSets, exercises);
+      renderIndex(composite);
+      renderBreakdown(patterns, patternNameById, exerciseNameById);
+      renderPrs(exercises, liveSets);
+    }
+
+    // ------------------------------------------------------------------
+    // Boot
+    // ------------------------------------------------------------------
+    const user = await requireSession('./index.html');
+    if (user) {
+      await loadAll();
+    }
+  </script>
+
+  <script src="register-sw.js"></script>
+</body>
+</html>

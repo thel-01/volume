@@ -19,6 +19,7 @@ const APP_SHELL = [
   './history.html',
   './settings.html',
   './dashboard.html',
+  './progress.html',
   './exercise-trend.html',
   './weight.html',
   './volume.html',

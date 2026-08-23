@@ -311,11 +311,37 @@ export function fitExerciseIndex(points) {
  * past it, and drags the mean down by itself. Stalling and silence come out
  * identical, with no staleness rule anywhere.
  *
+ * A thin wrapper around compositeIndexBreakdown() below — see there for the
+ * actual computation. Kept as its own export so every existing caller that
+ * only wants the single composite line stays untouched.
+ *
  * Returns [{ date, value }], one point per session, oldest first.
  */
 export function compositeIndexSeries(sets, exercises) {
+  return compositeIndexBreakdown(sets, exercises).composite;
+}
+
+/**
+ * Same computation as compositeIndexSeries, but also keeps each movement
+ * pattern's own level over time — the composite alone can't show WHY it
+ * moved, and that map used to be built here and thrown away once the
+ * function returned. compositeIndexSeries is defined in terms of this one,
+ * so the two can never drift apart.
+ *
+ * Pattern keys mirror the internal patternKey() logic: `p:<movement_pattern_
+ * id>` for an exercise filed under a pattern, `e:<exercise_id>` for one that
+ * isn't. Resolving a key to a display label is the caller's job — a
+ * movement_patterns lookup for the `p:` case, the exercise's own name for
+ * the `e:` case — so this module stays free of a table it doesn't otherwise
+ * touch.
+ *
+ * Returns { composite: [{ date, value }], patterns: Map<key, [{ date, level }]> },
+ * one entry per pattern per date it was actually touched (not every date in
+ * the composite — only the ones where that specific pattern updated).
+ */
+export function compositeIndexBreakdown(sets, exercises) {
   const byExercise = sessionCapacities(sets, exercises);
-  if (byExercise.size === 0) return [];
+  if (byExercise.size === 0) return { composite: [], patterns: new Map() };
 
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
 
@@ -336,13 +362,14 @@ export function compositeIndexSeries(sets, exercises) {
       events.push({ exerciseId, date: s.date, relative: s.value / 100 });
     }
   }
-  if (events.length === 0) return [];
+  if (events.length === 0) return { composite: [], patterns: new Map() };
   events.sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const patternLevel = new Map();  // patternKey -> level
   const joinLevel = new Map();     // exerciseId -> level it linked in at
   const exerciseLevel = new Map(); // exerciseId -> current level
-  const series = [];
+  const patternSeries = new Map(); // patternKey -> [{ date, level }]
+  const composite = [];
 
   const currentComposite = () => {
     const levels = [...patternLevel.values()];
@@ -374,10 +401,32 @@ export function compositeIndexSeries(sets, exercises) {
       touched.get(key).push(exerciseLevel.get(ev.exerciseId));
     }
 
-    for (const [key, levels] of touched) patternLevel.set(key, geometricMean(levels));
+    for (const [key, levels] of touched) {
+      const level = geometricMean(levels);
+      patternLevel.set(key, level);
+      if (!patternSeries.has(key)) patternSeries.set(key, []);
+      patternSeries.get(key).push({ date, level });
+    }
 
-    series.push({ date, value: currentComposite() });
+    composite.push({ date, value: currentComposite() });
   }
 
-  return series;
+  return { composite, patterns: patternSeries };
+}
+
+/**
+ * Percent change from a series' latest point to the closest one at least
+ * `days` back — "vs 4 weeks ago" for the composite, or the same question
+ * asked of one pattern's own level series. Null when nothing in the series
+ * is old enough yet (a pattern newer than the window), same as the
+ * composite delta has always handled it — there's no earlier point to be
+ * honest against, not a 0% that would misleadingly claim "no change".
+ */
+export function deltaVsDaysAgo(series, days = 28) {
+  if (!series || series.length === 0) return null;
+  const latest = series[series.length - 1].value;
+  const cutoff = Date.now() - days * 86400000;
+  const earlier = [...series].reverse().find((p) => new Date(p.date).getTime() <= cutoff);
+  if (!earlier || earlier.value <= 0) return null;
+  return (latest / earlier.value - 1) * 100;
 }
