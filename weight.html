@@ -49,6 +49,19 @@
       color: var(--muted);
       font-variant-numeric: tabular-nums;
     }
+    /* Its own row above the <svg>, not an overlay on top of it — the chart's
+       own top-right corner is live plot area (the trend line can end
+       anywhere, tappable dots and their tooltips sit right up against it),
+       so this reserves real space instead of risking a collision. Same
+       move .legend already makes below the chart. Adds height to the card;
+       the chart itself, sized purely off width, doesn't shrink at all. */
+    .chart-change-row { display: flex; align-items: baseline; justify-content: flex-end; padding: 0 var(--space-1) var(--space-2); }
+    /* Same var(--live) amber as the trend stat above — this number belongs
+       to that one, not a new accent. Still no red/green by direction (see
+       .stat-change above); "steady" alone drops back to muted so a real
+       change and "nothing happened" stay visually distinct. */
+    .chart-change-value { font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--live); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .chart-change-value.steady { color: var(--muted); font-weight: 400; }
     .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
     /* The readings are drawn as points now, so their key is a point too. */
     .legend i.dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -138,6 +151,7 @@
       <div id="chart-window-row" class="chips" style="margin-bottom:var(--space-3);" hidden></div>
 
       <div class="chart-card" id="chart-card">
+        <div class="chart-change-row"><span class="chart-change-value" id="window-change"></span></div>
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
         <div id="legend" class="legend" hidden></div>
       </div>
@@ -296,6 +310,7 @@
     const chartCard = document.getElementById('chart-card');
     const chartEmpty = document.getElementById('chart-empty');
     const chartWindowRow = document.getElementById('chart-window-row');
+    const windowChangeEl = document.getElementById('window-change');
     const legend = document.getElementById('legend');
     const noiseRow = document.getElementById('noise-row');
     const noiseText = document.getElementById('noise-text');
@@ -530,6 +545,7 @@
         currentWhen.textContent = '';
         averageWeight.textContent = '—';
         trendChange.textContent = '';
+        windowChangeEl.textContent = '';
         chart.innerHTML = '';
         chartWindowRow.hidden = true;
         legend.hidden = true;
@@ -589,6 +605,7 @@
       if (daily.length < 2) {
         chartWindowRow.hidden = true;
         chartCard.hidden = true;
+        windowChangeEl.textContent = '';
         legend.hidden = true;
         chartEmpty.hidden = false;
         return;
@@ -610,6 +627,23 @@
       // `daily` first would re-seed the trend's bootstrap at the window's
       // edge and silently draw a wrong curve near it.
       const trend = filterByWindow(trendSeries(daily, trendMethod), chartWindow);
+
+      // Average then vs average now, for whichever window's selected — read
+      // straight off the trend line already being drawn (not a separate
+      // trendAsOf() call), so the badge can never say something the chart
+      // itself doesn't show.
+      windowChangeEl.classList.remove('steady');
+      if (trend.length < 2) {
+        windowChangeEl.textContent = '';
+      } else {
+        const windowDiff = trend[trend.length - 1].value - trend[0].value;
+        if (Math.abs(windowDiff) < 0.05) {
+          windowChangeEl.textContent = 'steady';
+          windowChangeEl.classList.add('steady');
+        } else {
+          windowChangeEl.textContent = `${windowDiff >= 0 ? '+' : '−'}${fmtKg(Math.abs(windowDiff))} kg`;
+        }
+      }
 
       renderLineChart(chart, {
         series: [
