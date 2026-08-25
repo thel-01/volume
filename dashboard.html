@@ -15,12 +15,10 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
-    .index-headline {
-      display: flex;
-      align-items: baseline;
-      gap: var(--space-2);
-      margin-bottom: var(--space-3);
-    }
+    /* Value / label+info / change, each its own line — same stacked shape
+       .weight-hero below uses; modeled directly off it. */
+    .index-hero { margin-bottom: 16px; display: flex; flex-direction: column; gap: 3px; }
+    .index-hero .label-row { display: flex; align-items: center; gap: var(--space-2); }
     .index-value {
       font-family: var(--font-mono);
       font-size: var(--fs-4xl);
@@ -144,8 +142,12 @@
 
       <div id="index-section" hidden>
         <p class="section-label">Training Progress</p>
-        <div class="index-headline">
+        <div class="index-hero">
           <span class="index-value" id="index-value"></span>
+          <div class="label-row">
+            <span class="stat-label">Composite Strength Index</span>
+            <button type="button" class="info-btn" id="index-info-trigger" aria-label="How is this calculated?">?</button>
+          </div>
           <span class="index-delta" id="index-delta"></span>
         </div>
         <p id="index-note" class="muted" hidden>Log more workouts and progress your lifts to see this number increase.</p>
@@ -221,6 +223,23 @@
     </div>
 
   </main>
+
+  <!-- Composite strength index info — modeled on weight-trend-info-modal
+       below: what the number means, then a .nav-link out to progress.html
+       for the full breakdown (not .link-button — that's for in-page
+       toggles only; anything that leaves the page is .nav-link). -->
+  <div class="modal-backdrop" id="index-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Composite Strength Index</h2>
+        <button type="button" class="modal-close" id="index-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" style="font-size:var(--fs-base);line-height:1.5;">
+        Each movement pattern you train — squats, presses, rows, and so on — gets its own trend over time. This number is the average of all of those, so lifting more on one pattern raises it, and a pattern you stop training holds its old level and drags the average down.
+      </p>
+      <a href="./progress.html?breakdown=1" class="nav-link" style="display:block;margin-top:var(--space-3);">See how it's composed</a>
+    </div>
+  </div>
 
   <!-- Quicklog: new case. Triggered from the empty-state "+ Track something." -->
   <div class="modal-backdrop" id="new-case-modal" hidden>
@@ -1420,6 +1439,10 @@
 
     document.getElementById('weight-trend-info-trigger').addEventListener('click', () => openModal(weightTrendInfoModal));
     document.getElementById('weight-trend-info-close').addEventListener('click', () => closeModal(weightTrendInfoModal));
+
+    const indexInfoModal = document.getElementById('index-info-modal');
+    document.getElementById('index-info-trigger').addEventListener('click', () => openModal(indexInfoModal));
+    document.getElementById('index-info-close').addEventListener('click', () => closeModal(indexInfoModal));
 
     let liveInjuries = [];
 

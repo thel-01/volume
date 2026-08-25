@@ -526,11 +526,22 @@
       renderIndex(composite);
       renderBreakdown(patterns, patternNameById, exerciseNameById);
       renderPrs(exercises, liveSets);
+
+      // Deep-linked from the dashboard's index info popup — lands with the
+      // breakdown already open instead of making you tap through to it.
+      // Only applies if renderIndex() actually revealed the toggle (thin
+      // data hides it entirely).
+      if (autoExpandBreakdown && !breakdownToggle.hidden) {
+        breakdownPanel.hidden = false;
+        breakdownToggle.textContent = '− Hide breakdown';
+      }
     }
 
     // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
+    const autoExpandBreakdown = new URLSearchParams(location.search).get('breakdown') === '1';
+
     const user = await requireSession('./index.html');
     if (user) {
       await loadAll();
