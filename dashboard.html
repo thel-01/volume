@@ -82,6 +82,36 @@
        weight.html's own stat blocks already use. */
     .weight-hero { margin-bottom: 16px; display: flex; flex-direction: column; gap: 3px; }
     .weight-hero .label-row { display: flex; align-items: center; gap: var(--space-2); }
+
+    /* Start-workout chip flagged "longest since" — scoped to
+       #start-workout-chips rather than the shared .chip/.chips classes,
+       so log.html, history.html, exercises.html and set quick-tags are
+       all untouched. margin-top gives the floating tag headroom above
+       the row so it never collides with the "Session type" label. */
+    #start-workout-chips.chips { margin-top: 18px; }
+    #start-workout-chips .chip { position: relative; z-index: 0; }
+    /* z-index: without it, once chips wrap to 2+ rows, default paint
+       order can put a later row's tag underneath an earlier row's chip. */
+    #start-workout-chips .chip.suggested { border-color: var(--live); color: var(--live); z-index: 2; }
+    /* Selected wins outright once tapped — a colored ring around an
+       otherwise solid-white selected chip reads as two states fighting. */
+    #start-workout-chips .chip.suggested.selected { color: var(--accent-ink); border-color: var(--accent); }
+    #start-workout-chips .chip .hint {
+      /* Centered by default; positionHint() below overrides left/right/
+         transform inline the moment centering would push the tag past
+         the chip row's own edge — a short chip ("PT") can be far
+         narrower than "longest since" itself. */
+      position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+      background: var(--live); color: var(--accent-ink);
+      /* --fs-2xs, not an invented size — the app's actual type-scale
+         floor, same value .badge ("First log") already hardcodes. Font
+         and weight are NOT set here: .badge has none either, so both
+         inherit the real body face at its default weight — explicitly
+         overriding .chip's own font-weight:500, which .hint would
+         otherwise inherit. */
+      font-size: var(--fs-2xs); font-weight: 400;
+      padding: 1px 6px; white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -641,6 +671,10 @@
     // current truth, not a stale snapshot from page load.
     let currentOpenSession = null;
     let selectedCategory = null;
+    // Which start-workout chip gets flagged "longest since" — set by
+    // renderCategories(), which already builds the per-category last-
+    // trained map this reuses.
+    let longestSinceCategory = null;
 
     /** "Today"/"Yesterday"/weekday/etc, per date-utils, plus the clock time if known. */
     function relativeWhen(entry) {
@@ -822,15 +856,53 @@
     // that used to gate a whole page hop through log.html's own start
     // screen; this creates the session right here and hands off straight
     // into log.html's session view, same as resuming one already open.
+    // The chip is position:relative, so its absolutely-positioned .hint
+    // child is placed against the chip's PADDING box, not its visible
+    // border — left:0/right:0 alone lands 1px inside the chip's own
+    // border rather than flush with it. CHIP_BORDER compensates so the
+    // tag's outer edge lines up with the chip's actual outer edge.
+    const CHIP_BORDER = 1;
+
+    /** Re-anchors a suggested chip's floating hint if centering would push it past the chip row's own edge. */
+    function positionHint(chip, container) {
+      const hint = chip.querySelector('.hint');
+      if (!hint) return;
+      hint.style.left = '50%';
+      hint.style.right = 'auto';
+      hint.style.transform = 'translateX(-50%)';
+      const hintRect = hint.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const margin = 2;
+      if (hintRect.left < containerRect.left + margin) {
+        hint.style.left = `-${CHIP_BORDER}px`;
+        hint.style.transform = 'none';
+      } else if (hintRect.right > containerRect.right - margin) {
+        hint.style.left = 'auto';
+        hint.style.right = `-${CHIP_BORDER}px`;
+        hint.style.transform = 'none';
+      }
+    }
+
     function renderStartWorkoutChips() {
       startWorkoutChips.innerHTML = '';
       startWorkoutNoTypes.hidden = sessionTypeNames.length > 0;
       const options = [...sessionTypeNames, OTHER_CATEGORY];
+      let suggestedChip = null;
       for (const cat of options) {
         const chip = document.createElement('button');
         chip.type = 'button';
-        chip.className = 'chip' + (selectedCategory === cat ? ' selected' : '');
+        const isSuggested = cat === longestSinceCategory;
+        chip.className = 'chip'
+          + (selectedCategory === cat ? ' selected' : '')
+          + (isSuggested ? ' suggested' : '');
         chip.textContent = cat;
+        if (isSuggested) {
+          const hint = document.createElement('span');
+          hint.className = 'hint';
+          hint.textContent = 'longest since';
+          chip.appendChild(hint);
+          suggestedChip = chip;
+        }
         chip.addEventListener('click', () => {
           selectedCategory = cat;
           renderStartWorkoutChips();
@@ -838,6 +910,7 @@
         });
         startWorkoutChips.appendChild(chip);
       }
+      if (suggestedChip) positionHint(suggestedChip, startWorkoutChips);
     }
     workoutBtn.addEventListener('click', () => {
       // A workout's already open — same destination it's always been,
@@ -1194,6 +1267,23 @@
         }
       }
 
+      // Which start-workout chip gets flagged "longest since" — matched
+      // case-insensitively against the same map, restricted to real
+      // Settings-managed types. 'Other' is a catch-all, not a specific
+      // thing to resume, so it's never the suggestion; a type you've
+      // never trained isn't overdue, it's just untried, so it's left out
+      // too rather than winning by default.
+      longestSinceCategory = null;
+      let oldestDate = null;
+      for (const name of sessionTypeNames) {
+        const entry = lastByCategory.get(name.toLowerCase());
+        if (!entry) continue;
+        if (!oldestDate || new Date(entry.lastStart) < new Date(oldestDate)) {
+          longestSinceCategory = name;
+          oldestDate = entry.lastStart;
+        }
+      }
+
       const rows = [...lastByCategory.values()]
         .map((v) => [v.label, v.lastStart])
         .sort((a, b) => new Date(b[1]) - new Date(a[1]));
@@ -1210,9 +1300,15 @@
       for (const [category, lastStart] of rows) {
         const li = document.createElement('li');
         li.className = 'list-item';
-        // Nothing to tap through to — .list-item's cursor is styled for the
-        // rows elsewhere in the app that do navigate somewhere.
-        li.style.cursor = 'default';
+        li.tabIndex = 0;
+        li.setAttribute('role', 'button');
+        const goToHistory = () => {
+          window.location.href = `./history.html?category=${encodeURIComponent(category)}`;
+        };
+        li.addEventListener('click', goToHistory);
+        li.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToHistory(); }
+        });
 
         const body = document.createElement('div');
         body.className = 'list-item-body';
@@ -1229,6 +1325,11 @@
         value.style.fontSize = 'var(--fs-sm)';
         value.textContent = timeAgo(lastStart);
         li.appendChild(value);
+
+        const chevron = document.createElement('span');
+        chevron.className = 'list-item-chevron';
+        chevron.innerHTML = CHEVRON_SVG;
+        li.appendChild(chevron);
 
         categoryListEl.appendChild(li);
       }

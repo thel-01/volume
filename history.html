@@ -360,6 +360,16 @@
       }
       seen.sort((a, b) => a.localeCompare(b));
 
+      // A category seeded from ?category= (dashboard's "time since last
+      // session" rows) may carry different casing than this page's own —
+      // normalize to whatever's actually here so the chip highlights
+      // correctly. filteredSessions() already compares case-insensitively
+      // regardless, so filtering itself was never at risk.
+      if (selectedCategory) {
+        const match = seen.find((c) => c.toLowerCase() === selectedCategory.toLowerCase());
+        if (match) selectedCategory = match;
+      }
+
       categoryChips.innerHTML = '';
       categoryChips.hidden = seen.length === 0;
       for (const cat of seen) {
@@ -1325,6 +1335,11 @@
     // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
+    // Deep-linked from dashboard.html's "Time since last session" rows —
+    // ?category=legs arrives pre-filtered instead of landing on everything.
+    const deepLinkCategory = new URLSearchParams(location.search).get('category');
+    if (deepLinkCategory) selectedCategory = deepLinkCategory;
+
     user = await requireSession('./index.html');
     if (user) {
       await loadAll();
