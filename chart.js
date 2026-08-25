@@ -806,11 +806,17 @@ function polarPoint(cx, cy, r, angleDeg) {
  * @param {boolean} [opts.showPivotDot] false at mini sizes, where the dot is
  *                                      too small to read as a hole punched
  *                                      through the needle
+ * @param {boolean} [opts.showNeedle] false for an unlit empty state — grey
+ *                                    bands with nothing to point at, rather
+ *                                    than a fabricated reading. Implies no
+ *                                    pivot dot either (nothing to punch a
+ *                                    hole through without a needle).
  */
 export function renderGaugeChart(svg, opts) {
   const { value } = opts;
   const colors = opts.colors || GAUGE_COLORS;
   const showPivotDot = opts.showPivotDot !== false;
+  const showNeedle = opts.showNeedle !== false;
 
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${GAUGE_VIEW_W} ${GAUGE_VIEW_H}`);
@@ -832,32 +838,34 @@ export function renderGaugeChart(svg, opts) {
     svg.appendChild(arc);
   }
 
-  const clamped = Math.max(0, Math.min(1, value));
-  const angle = 180 - clamped * 180; // 0 -> left (180deg), 1 -> right (0deg)
-  const rad = (angle * Math.PI) / 180;
-  const dir = { x: Math.cos(rad), y: -Math.sin(rad) };
-  const perp = { x: -dir.y, y: dir.x };
+  if (showNeedle) {
+    const clamped = Math.max(0, Math.min(1, value));
+    const angle = 180 - clamped * 180; // 0 -> left (180deg), 1 -> right (0deg)
+    const rad = (angle * Math.PI) / 180;
+    const dir = { x: Math.cos(rad), y: -Math.sin(rad) };
+    const perp = { x: -dir.y, y: dir.x };
 
-  const needleLen = GAUGE_RADIUS; // tip reaches the ring
-  const tip = { x: GAUGE_CX + dir.x * needleLen, y: GAUGE_CY + dir.y * needleLen };
-  const butt = { x: GAUGE_CX - dir.x * NEEDLE_TAIL_LEN, y: GAUGE_CY - dir.y * NEEDLE_TAIL_LEN };
-  const tipLeft = { x: tip.x + perp.x * NEEDLE_TIP_HALF, y: tip.y + perp.y * NEEDLE_TIP_HALF };
-  const tipRight = { x: tip.x - perp.x * NEEDLE_TIP_HALF, y: tip.y - perp.y * NEEDLE_TIP_HALF };
-  const buttLeft = { x: butt.x + perp.x * NEEDLE_BASE_HALF, y: butt.y + perp.y * NEEDLE_BASE_HALF };
-  const buttRight = { x: butt.x - perp.x * NEEDLE_BASE_HALF, y: butt.y - perp.y * NEEDLE_BASE_HALF };
+    const needleLen = GAUGE_RADIUS; // tip reaches the ring
+    const tip = { x: GAUGE_CX + dir.x * needleLen, y: GAUGE_CY + dir.y * needleLen };
+    const butt = { x: GAUGE_CX - dir.x * NEEDLE_TAIL_LEN, y: GAUGE_CY - dir.y * NEEDLE_TAIL_LEN };
+    const tipLeft = { x: tip.x + perp.x * NEEDLE_TIP_HALF, y: tip.y + perp.y * NEEDLE_TIP_HALF };
+    const tipRight = { x: tip.x - perp.x * NEEDLE_TIP_HALF, y: tip.y - perp.y * NEEDLE_TIP_HALF };
+    const buttLeft = { x: butt.x + perp.x * NEEDLE_BASE_HALF, y: butt.y + perp.y * NEEDLE_BASE_HALF };
+    const buttRight = { x: butt.x - perp.x * NEEDLE_BASE_HALF, y: butt.y - perp.y * NEEDLE_BASE_HALF };
 
-  const needle = document.createElementNS(NS, 'polygon');
-  const pts = [buttLeft, tipLeft, tipRight, buttRight].map((p) => `${p.x},${p.y}`).join(' ');
-  needle.setAttribute('points', pts);
-  needle.setAttribute('fill', 'var(--text)');
-  svg.appendChild(needle);
+    const needle = document.createElementNS(NS, 'polygon');
+    const pts = [buttLeft, tipLeft, tipRight, buttRight].map((p) => `${p.x},${p.y}`).join(' ');
+    needle.setAttribute('points', pts);
+    needle.setAttribute('fill', 'var(--text)');
+    svg.appendChild(needle);
 
-  if (showPivotDot) {
-    const dot = document.createElementNS(NS, 'circle');
-    dot.setAttribute('cx', GAUGE_CX);
-    dot.setAttribute('cy', GAUGE_CY);
-    dot.setAttribute('r', NEEDLE_PIVOT_R);
-    dot.setAttribute('fill', 'var(--surface)');
-    svg.appendChild(dot);
+    if (showPivotDot) {
+      const dot = document.createElementNS(NS, 'circle');
+      dot.setAttribute('cx', GAUGE_CX);
+      dot.setAttribute('cy', GAUGE_CY);
+      dot.setAttribute('r', NEEDLE_PIVOT_R);
+      dot.setAttribute('fill', 'var(--surface)');
+      svg.appendChild(dot);
+    }
   }
 }

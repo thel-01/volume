@@ -186,8 +186,7 @@
           </div>
           <div class="stat">
             <div class="stat-visual">
-              <svg id="volume-intensity-gauge" viewBox="0 0 200 118" role="img" aria-label="Intensity this week" hidden></svg>
-              <span class="stat-value lg" id="volume-intensity-empty" hidden>—</span>
+              <svg id="volume-intensity-gauge" viewBox="0 0 200 118" role="img" aria-label="Intensity this week"></svg>
             </div>
             <span class="stat-label">Intensity</span>
           </div>
@@ -421,7 +420,6 @@
 
     const volumeThisWeek = document.getElementById('volume-this-week');
     const volumeIntensityGauge = document.getElementById('volume-intensity-gauge');
-    const volumeIntensityEmpty = document.getElementById('volume-intensity-empty');
 
     const categoryListEl = document.getElementById('category-list');
     const emptyCategories = document.getElementById('empty-categories');
@@ -1128,6 +1126,10 @@
     // 3 of the 4-band gauge's steps, dropping "serious" — small enough here
     // that the extra resolution would be lost.
     const INTENSITY_GAUGE_COLORS = ['var(--chart-status-good)', 'var(--chart-status-warning)', 'var(--chart-status-critical)'];
+    // No sets yet this week — nothing to score. Same dial, unlit: grey
+    // bands (light to dark), no needle, rather than a fabricated value: 0
+    // that would read as "confirmed easy week" instead of "no data."
+    const INTENSITY_GAUGE_GREY = ['var(--muted)', 'var(--text-tertiary)', 'var(--line)'];
 
     // Same "Monday through Sunday" week volume.html uses, so the preview
     // here and the detail page never disagree.
@@ -1143,18 +1145,17 @@
 
       volumeThisWeek.textContent = String(thisWeekSets.length);
 
-      // No sets yet this week — there's nothing to score. A ~34px slot next
-      // to a single number has no room for a sentence, so this falls back to
-      // a plain "—" (same convention weight.html uses for its own 7-day
-      // average pre-window), instead of rendering a gauge with a fabricated
-      // value: 0 that reads as "confirmed easy week" rather than "no data."
       if (thisWeekSets.length === 0) {
-        volumeIntensityGauge.hidden = true;
-        volumeIntensityEmpty.hidden = false;
+        volumeIntensityGauge.setAttribute('aria-label', 'No sets logged this week');
+        renderGaugeChart(volumeIntensityGauge, {
+          value: 0,
+          colors: INTENSITY_GAUGE_GREY,
+          showPivotDot: false,
+          showNeedle: false,
+        });
         return;
       }
-      volumeIntensityGauge.hidden = false;
-      volumeIntensityEmpty.hidden = true;
+      volumeIntensityGauge.setAttribute('aria-label', 'Intensity this week');
       const total = thisWeekSets.reduce((sum, s) => {
         const weight = s.quick_tag in INTENSITY_WEIGHT ? INTENSITY_WEIGHT[s.quick_tag] : INTENSITY_UNTAGGED_WEIGHT;
         return sum + weight;
