@@ -392,16 +392,25 @@ button.secondary {
   border: 2px solid currentColor;
   border-radius: 50%;
 }
-/* One gap value for every pair of stacked elements in the slot (row,
-   actions, "Show all N", the add-case button), via flex `gap` rather than
-   individual margins. Margins here were inconsistent by accident: a
-   <button> computes to inline-block and never collapses its margin with
-   a sibling's, while a <div> does — so the same nominal 8px/12px produced
-   visibly different real gaps (8/16/20px) depending on which element type
-   sat next to which. `gap` sidesteps that entirely. */
-#injury-slot { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); }
-#injury-slot .list-item { margin-bottom: 0; }
-.injury-actions { display: flex; width: 100%; gap: var(--space-2); }
+/* One bordered card per case — row (dot/name/meta/chevron) plus, when not
+   in quiet hours, Same/Update stacked inside the same border, not as a
+   separate block below it. Used by the dashboard's stalest-case slot and
+   injuries.html's index list alike (duplicated per-page like buildInjuryRow
+   always was; this just replaces its DOM shape in both places). */
+.injury-card {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--motion-fast);
+}
+.injury-card:active { transform: scale(0.99); }
+.injury-card-row { display: flex; align-items: center; gap: var(--space-3); min-height: var(--tap); }
+.injury-actions { display: flex; width: 100%; gap: var(--space-2); margin-top: var(--space-3); }
 .injury-actions button { flex: 1; }
 
 /* Quicklog popup shell — bottom sheet, shared by the New Case and Update

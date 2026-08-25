@@ -167,6 +167,15 @@
 
       <p class="section-label" style="margin-top:24px;">Injury Journal</p>
       <div id="injury-slot"></div>
+      <a href="./injuries.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
+        <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
+          <div class="stat">
+            <div class="stat-visual"><span class="stat-value lg" id="injury-count">—</span></div>
+            <span class="stat-label">active injuries</span>
+          </div>
+        </div>
+        <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
+      </a>
 
       <p class="section-label">Volume &amp; Intensity</p>
       <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
@@ -238,38 +247,6 @@
         Each movement pattern you train — squats, presses, rows, and so on — gets its own trend over time. This number is the average of all of those, so lifting more on one pattern raises it, and a pattern you stop training holds its old level and drags the average down.
       </p>
       <a href="./progress.html?breakdown=1" class="nav-link" style="display:block;margin-top:var(--space-3);">See how it's composed</a>
-    </div>
-  </div>
-
-  <!-- Quicklog: new case. Triggered from the empty-state "+ Track something." -->
-  <div class="modal-backdrop" id="new-case-modal" hidden>
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2>Track something</h2>
-        <button type="button" class="modal-close" id="new-case-close" aria-label="Close">&times;</button>
-      </div>
-      <div class="field">
-        <label for="new-case-name">What, roughly</label>
-        <input type="text" id="new-case-name" autocomplete="off" placeholder="e.g. Right shoulder">
-      </div>
-      <div class="field" style="margin-bottom:var(--space-3);">
-        <div class="pain-label-row">
-          <label style="margin:0;">Pain right now</label>
-        </div>
-        <div class="pain-readout">
-          <span class="value"><span class="pain-num" id="new-case-pain-value">–</span><span class="unit">/10</span></span>
-          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">?</button>
-        </div>
-        <div class="pain-grid" id="new-case-pain-grid"></div>
-      </div>
-      <button type="button" class="detail-toggle" id="new-case-detail-toggle">+ Add a note</button>
-      <div id="new-case-detail-fields" hidden style="margin-top:var(--space-3);">
-        <div class="field" style="margin-bottom:0;">
-          <textarea id="new-case-note" placeholder="Add anything worth remembering"></textarea>
-        </div>
-      </div>
-      <div id="new-case-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
-      <button type="button" class="uppercase" id="new-case-save" style="margin-top:20px;">Save</button>
     </div>
   </div>
 
@@ -418,15 +395,7 @@
     const workoutBtn = document.getElementById('workout-btn');
 
     const injurySlot = document.getElementById('injury-slot');
-    const newCaseModal = document.getElementById('new-case-modal');
-    const newCaseName = document.getElementById('new-case-name');
-    const newCasePainValue = document.getElementById('new-case-pain-value');
-    const newCasePainGrid = document.getElementById('new-case-pain-grid');
-    const newCaseDetailToggle = document.getElementById('new-case-detail-toggle');
-    const newCaseDetailFields = document.getElementById('new-case-detail-fields');
-    const newCaseNote = document.getElementById('new-case-note');
-    const newCaseStatus = document.getElementById('new-case-status');
-    const newCaseSave = document.getElementById('new-case-save');
+    const injuryCount = document.getElementById('injury-count');
 
     const updateModal = document.getElementById('update-modal');
     const updateModalTitle = document.getElementById('update-modal-title');
@@ -1468,16 +1437,22 @@
       return checkins.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
     }
 
-    function buildInjuryRow(injury, latest) {
+    // One bordered card per case — row plus, outside quiet hours, its own
+    // Same/Update stacked inside the same border (not a sibling block).
+    // Same shape injuries.html's index list builds, duplicated per-page.
+    function buildInjuryCard(injury, latest, withActions) {
       const color = painSeverityColor(latest.pain);
-      const row = document.createElement('div');
-      row.className = 'list-item';
-      row.style.color = color;
-      row.tabIndex = 0;
-      row.setAttribute('role', 'button');
+      const card = document.createElement('div');
+      card.className = 'injury-card';
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
       const goToDetail = () => { window.location.href = `./injuries.html?id=${encodeURIComponent(injury.id)}`; };
-      row.addEventListener('click', goToDetail);
-      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToDetail(); } });
+      card.addEventListener('click', goToDetail);
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToDetail(); } });
+
+      const row = document.createElement('div');
+      row.className = 'injury-card-row';
+      row.style.color = color;
 
       const dot = document.createElement('div');
       dot.className = 'injury-dot';
@@ -1501,42 +1476,35 @@
       chevron.className = 'list-item-chevron';
       chevron.innerHTML = CHEVRON_SVG;
       row.appendChild(chevron);
+      card.appendChild(row);
 
-      return row;
+      if (withActions) {
+        const actions = document.createElement('div');
+        actions.className = 'injury-actions';
+        const sameBtn = document.createElement('button');
+        sameBtn.type = 'button';
+        sameBtn.className = 'secondary';
+        sameBtn.textContent = 'Same';
+        sameBtn.addEventListener('click', (e) => { e.stopPropagation(); logSameCheckin(injury); });
+        actions.appendChild(sameBtn);
+        const updateBtn = document.createElement('button');
+        updateBtn.type = 'button';
+        updateBtn.className = 'secondary';
+        updateBtn.style.color = 'var(--muted)';
+        updateBtn.textContent = 'Update';
+        updateBtn.addEventListener('click', (e) => { e.stopPropagation(); openUpdateModal(injury); });
+        actions.appendChild(updateBtn);
+        card.appendChild(actions);
+      }
+
+      return card;
     }
 
-    function buildInjuryActions(injury) {
-      const wrap = document.createElement('div');
-      wrap.className = 'injury-actions';
-      const sameBtn = document.createElement('button');
-      sameBtn.type = 'button';
-      sameBtn.className = 'secondary';
-      sameBtn.textContent = 'Same';
-      sameBtn.addEventListener('click', () => logSameCheckin(injury));
-      wrap.appendChild(sameBtn);
-      const updateBtn = document.createElement('button');
-      updateBtn.type = 'button';
-      updateBtn.className = 'secondary';
-      updateBtn.style.color = 'var(--muted)';
-      updateBtn.textContent = 'Update';
-      updateBtn.addEventListener('click', () => openUpdateModal(injury));
-      wrap.appendChild(updateBtn);
-      return wrap;
-    }
-
+    // Just the stalest case — the one most needing attention. Seeing every
+    // active case (and starting a new one) now lives on injuries.html,
+    // reached through the count card below; this slot stays the fast path.
     function renderInjurySlot() {
       const active = liveInjuries.filter((i) => i.status === 'active');
-      injurySlot.innerHTML = '';
-
-      if (active.length === 0) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'secondary';
-        btn.textContent = '+ Track something';
-        btn.addEventListener('click', () => openNewCaseModal());
-        injurySlot.appendChild(btn);
-        return;
-      }
 
       // Stalest check-in first — the one most needing attention leads.
       const withLatest = active
@@ -1544,117 +1512,15 @@
         .filter((x) => x.latest)
         .sort((a, b) => new Date(a.latest.created_at) - new Date(b.latest.created_at));
 
-      const collapsed = withLatest.slice(0, 1);
-      let expanded = false;
+      injuryCount.textContent = String(withLatest.length);
+      injurySlot.innerHTML = '';
 
-      function paint() {
-        injurySlot.innerHTML = '';
-        const visible = expanded ? withLatest : collapsed;
-        for (const { injury, latest } of visible) {
-          injurySlot.appendChild(buildInjuryRow(injury, latest));
-          if (hoursSince(latest.created_at) >= QUIET_HOURS) {
-            injurySlot.appendChild(buildInjuryActions(injury));
-          }
-        }
-        if (withLatest.length > collapsed.length) {
-          const toggle = document.createElement('button');
-          toggle.type = 'button';
-          toggle.className = 'link-button';
-          toggle.textContent = expanded ? 'Show fewer' : `Show all ${withLatest.length}`;
-          toggle.addEventListener('click', () => { expanded = !expanded; paint(); });
-          injurySlot.appendChild(toggle);
-        }
+      if (withLatest.length === 0) return;
 
-        // Always present once something's already tracked — otherwise
-        // there's no way to add a second case once the first exists. A
-        // full button, not another link-button — stacked under "Show all
-        // N" those two would read as the same kind of low-emphasis action
-        // and blur together.
-        const addBtn = document.createElement('button');
-        addBtn.type = 'button';
-        addBtn.className = 'secondary';
-        addBtn.textContent = '+ Track something else';
-        addBtn.addEventListener('click', () => openNewCaseModal());
-        injurySlot.appendChild(addBtn);
-      }
-      paint();
+      const { injury, latest } = withLatest[0];
+      const withActions = hoursSince(latest.created_at) >= QUIET_HOURS;
+      injurySlot.appendChild(buildInjuryCard(injury, latest, withActions));
     }
-
-    // ---- New Case popup ----
-    // Starts with nothing picked — a pre-filled "6" would let someone save
-    // a value they never actually chose. The dash is a real "unset" state,
-    // not a placeholder value.
-    let newCasePain = null;
-    function openNewCaseModal() {
-      newCaseName.value = '';
-      newCasePain = null;
-      newCasePainValue.textContent = '–';
-      buildPainScale(newCasePainGrid, newCasePain, (v) => {
-        newCasePain = v;
-        newCasePainValue.textContent = String(v);
-      });
-      newCaseDetailFields.hidden = true;
-      newCaseDetailToggle.textContent = '+ Add a note';
-      newCaseNote.value = '';
-      hide(newCaseStatus);
-      newCaseSave.disabled = false;
-      newCaseSave.textContent = 'Save';
-      openModal(newCaseModal);
-      newCaseName.focus();
-    }
-    document.getElementById('new-case-close').addEventListener('click', () => closeModal(newCaseModal));
-    newCaseDetailToggle.addEventListener('click', () => {
-      newCaseDetailFields.hidden = !newCaseDetailFields.hidden;
-      newCaseDetailToggle.textContent = newCaseDetailFields.hidden ? '+ Add a note' : '− Hide note';
-    });
-    newCaseSave.addEventListener('click', async () => {
-      hide(newCaseStatus);
-      const name = newCaseName.value.trim();
-      if (!name) {
-        show(newCaseStatus, 'error', 'Enter what, roughly.');
-        newCaseName.focus();
-        return;
-      }
-      if (newCasePain === null) {
-        show(newCaseStatus, 'error', 'Pick a pain level.');
-        return;
-      }
-      newCaseSave.disabled = true;
-      newCaseSave.textContent = 'Saving…';
-
-      const { data: injury, error: injuryErr } = await supabase
-        .from('injuries')
-        .insert({ user_id: user.id, name })
-        .select()
-        .single();
-
-      if (injuryErr) {
-        show(newCaseStatus, 'error', `Could not save: ${injuryErr.message}`);
-        newCaseSave.disabled = false;
-        newCaseSave.textContent = 'Save';
-        return;
-      }
-
-      const note = newCaseNote.value.trim() || null;
-      const { error: checkinErr } = await supabase
-        .from('injury_checkins')
-        .insert({ injury_id: injury.id, pain: newCasePain, note });
-
-      newCaseSave.disabled = false;
-      newCaseSave.textContent = 'Save';
-
-      if (checkinErr) {
-        // The case exists but its first check-in didn't save — surface it
-        // rather than leaving a silent gap in the chart.
-        show(newCaseStatus, 'error', `Saved, but the first check-in didn't: ${checkinErr.message}`);
-        await loadInjuries();
-        return;
-      }
-
-      closeModal(newCaseModal);
-      flash(`Tracking "${name}."`);
-      await loadInjuries();
-    });
 
     // ---- Update popup (dashboard slot + reused by injuries.html) ----
     let updateTargetInjury = null;

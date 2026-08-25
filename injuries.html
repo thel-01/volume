@@ -14,17 +14,26 @@
   <link rel="icon" href="icons/icon-192.png">
 
   <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Value/label pair for the index page's active-case count — same
+       mono-numeral shape dashboard.html's own stat blocks use, copied in
+       rather than shared (this app's own per-page convention). */
+    .stat { display: flex; flex-direction: column; gap: 3px; }
+    .stat-value {
+      font-family: var(--font-mono);
+      font-size: var(--fs-3xl);
+      font-weight: 500;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-value.lg { font-size: var(--fs-4xl); }
+    .stat-label { font-size: 13px; color: var(--muted); }
+  </style>
 </head>
 <body>
   <main class="screen">
 
     <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
-
-    <div class="page-header">
-      <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
-      <h1 id="heading">…</h1>
-      <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
-    </div>
 
     <div id="loading" class="loading-state">
       <svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" role="status" aria-label="Loading">
@@ -32,7 +41,43 @@
       </svg>
     </div>
 
-    <div id="content" hidden>
+    <!-- =================== INDEX ===================
+         Landing view for this page — reached from the dashboard's "N active
+         injuries" card. Active cases first (everywhere quicklog reach: each
+         gets its own Same/Update, same 24h quiet-hours rule as the dashboard
+         slot), resolved cases behind a reveal (relocated from settings.html,
+         not redesigned — same "Resolved {date} · lasted {n} days" format). -->
+    <div id="index-view" hidden>
+      <div class="page-header">
+        <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
+        <h1>Injury Journal</h1>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-4);">
+        <div class="stat">
+          <div class="stat-visual"><span class="stat-value lg" id="idx-count">—</span></div>
+          <span class="stat-label">active cases</span>
+        </div>
+        <button type="button" class="icon-btn" id="idx-new-case-btn" aria-label="Track something new"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 L12 20 M4 12 L20 12"/></svg></button>
+      </div>
+
+      <ul class="list" id="active-list"></ul>
+      <p id="empty-active" class="empty-state" hidden>No active cases.</p>
+
+      <button type="button" class="detail-toggle" id="reveal-toggle" style="margin-top:var(--space-3);"></button>
+      <ul class="list resolved-list" id="resolved-list" hidden style="margin-top:var(--space-3);"></ul>
+      <p id="empty-resolved" class="empty-state" hidden>No resolved cases yet.</p>
+    </div>
+
+    <!-- =================== DETAIL =================== -->
+    <div id="detail-view" hidden>
+      <div class="page-header">
+        <a href="./injuries.html" class="icon-link" aria-label="Back to Injury Journal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
+        <h1 id="heading">…</h1>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+      </div>
+
       <p id="started-line" class="muted" style="margin:0 0 var(--space-4);"><span id="started-text"></span><span id="status-badge" class="badge"></span></p>
 
       <div class="chart-card">
@@ -63,6 +108,42 @@
     </div>
 
   </main>
+
+  <!-- Quicklog: new case. Triggered from the index view's "+" — the only
+       place this lives now (moved off the dashboard entirely: motivation to
+       start tracking something is already high the moment it's needed, so
+       it doesn't need a nudge). Same popup design as dashboard.html used to
+       have, duplicated here. -->
+  <div class="modal-backdrop" id="new-case-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Track something</h2>
+        <button type="button" class="modal-close" id="new-case-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="field">
+        <label for="new-case-name">What, roughly</label>
+        <input type="text" id="new-case-name" autocomplete="off" placeholder="e.g. Right shoulder">
+      </div>
+      <div class="field" style="margin-bottom:var(--space-3);">
+        <div class="pain-label-row">
+          <label style="margin:0;">Pain right now</label>
+        </div>
+        <div class="pain-readout">
+          <span class="value"><span class="pain-num" id="new-case-pain-value">–</span><span class="unit">/10</span></span>
+          <button type="button" class="info-btn pain-info-trigger" aria-label="What do these numbers mean?">?</button>
+        </div>
+        <div class="pain-grid" id="new-case-pain-grid"></div>
+      </div>
+      <button type="button" class="detail-toggle" id="new-case-detail-toggle">+ Add a note</button>
+      <div id="new-case-detail-fields" hidden style="margin-top:var(--space-3);">
+        <div class="field" style="margin-bottom:0;">
+          <textarea id="new-case-note" placeholder="Add anything worth remembering"></textarea>
+        </div>
+      </div>
+      <div id="new-case-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
+      <button type="button" class="uppercase" id="new-case-save" style="margin-top:20px;">Save</button>
+    </div>
+  </div>
 
   <!-- Quicklog: update. Same popup design as dashboard.html's — duplicated
        here per this app's existing per-page-owns-its-UI architecture, not
@@ -177,7 +258,8 @@
     const topStatus = document.getElementById('top-status');
     const heading = document.getElementById('heading');
     const loading = document.getElementById('loading');
-    const content = document.getElementById('content');
+    const indexView = document.getElementById('index-view');
+    const detailView = document.getElementById('detail-view');
     const statusBadge = document.getElementById('status-badge');
     const startedText = document.getElementById('started-text');
     const painChart = document.getElementById('pain-chart');
@@ -190,6 +272,24 @@
     const deleteInjuryConfirm = document.getElementById('delete-injury-confirm');
     const deleteInjuryCancel = document.getElementById('delete-injury-cancel');
     const deleteInjuryConfirmBtn = document.getElementById('delete-injury-confirm-btn');
+
+    const idxCount = document.getElementById('idx-count');
+    const idxNewCaseBtn = document.getElementById('idx-new-case-btn');
+    const activeListEl = document.getElementById('active-list');
+    const emptyActive = document.getElementById('empty-active');
+    const revealToggle = document.getElementById('reveal-toggle');
+    const resolvedListEl = document.getElementById('resolved-list');
+    const emptyResolved = document.getElementById('empty-resolved');
+
+    const newCaseModal = document.getElementById('new-case-modal');
+    const newCaseName = document.getElementById('new-case-name');
+    const newCasePainValue = document.getElementById('new-case-pain-value');
+    const newCasePainGrid = document.getElementById('new-case-pain-grid');
+    const newCaseDetailToggle = document.getElementById('new-case-detail-toggle');
+    const newCaseDetailFields = document.getElementById('new-case-detail-fields');
+    const newCaseNote = document.getElementById('new-case-note');
+    const newCaseStatus = document.getElementById('new-case-status');
+    const newCaseSaveBtn = document.getElementById('new-case-save');
 
     const updateModal = document.getElementById('update-modal');
     const updateModalTitle = document.getElementById('update-modal-title');
@@ -269,6 +369,19 @@
       return 'var(--chart-status-critical)';
     }
 
+    // Index-list rows only — same chevron dashboard.html's own list-items use.
+    const CHEVRON_SVG = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
+    function dayCount(startedAt) {
+      return Math.floor((Date.now() - new Date(startedAt).getTime()) / 86400000) + 1;
+    }
+    function relativeHoursLabel(iso) {
+      const h = hoursSince(iso);
+      if (h < 1) return 'just now';
+      if (h < 24) return `${Math.floor(h)}h ago`;
+      const d = Math.floor(h / 24);
+      return d === 1 ? '1 day ago' : `${d} days ago`;
+    }
+
     // Same fixed-grid chip pattern the pain scale is locked to everywhere.
     function buildPainScale(container, initial, onChange) {
       container.innerHTML = '';
@@ -323,21 +436,21 @@
     document.getElementById('pain-info-close').addEventListener('click', () => closeModal(painInfoModal));
 
     // ------------------------------------------------------------------
-    // Load
+    // Load — index (no ?id=) or detail (?id=<uuid>), decided once at boot.
     // ------------------------------------------------------------------
     const params = new URLSearchParams(window.location.search);
     const injuryId = params.get('id');
 
+    // Whichever view is live re-loads itself after a quicklog action —
+    // shared by code that's reachable from either (the update popup).
+    function reload() {
+      return injuryId ? loadDetail() : loadIndex();
+    }
+
     let injury = null;
     let checkins = [];
 
-    async function loadAll() {
-      if (!injuryId) {
-        loading.hidden = true;
-        show(topStatus, 'error', 'No injury specified.');
-        return;
-      }
-
+    async function loadDetail() {
       const fetchInjuryData = () => Promise.all([
         supabase.from('injuries').select('*').eq('id', injuryId).maybeSingle(),
         supabase.from('injury_checkins').select('*').eq('injury_id', injuryId).order('created_at'),
@@ -370,11 +483,11 @@
       checkins = checkinsRes.data || [];
 
       loading.hidden = true;
-      content.hidden = false;
-      renderAll();
+      detailView.hidden = false;
+      renderDetail();
     }
 
-    function renderAll() {
+    function renderDetail() {
       heading.textContent = injury.name;
       document.title = `Volume — ${injury.name}`;
 
@@ -459,25 +572,30 @@
       return checkins.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
     }
 
-    // ---- Same — zero-popup, one tap ----
-    sameBtn.addEventListener('click', async () => {
-      const latest = latestCheckin();
-      const pain = latest ? latest.pain : 0;
-      const { error } = await supabase.from('injury_checkins').insert({ injury_id: injury.id, pain });
+    // ---- Same — zero-popup, one tap. Shared by the detail view's own
+    // button and every quiet-hours-eligible card in the index list. ----
+    async function logSameCheckin(injuryObj, pain) {
+      const { error } = await supabase.from('injury_checkins').insert({ injury_id: injuryObj.id, pain });
       if (error) {
         flash(`Could not log: ${error.message}`, 'error');
         return;
       }
       flash(`Logged — still around a ${pain}.`);
-      await loadAll();
+      await reload();
+    }
+    sameBtn.addEventListener('click', () => {
+      const latest = latestCheckin();
+      logSameCheckin(injury, latest ? latest.pain : 0);
     });
 
-    // ---- Update popup ----
+    // ---- Update popup — one instance, opened either from the detail
+    // view's own button or from an index-card's Update button. ----
+    let updateTargetInjury = null;
     let updatePain = 0;
-    openUpdateBtn.addEventListener('click', () => {
-      const latest = latestCheckin();
-      updatePain = latest ? latest.pain : 0;
-      updateModalTitle.textContent = injury.name;
+    function openUpdateModal(injuryObj, currentPain) {
+      updateTargetInjury = injuryObj;
+      updatePain = currentPain;
+      updateModalTitle.textContent = injuryObj.name;
       buildPainScale(updatePainGrid, updatePain, (v) => {
         updatePain = v;
         updatePainValue.textContent = String(v);
@@ -492,6 +610,10 @@
       updateLogBtn.textContent = 'Log update';
       updateResolveBtn.textContent = 'Resolve';
       openModal(updateModal);
+    }
+    openUpdateBtn.addEventListener('click', () => {
+      const latest = latestCheckin();
+      openUpdateModal(injury, latest ? latest.pain : 0);
     });
     document.getElementById('update-close').addEventListener('click', () => closeModal(updateModal));
     updateNoteToggle.addEventListener('click', () => {
@@ -508,7 +630,7 @@
       const note = updateNote.value.trim() || null;
       const { error: checkinErr } = await supabase
         .from('injury_checkins')
-        .insert({ injury_id: injury.id, pain: updatePain, note });
+        .insert({ injury_id: updateTargetInjury.id, pain: updatePain, note });
 
       if (checkinErr) {
         show(updateStatus, 'error', `Could not log: ${checkinErr.message}`);
@@ -523,24 +645,273 @@
         const { error: resolveErr } = await supabase
           .from('injuries')
           .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-          .eq('id', injury.id);
+          .eq('id', updateTargetInjury.id);
         if (resolveErr) {
           show(updateStatus, 'error', `Logged, but couldn't mark resolved: ${resolveErr.message}`);
           updateResolveBtn.disabled = false;
           updateLogBtn.disabled = false;
           updateLogBtn.textContent = 'Log update';
           updateResolveBtn.textContent = 'Resolve';
-          await loadAll();
+          await reload();
           return;
         }
       }
 
       closeModal(updateModal);
       flash(resolve ? 'Resolved.' : 'Logged.');
-      await loadAll();
+      await reload();
     }
     updateLogBtn.addEventListener('click', () => submitCheckin({ resolve: false }));
     updateResolveBtn.addEventListener('click', () => submitCheckin({ resolve: true }));
+
+    // ------------------------------------------------------------------
+    // Index view — active cases (everywhere quicklog reach), resolved
+    // cases behind a reveal. Mirrors dashboard.html's own injury-slot
+    // rendering, duplicated per-page like the rest of this app's UI.
+    // ------------------------------------------------------------------
+    let activeInjuries = [];
+    let resolvedInjuries = [];
+    let revealOpen = false;
+
+    function latestOf(injuryObj) {
+      const list = injuryObj.injury_checkins || [];
+      if (list.length === 0) return null;
+      return list.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+    }
+
+    // One bordered card per case — row plus, outside quiet hours, its own
+    // Same/Update stacked inside the same border. Same shape dashboard.html
+    // builds for its own stalest-case slot.
+    function buildInjuryCard(injuryObj, latest, withActions) {
+      const color = painSeverityColor(latest.pain);
+      const card = document.createElement('div');
+      card.className = 'injury-card';
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      const goToDetail = () => { window.location.href = `./injuries.html?id=${encodeURIComponent(injuryObj.id)}`; };
+      card.addEventListener('click', goToDetail);
+      card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToDetail(); } });
+
+      const row = document.createElement('div');
+      row.className = 'injury-card-row';
+      row.style.color = color;
+
+      const dot = document.createElement('div');
+      dot.className = 'injury-dot';
+      dot.textContent = String(latest.pain);
+      row.appendChild(dot);
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.style.color = 'var(--text)';
+      name.textContent = injuryObj.name;
+      body.appendChild(name);
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      meta.textContent = `Day ${dayCount(injuryObj.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`;
+      body.appendChild(meta);
+      row.appendChild(body);
+
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.innerHTML = CHEVRON_SVG;
+      row.appendChild(chevron);
+      card.appendChild(row);
+
+      if (withActions) {
+        const actions = document.createElement('div');
+        actions.className = 'injury-actions';
+        const sameBtnEl = document.createElement('button');
+        sameBtnEl.type = 'button';
+        sameBtnEl.className = 'secondary';
+        sameBtnEl.textContent = 'Same';
+        sameBtnEl.addEventListener('click', (e) => { e.stopPropagation(); logSameCheckin(injuryObj, latest.pain); });
+        actions.appendChild(sameBtnEl);
+        const updateBtnEl = document.createElement('button');
+        updateBtnEl.type = 'button';
+        updateBtnEl.className = 'secondary';
+        updateBtnEl.style.color = 'var(--muted)';
+        updateBtnEl.textContent = 'Update';
+        updateBtnEl.addEventListener('click', (e) => { e.stopPropagation(); openUpdateModal(injuryObj, latest.pain); });
+        actions.appendChild(updateBtnEl);
+        card.appendChild(actions);
+      }
+
+      return card;
+    }
+
+    function buildResolvedItem(inj) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.textContent = inj.name;
+      body.appendChild(name);
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const lasted = Math.floor((new Date(inj.resolved_at) - new Date(inj.started_at)) / 86400000) + 1;
+      meta.textContent = `Resolved ${formatFullDate(inj.resolved_at)} · lasted ${lasted === 1 ? '1 day' : `${lasted} days`}`;
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      const chevron = document.createElement('span');
+      chevron.className = 'list-item-chevron';
+      chevron.innerHTML = CHEVRON_SVG;
+      li.appendChild(chevron);
+
+      const goToDetail = () => { window.location.href = `./injuries.html?id=${encodeURIComponent(inj.id)}`; };
+      li.addEventListener('click', goToDetail);
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToDetail(); } });
+
+      return li;
+    }
+
+    async function loadIndex() {
+      const [activeRes, resolvedRes] = await Promise.all([
+        supabase.from('injuries').select('*, injury_checkins(pain, note, created_at)').eq('status', 'active').order('created_at', { ascending: false }),
+        supabase.from('injuries').select('*').eq('status', 'resolved').order('resolved_at', { ascending: false }),
+      ]);
+      loading.hidden = true;
+
+      const err = activeRes.error || resolvedRes.error;
+      if (err) {
+        show(topStatus, 'error', `Could not load injuries: ${err.message}`);
+        return;
+      }
+
+      activeInjuries = activeRes.data;
+      resolvedInjuries = resolvedRes.data;
+      document.title = 'Volume — Injury Journal';
+      indexView.hidden = false;
+      renderIndex();
+      renderReveal();
+    }
+
+    function renderIndex() {
+      // Stalest check-in first — the one most needing attention leads,
+      // same ordering rule as dashboard.html's own slot.
+      const withLatest = activeInjuries
+        .map((i) => ({ injuryObj: i, latest: latestOf(i) }))
+        .filter((x) => x.latest)
+        .sort((a, b) => new Date(a.latest.created_at) - new Date(b.latest.created_at));
+
+      idxCount.textContent = String(withLatest.length);
+      activeListEl.innerHTML = '';
+
+      if (withLatest.length === 0) {
+        activeListEl.hidden = true;
+        emptyActive.hidden = false;
+        return;
+      }
+      emptyActive.hidden = true;
+      activeListEl.hidden = false;
+      for (const { injuryObj, latest } of withLatest) {
+        const withActions = hoursSince(latest.created_at) >= QUIET_HOURS;
+        const li = document.createElement('li');
+        li.appendChild(buildInjuryCard(injuryObj, latest, withActions));
+        activeListEl.appendChild(li);
+      }
+    }
+
+    function renderReveal() {
+      revealToggle.textContent = revealOpen
+        ? '− Hide resolved cases'
+        : `+ Show resolved cases (${resolvedInjuries.length})`;
+      const showList = revealOpen && resolvedInjuries.length > 0;
+      resolvedListEl.hidden = !showList;
+      emptyResolved.hidden = !revealOpen || resolvedInjuries.length > 0;
+      if (showList) {
+        resolvedListEl.innerHTML = '';
+        for (const inj of resolvedInjuries) resolvedListEl.appendChild(buildResolvedItem(inj));
+      }
+    }
+    revealToggle.addEventListener('click', () => {
+      revealOpen = !revealOpen;
+      renderReveal();
+    });
+
+    // ---- New Case popup — the only place this lives now (moved off the
+    // dashboard). Starts with nothing picked — a pre-filled "6" would let
+    // someone save a value they never actually chose. ----
+    let newCasePain = null;
+    function openNewCaseModal() {
+      newCaseName.value = '';
+      newCasePain = null;
+      newCasePainValue.textContent = '–';
+      buildPainScale(newCasePainGrid, newCasePain, (v) => {
+        newCasePain = v;
+        newCasePainValue.textContent = String(v);
+      });
+      newCaseDetailFields.hidden = true;
+      newCaseDetailToggle.textContent = '+ Add a note';
+      newCaseNote.value = '';
+      hide(newCaseStatus);
+      newCaseSaveBtn.disabled = false;
+      newCaseSaveBtn.textContent = 'Save';
+      openModal(newCaseModal);
+      newCaseName.focus();
+    }
+    idxNewCaseBtn.addEventListener('click', () => openNewCaseModal());
+    document.getElementById('new-case-close').addEventListener('click', () => closeModal(newCaseModal));
+    newCaseDetailToggle.addEventListener('click', () => {
+      newCaseDetailFields.hidden = !newCaseDetailFields.hidden;
+      newCaseDetailToggle.textContent = newCaseDetailFields.hidden ? '+ Add a note' : '− Hide note';
+    });
+    newCaseSaveBtn.addEventListener('click', async () => {
+      hide(newCaseStatus);
+      const name = newCaseName.value.trim();
+      if (!name) {
+        show(newCaseStatus, 'error', 'Enter what, roughly.');
+        newCaseName.focus();
+        return;
+      }
+      if (newCasePain === null) {
+        show(newCaseStatus, 'error', 'Pick a pain level.');
+        return;
+      }
+      newCaseSaveBtn.disabled = true;
+      newCaseSaveBtn.textContent = 'Saving…';
+
+      const { data: newInjury, error: injuryErr } = await supabase
+        .from('injuries')
+        .insert({ user_id: user.id, name })
+        .select()
+        .single();
+
+      if (injuryErr) {
+        show(newCaseStatus, 'error', `Could not save: ${injuryErr.message}`);
+        newCaseSaveBtn.disabled = false;
+        newCaseSaveBtn.textContent = 'Save';
+        return;
+      }
+
+      const note = newCaseNote.value.trim() || null;
+      const { error: checkinErr } = await supabase
+        .from('injury_checkins')
+        .insert({ injury_id: newInjury.id, pain: newCasePain, note });
+
+      newCaseSaveBtn.disabled = false;
+      newCaseSaveBtn.textContent = 'Save';
+
+      if (checkinErr) {
+        // The case exists but its first check-in didn't save — surface it
+        // rather than leaving a silent gap in the chart.
+        show(newCaseStatus, 'error', `Saved, but the first check-in didn't: ${checkinErr.message}`);
+        await loadIndex();
+        return;
+      }
+
+      closeModal(newCaseModal);
+      flash(`Tracking "${name}."`);
+      await loadIndex();
+    });
 
     // ---- Edit check-in popup — pain, note, and the timestamp itself, plus
     // a hard delete. Reached by tapping a row in the check-ins list.
@@ -598,7 +969,7 @@
 
       closeModal(editCheckinModal);
       flash('Check-in updated.');
-      await loadAll();
+      await loadDetail();
     });
 
     // Two-tap hard delete, same as sets and weight entries elsewhere — a
@@ -632,7 +1003,7 @@
 
       closeModal(editCheckinModal);
       flash('Check-in deleted.');
-      await loadAll();
+      await loadDetail();
     });
 
     // ---- Delete this case — hard delete, no recovery. Injuries never got
@@ -660,7 +1031,7 @@
         return;
       }
 
-      window.location.href = './dashboard.html';
+      window.location.href = './injuries.html';
     });
 
     // ------------------------------------------------------------------
@@ -668,7 +1039,7 @@
     // ------------------------------------------------------------------
     const user = await requireSession('./index.html');
     if (user) {
-      await loadAll();
+      await reload();
     }
   </script>
 
