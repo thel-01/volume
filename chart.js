@@ -294,6 +294,14 @@ export function renderLineChart(svg, opts) {
       dot.setAttribute('cy', cy);
       dot.setAttribute('r', 3.5);
       dot.setAttribute('fill', s.color || 'var(--accent)');
+      // A dot marking a point along a drawn line gets a ring in the card's
+      // own background color, so it reads as sitting ON the line rather
+      // than merging into its stroke. A scatter series (`line: false`) has
+      // no line to separate from — the ring there was just visual noise.
+      if (s.line !== false) {
+        dot.setAttribute('stroke', 'var(--surface)');
+        dot.setAttribute('stroke-width', '1.5');
+      }
       // `opacity` dims the whole series, dots included — so a scatter can sit
       // behind the line that matters without fighting it for attention, and
       // overlapping readings pile up into something visibly denser.
