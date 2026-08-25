@@ -201,9 +201,9 @@
       <p class="section-label">Bodyweight</p>
 
       <div class="weight-hero">
-        <!-- Coloured to match its line on the chart below. Leads alone now —
-             this is the number worth looking at; the latest single reading
-             moved down into the log card, where "what did I last log" lives. -->
+        <!-- Leads alone — this is the number worth looking at; the latest
+             single reading lives in the log card below, the full trend
+             chart on weight.html, one chevron away. -->
         <span class="stat-value lg live" id="weight-average">—</span>
         <div class="label-row">
           <span class="stat-label" id="weight-average-label">Exponential moving average</span>
@@ -212,10 +212,6 @@
         <span class="stat-change" id="weight-change"></span>
       </div>
 
-      <div class="chart-card" id="weight-card" hidden>
-        <svg id="weight-chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
-      </div>
-      <p id="weight-chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
       <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
 
       <div class="list-item" id="weight-log-card" role="button" tabindex="0" hidden style="margin-top:var(--space-3);">
@@ -372,7 +368,7 @@
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
     import { showToast } from './toast.js';
     import {
-      dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
+      dailyValues, currentTrend, trendAsOf, hasEnoughHistory,
       DEFAULT_TREND_METHOD,
     } from './weight-utils.js';
 
@@ -430,9 +426,6 @@
     const weightTrendInfoModal = document.getElementById('weight-trend-info-modal');
     const weightTrendInfoTitle = document.getElementById('weight-trend-info-title');
     const weightTrendInfoBody = document.getElementById('weight-trend-info-body');
-    const weightCard = document.getElementById('weight-card');
-    const weightChart = document.getElementById('weight-chart');
-    const weightChartEmpty = document.getElementById('weight-chart-empty');
     const weightEmpty = document.getElementById('weight-empty');
     const weightLogCard = document.getElementById('weight-log-card');
     const weightLogValue = document.getElementById('weight-log-value');
@@ -639,10 +632,6 @@
     const COMPARE_DAYS = 14;
     const DAY_MS = 86400000;
     const STALE_AFTER_DAYS = 7;
-    // The preview chart is a teaser, not the full history — it stops
-    // expanding at 3 months back so one long-tracked weigh-in habit doesn't
-    // squash the recent trend into a sliver. Full history lives on weight.html.
-    const CHART_WINDOW_DAYS = 91;
     // Set once at boot from user_settings, read by loadWeight(). Defaults to
     // DEFAULT_TREND_METHOD if the row doesn't exist yet or the fetch errors.
     let trendMethod = DEFAULT_TREND_METHOD;
@@ -694,8 +683,6 @@
       if (error || !data || data.length === 0) {
         weightAverage.textContent = '—';
         weightChange.textContent = '';
-        weightCard.hidden = true;
-        weightChartEmpty.hidden = true;
         weightLogCard.hidden = true;
         weightQuicklogOpen.classList.remove('live');
         weightEmpty.hidden = false;
@@ -735,50 +722,6 @@
           ? `steady vs ${COMPARE_DAYS} days ago`
           : `${sign}${Math.abs(diff).toFixed(1)} kg vs ${COMPARE_DAYS} days ago`;
       }
-
-      // A single distinct day isn't a trend — the stat values above stay
-      // valid, but the chart needs a second one before there's a line to
-      // draw. Counts days (post-dedup), not raw entries.
-      if (daily.length < 2) {
-        weightCard.hidden = true;
-        weightChartEmpty.hidden = false;
-        return;
-      }
-      weightChartEmpty.hidden = true;
-      weightCard.hidden = false;
-
-      // Computed over the FULL history (so the trend at the window's edge
-      // still reflects the days just before it), then only the display is
-      // clipped to the last 3 months.
-      const windowCutoff = now - CHART_WINDOW_DAYS * DAY_MS;
-      const readings = data
-        .filter((e) => new Date(e.measured_at).getTime() >= windowCutoff)
-        .map((e) => ({ date: e.measured_at, value: Number(e.weight_kg), entry: e }));
-      const trend = trendSeries(daily, trendMethod)
-        .filter((p) => new Date(p.date).getTime() >= windowCutoff);
-
-      renderLineChart(weightChart, {
-        series: [
-          { key: 'trend', points: trend, color: 'var(--live)', width: '2.2' },
-          // Scatter: joining noisy readings invents a shape and steals
-          // attention from the trend, which is the real signal.
-          { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
-        ],
-        // Every tick on this axis shares the same decimal precision, so
-        // "80" next to a real "80.5" reads as "80.0" — never implying more
-        // or less precision than its neighbors.
-        formatValue: (v, decimals) => `${v.toFixed(decimals)} kg`,
-        formatDate: formatCompactDate,
-        // Ordinary day-to-day bodyweight noise (water, food) runs well
-        // under this — without a floor, a 0.3kg wobble would stretch to
-        // fill the whole chart and read as a real trend.
-        minRange: 2,
-        tooltipLines: (p) => [
-          `${Number(p.value).toFixed(1)} kg`,
-          p.entry.time_known ? formatFullDate(p.date) : `${formatFullDate(p.date)} (no time)`,
-        ],
-        ariaLabel: (p) => `${Number(p.value).toFixed(1)} kg on ${formatFullDate(p.date)}`,
-      });
     }
 
     // Log card absorbs what "All entries" used to do as a separate button —
