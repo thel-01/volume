@@ -14,6 +14,10 @@
   <link rel="icon" href="icons/icon-192.png">
 
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .label-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+    .label-row p { margin: 0; }
+  </style>
 </head>
 <body>
   <main class="screen">
@@ -40,7 +44,7 @@
         </li>
         <li class="list-item" id="session-types-link" tabindex="0" role="button">
           <div class="list-item-body">
-            <div class="list-item-name">Session types</div>
+            <div class="list-item-name">Manage session types</div>
           </div>
           <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
         </li>
@@ -52,7 +56,22 @@
         </li>
       </ul>
 
-      <p class="section-label" style="margin-top:24px;">Account</p>
+      <p class="section-label" style="margin-top:24px;">Bodyweight trend</p>
+      <div class="label-row">
+        <p class="muted">Choose how your bodyweight trend line is calculated.</p>
+        <button type="button" class="info-btn" id="trend-info-trigger" aria-label="How is this calculated?">?</button>
+      </div>
+      <div class="chips" id="trend-method-chips">
+        <button type="button" class="chip" data-method="sma">Simple</button>
+        <button type="button" class="chip" data-method="ewma">Advanced</button>
+      </div>
+
+      <p class="section-label">Backup</p>
+      <button id="export-btn" class="secondary" type="button">Export all data (JSON)</button>
+      <button id="export-weight-btn" class="secondary" type="button" style="margin-top:var(--space-3);">Export weight data (CSV)</button>
+      <div id="export-status" class="status" role="status" aria-live="polite" hidden></div>
+
+      <p class="section-label">Account</p>
       <div class="reference-line" style="margin-top:0;">
         <span class="reference-label">Signed in as:</span>
         <span class="reference-value" id="account-email">…</span>
@@ -63,26 +82,6 @@
       </div>
       <div style="height:var(--space-4);"></div>
       <button id="logout" class="secondary danger uppercase" type="button">Log out</button>
-
-      <p class="section-label">Backup</p>
-      <button id="export-btn" class="secondary" type="button">Export all data (JSON)</button>
-      <p class="muted" style="margin-top:var(--space-3);">
-        Downloads every session, exercise and set as one file. Keep it somewhere safe.
-      </p>
-      <button id="export-weight-btn" class="secondary" type="button" style="margin-top:var(--space-3);">Export weight data (CSV)</button>
-      <p class="muted" style="margin-top:var(--space-3);">
-        Just your weigh-ins, as a spreadsheet-friendly file.
-      </p>
-      <div id="export-status" class="status" role="status" aria-live="polite" hidden></div>
-
-      <p class="section-label">Bodyweight trend</p>
-      <div class="chips" id="trend-method-chips">
-        <button type="button" class="chip" data-method="ewma">Exponential moving average</button>
-        <button type="button" class="chip" data-method="sma">7-day average</button>
-      </div>
-      <p class="muted" style="margin-top:var(--space-3);">
-        Which calculation weight.html and the dashboard use for your bodyweight trend line. Exponential moving average is smoother through gaps in logging. This is the default.
-      </p>
     </section>
 
     <!-- =================== SESSION TYPES =================== -->
@@ -144,6 +143,16 @@
     </section>
 
   </main>
+
+  <div class="modal-backdrop" id="trend-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Bodyweight trend</h2>
+        <button type="button" class="modal-close" id="trend-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" style="font-size:var(--fs-base);line-height:1.5;">Simple takes a plain average of your last 7 days of weigh-ins — easy to follow, but it goes blank for a week if you stop logging. Advanced blends every new reading into a running average that leans on your most recent ones and fades older ones out gradually, so it stays smooth through gaps instead of disappearing. Advanced is the default.</p>
+    </div>
+  </div>
 
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
@@ -820,6 +829,13 @@
     // Bodyweight trend — which calc weight.html/dashboard.html use
     // ------------------------------------------------------------------
     const trendMethodChips = document.getElementById('trend-method-chips');
+    const trendInfoTrigger = document.getElementById('trend-info-trigger');
+    const trendInfoModal = document.getElementById('trend-info-modal');
+    const trendInfoClose = document.getElementById('trend-info-close');
+
+    trendInfoTrigger.addEventListener('click', () => { trendInfoModal.hidden = false; });
+    trendInfoClose.addEventListener('click', () => { trendInfoModal.hidden = true; });
+    trendInfoModal.addEventListener('click', (e) => { if (e.target === trendInfoModal) trendInfoModal.hidden = true; });
 
     function renderTrendMethodChips(method) {
       for (const chip of trendMethodChips.children) {
