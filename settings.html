@@ -81,7 +81,7 @@
         <button type="button" class="chip" data-method="sma">7-day average</button>
       </div>
       <p class="muted" style="margin-top:var(--space-3);">
-        Which calculation weight.html and the dashboard use for your bodyweight trend line. Exponential moving average is smoother through gaps in logging — this is the default.
+        Which calculation weight.html and the dashboard use for your bodyweight trend line. Exponential moving average is smoother through gaps in logging. This is the default.
       </p>
     </section>
 
@@ -96,11 +96,11 @@
       <p class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-5);">
         These show up when starting a workout and when assigning a movement
         pattern to a split. "Other" is always available too, for anything
-        that doesn't fit — a deadhang, a PT exercise.
+        that doesn't fit.
       </p>
 
       <ul id="session-type-list" class="list"></ul>
-      <p id="empty-session-types" class="empty-state" hidden>No session types yet — add one below.</p>
+      <p id="empty-session-types" class="empty-state" hidden>No session types yet. Add one below.</p>
 
       <button id="st-add-toggle" type="button" class="link-button" style="display:block;margin-top:var(--space-4);">+ Add session type</button>
       <div id="st-add-panel" hidden style="margin-top:var(--space-4);">
@@ -488,7 +488,7 @@
       body.className = 'list-item-body';
       const name = document.createElement('div');
       name.className = 'list-item-name';
-      name.textContent = s.category ? `${s.category} — ${formatDate(s.start_time)}` : formatDate(s.start_time);
+      name.textContent = s.category ? `${s.category} · ${formatDate(s.start_time)}` : formatDate(s.start_time);
       body.appendChild(name);
 
       const meta = document.createElement('div');
@@ -789,7 +789,7 @@
         return;
       }
       if (data.length === 0) {
-        show(exportStatus, 'error', 'Nothing to export yet — log a weigh-in first.');
+        show(exportStatus, 'error', 'Nothing to export yet. Log a weigh-in first.');
         return;
       }
 

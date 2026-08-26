@@ -557,7 +557,7 @@
         const { error } = await supabase.from(table).update({ comment: value || null }).eq('id', id);
 
         if (error) {
-          stateEl.textContent = `Not saved — ${error.message}`;
+          stateEl.textContent = `Not saved: ${error.message}`;
           return;
         }
         lastSaved = value;
@@ -669,7 +669,7 @@
       const extraNote = document.createElement('p');
       extraNote.className = 'muted';
       extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
-      extraNote.textContent = "Not that day's focus — still counts toward the strength index, just shown as its own slice in the volume chart instead of that session's category.";
+      extraNote.textContent = "Not that day's focus. It's just shown as its own slice in the volume chart instead of that session's category.";
       extraNote.hidden = !se.is_extra;
       commentField.appendChild(extraNote);
       extraChip.addEventListener('click', () => toggleExtra(se, extraChip, extraNote));
@@ -932,7 +932,7 @@
             return;
           }
           if (latestBodyweightKg === null) {
-            show(addStatus, 'error', 'Still loading your bodyweight — try again in a moment.');
+            show(addStatus, 'error', 'Still loading your bodyweight. Try again in a moment.');
             return;
           }
           const direction = bwMode.getDirection();

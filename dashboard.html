@@ -239,7 +239,7 @@
         <button type="button" class="modal-close" id="index-info-close" aria-label="Close">&times;</button>
       </div>
       <p class="muted" style="font-size:var(--fs-base);line-height:1.5;">
-        Each movement pattern you train — squats, presses, rows, and so on — gets its own trend over time. This number is the average of all of those, so lifting more on one pattern raises it, and a pattern you stop training holds its old level and drags the average down.
+        Each movement pattern you train, such as squats, presses, or rows, gets its own trend over time. This number is the average of all of those, so lifting more on one pattern raises it, and a pattern you stop training holds its old level and drags the average down.
       </p>
       <a href="./progress.html?breakdown=1" class="nav-link" style="display:block;margin-top:var(--space-3);">See how it's composed</a>
     </div>
@@ -354,7 +354,7 @@
       <p class="section-label" style="margin-top:0;">Session type</p>
       <div id="start-workout-chips" class="chips" style="margin-bottom:var(--space-4);"></div>
       <p id="start-workout-no-types" class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-4);" hidden>
-        No session types yet — add some in Settings, or pick Other for now.
+        No session types yet. Add some in Settings, or pick Other for now.
       </p>
       <div id="start-workout-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
       <button type="button" class="uppercase" id="start-workout-save" style="margin-top:20px;" disabled>Start workout</button>
@@ -377,7 +377,7 @@
     // still stays short, since that's a swatch caption, not a stat label.
     const HERO_TREND_LABEL = { ewma: 'Exponential moving average', sma: '7-day average' };
     const HERO_TREND_EXPLANATION = {
-      ewma: 'Every new weigh-in blends into the running average — the most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
+      ewma: 'Every new weigh-in blends into the running average. The most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
       sma: 'This is a plain average of every weigh-in from the last 7 days. Go a week without logging and there’s nothing left in that window to average, so it shows "—" until a new reading starts it again.',
     };
 
@@ -955,7 +955,7 @@
       if (error) return;
       renderWorkoutButton(null);
 
-      showToast(`Workout ended — started ${elapsedSince(openSession.start_time)} ago`, 'info', {
+      showToast(`Workout ended. Started ${elapsedSince(openSession.start_time)} ago`, 'info', {
         detail: 'Looked left open, so we ended it at your last logged set.',
         actionLabel: 'Undo',
         ms: 0,
@@ -970,7 +970,7 @@
           }
           sessionStorage.setItem('volume:justUndone', JSON.stringify({ id: openSession.id, at: Date.now() }));
           renderWorkoutButton(openSession);
-          return 'Undone — still open.';
+          return 'Undone. Still open.';
         },
       });
     }
@@ -1546,7 +1546,7 @@
         flash(`Could not log: ${error.message}`, 'error');
         return;
       }
-      flash(`Logged — still around a ${pain}.`);
+      flash(`Logged. Still around a ${pain}.`);
       await loadInjuries();
     }
 

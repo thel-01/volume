@@ -32,7 +32,7 @@
       <p class="section-label">Session type</p>
       <div id="category-chips" class="chips" style="margin-bottom:var(--space-3);"></div>
       <p id="no-category-types" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-4);" hidden>
-        No session types yet — add some in Settings, or pick Other for now.
+        No session types yet. Add some in Settings, or pick Other for now.
       </p>
 
       <button id="start-btn" type="submit" class="uppercase" disabled>Start workout</button>
@@ -99,7 +99,7 @@
         <div class="field">
           <label for="new-ex-pattern">Movement pattern (optional)</label>
           <select id="new-ex-pattern">
-            <option value="">None — uncategorized</option>
+            <option value="">Uncategorized</option>
           </select>
         </div>
         <button id="create-exercise-btn" type="button">Create &amp; add</button>
@@ -617,7 +617,7 @@
       if (error.message?.includes('sets_duration_sane')) return 'Duration must be above 0 seconds.';
       if (error.message?.includes('sets_weight_sane')) return "Weight can't be negative.";
       if (error.message?.includes('sets_not_empty')) return 'Enter at least a weight, reps, or a duration.';
-      if (error.message === 'Failed to fetch') return "Couldn't reach the server — check your signal and tap again.";
+      if (error.message === 'Failed to fetch') return "Couldn't reach the server. Check your signal and tap again.";
       return `Could not save the set: ${error.message}`;
     }
     function describeExerciseCreateError(error, name) {
@@ -936,7 +936,7 @@
         const extraNote = document.createElement('p');
         extraNote.className = 'muted';
         extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
-        extraNote.textContent = "Not today's focus — still counts toward the strength index, just shown as its own slice in the volume chart instead of this session's category.";
+        extraNote.textContent = "Not today's focus. It's just shown as its own slice in the volume chart instead of this session's category.";
         commentField.appendChild(extraNote);
       }
 
@@ -1348,7 +1348,7 @@
             return;
           }
           if (latestBodyweightKg === null) {
-            show(localStatus, 'error', 'Still loading your bodyweight — try again in a moment.');
+            show(localStatus, 'error', 'Still loading your bodyweight. Try again in a moment.');
             return;
           }
 
@@ -1505,7 +1505,7 @@
           .eq('id', entry.sessionExerciseId);
 
         if (error) {
-          stateEl.textContent = `Not saved — ${error.message}`;
+          stateEl.textContent = `Not saved: ${error.message}`;
           return;
         }
         lastSaved = value;
@@ -1550,7 +1550,7 @@
       newExPattern.innerHTML = '';
       const none = document.createElement('option');
       none.value = '';
-      none.textContent = 'None — uncategorized';
+      none.textContent = 'Uncategorized';
       newExPattern.appendChild(none);
       for (const p of allPatterns) {
         const opt = document.createElement('option');
@@ -1853,7 +1853,7 @@
       const totalSets = keptEntries.reduce((sum, e) => sum + e.sets.length, 0);
 
       endSummaryHeading.textContent = keptEntries.length === 0
-        ? 'Nothing logged — finishing will discard this workout.'
+        ? 'Nothing logged. Finishing will discard this workout.'
         : `${totalSets} ${totalSets === 1 ? 'set' : 'sets'} across ${keptEntries.length} ${keptEntries.length === 1 ? 'exercise' : 'exercises'}.`;
 
       endSummary.innerHTML = '';
@@ -1873,7 +1873,7 @@
           const count = document.createElement('span');
           count.className = 'summary-count';
           count.textContent = entry.sets.length === 0
-            ? "no sets — won't be saved"
+            ? "no sets, won't be saved"
             : describeSetGroup(entry.sets, entry.exercise.type);
           row.appendChild(count);
           endSummary.appendChild(row);
@@ -2063,7 +2063,7 @@
         .eq('id', row.id);
       if (error) return false;
 
-      staleUndoDismiss = showToast(`Workout ended — started ${elapsedSince(row.start_time)} ago`, 'info', {
+      staleUndoDismiss = showToast(`Workout ended. Started ${elapsedSince(row.start_time)} ago`, 'info', {
         detail: 'Looked left open, so we ended it at your last logged set.',
         actionLabel: 'Undo',
         ms: 0,
@@ -2072,7 +2072,7 @@
           // A new workout may have been started since this toast appeared —
           // refuse rather than yank the user out of it back into this one.
           if (session && session.id !== row.id) {
-            flash("A new workout has since started — can't undo this.", 'error');
+            flash("A new workout has since started. This can't be undone.", 'error');
             return;
           }
           const { error: undoErr } = await supabase
@@ -2085,7 +2085,7 @@
           }
           sessionStorage.setItem('volume:justUndone', JSON.stringify({ id: row.id, at: Date.now() }));
           await resumeSession(row);
-          return 'Undone — still open.';
+          return 'Undone. Still open.';
         },
       });
       return true;

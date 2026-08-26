@@ -244,7 +244,7 @@
     // that's no longer true; only the chart legend below still stays short.
     const HERO_TREND_LABEL = { ewma: 'Exponential moving average', sma: '7-day average' };
     const HERO_TREND_EXPLANATION = {
-      ewma: 'Every new weigh-in blends into the running average — the most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
+      ewma: 'Every new weigh-in blends into the running average. The most recent readings count the most, and each one before it counts a little less, fading out gradually instead of dropping off all at once. That keeps the number smooth even if you skip a few days between weigh-ins.',
       sma: 'This is a plain average of every weigh-in from the last 7 days. Go a week without logging and there’s nothing left in that window to average, so it shows "—" until a new reading starts it again.',
     };
     // Chart-legend only — stays short on purpose (it's a swatch caption, not
@@ -495,7 +495,7 @@
         return;
       }
       staleNotice.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7 V12 L16 14"/></svg>';
-      staleNotice.appendChild(document.createTextNode(`No reading in ${days} days — tap to log one.`));
+      staleNotice.appendChild(document.createTextNode(`No reading in ${days} days. Tap to log one.`));
       staleNotice.hidden = false;
     }
 

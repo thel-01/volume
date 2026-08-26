@@ -99,7 +99,7 @@
         return;
       }
       if (data.session) {
-        show('info', 'Already logged in — taking you through…');
+        show('info', 'Already logged in. Taking you through…');
         window.location.replace(HOME);
       }
     })();
@@ -133,7 +133,7 @@
           return;
         }
 
-        show('ok', 'Logged in — loading…');
+        show('ok', 'Logged in. Loading…');
         window.location.replace(HOME);
       } catch (err) {
         // Network failures and anything unexpected surface here rather than
