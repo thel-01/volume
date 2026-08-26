@@ -741,22 +741,26 @@
       if (session) renderEntries();
     }
 
+    /** Elapsed time + a running set count, both live in the session bar. */
+    function updateSessionBar() {
+      const ms = Date.now() - new Date(session.start_time).getTime();
+      const mins = Math.floor(ms / 60000);
+      const hrs = Math.floor(mins / 60);
+      const started = new Date(session.start_time)
+        .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const elapsed = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
+      const totalSets = entries.reduce((sum, e) => sum + e.sets.length, 0);
+      sessionClock.textContent = `Started ${started} · ${elapsed} · ${totalSets} ${totalSets === 1 ? 'set' : 'sets'}`;
+    }
+
     function startClock() {
-      const tick = () => {
-        const ms = Date.now() - new Date(session.start_time).getTime();
-        const mins = Math.floor(ms / 60000);
-        const hrs = Math.floor(mins / 60);
-        const started = new Date(session.start_time)
-          .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-        const elapsed = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
-        sessionClock.textContent = `Started ${started} · ${elapsed}`;
-      };
-      tick();
+      updateSessionBar();
       if (clockTimer) clearInterval(clockTimer);
-      clockTimer = setInterval(tick, 30000);
+      clockTimer = setInterval(updateSessionBar, 30000);
     }
 
     function renderEntries() {
+      if (session) updateSessionBar();
       sessionExercisesEl.innerHTML = '';
       noExercises.hidden = entries.length !== 0;
       for (const entry of entries) {
@@ -1755,6 +1759,18 @@
       await addExerciseToSession(data);
     });
 
+    /** Retries a couple of times before giving up — the exact history this
+     *  fetch returns matters more here than most reads (see isReAdd below). */
+    async function loadExerciseHistoryWithRetry(exerciseId, attempts = 3) {
+      let result;
+      for (let i = 0; i < attempts; i++) {
+        result = await loadExerciseHistory(exerciseId);
+        if (!result.error) return result;
+        if (i < attempts - 1) await new Promise((r) => setTimeout(r, 600));
+      }
+      return result;
+    }
+
     /**
      * Adds an exercise to the session: creates the session_exercises row
      * (which is both the comment holder and the "was part of this workout"
@@ -1772,10 +1788,12 @@
 
       let sessionExerciseId = se?.id;
       let comment = se?.comment ?? '';
+      let isReAdd = false;
 
       if (seError) {
         if (seError.code === '23505') {
           // Already added earlier (e.g. a retry after a dropped connection).
+          isReAdd = true;
           const { data: existing, error: fetchError } = await supabase
             .from('session_exercises')
             .select('*')
@@ -1794,9 +1812,20 @@
         }
       }
 
-      const { history, error: historyError } = await loadExerciseHistory(exercise.id);
+      const { history, error: historyError } = await loadExerciseHistoryWithRetry(exercise.id);
       if (historyError) {
-        // Non-fatal: you can still log sets, you just lose the reference lines.
+        if (isReAdd) {
+          // This slot already existed, which means real sets might already
+          // be logged against it this session — we just couldn't fetch them.
+          // Showing it as empty risks "Discard exercise" wiping the slot
+          // while those sets sit orphaned server-side. Refuse rather than
+          // guess; the slot itself is untouched, so trying again is safe.
+          show(pickerStatus, 'error',
+            `Added earlier, but couldn't confirm what's already logged: ${historyError.message}. Try again once your connection's back.`);
+          return;
+        }
+        // A brand-new slot genuinely has no sets yet regardless of this
+        // fetch, so it's safe to proceed — you just lose the reference lines.
         flash(`Added, but couldn't load past history: ${historyError.message}`, 'error', 5000);
       }
 
@@ -2091,9 +2120,10 @@
       return true;
     }
 
-    user = await requireSession('./index.html');
+    async function boot() {
+      user = await requireSession('./index.html');
+      if (!user) return;
 
-    if (user) {
       const fetchLogBootData = () => Promise.all([
         supabase.from('sessions').select('*')
           .is('deleted_at', null)
@@ -2151,6 +2181,17 @@
         showView('start');
       }
     }
+
+    await boot();
+
+    // iOS can restore this page from its back-forward cache (e.g. swiping
+    // back to the dashboard and then back here) instead of reloading it —
+    // that would otherwise leave the page frozen on whatever it looked like
+    // when you left, even if the session's since changed underneath it.
+    // Re-running boot() on a persisted restore re-syncs it for real.
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) boot();
+    });
   </script>
 
   <script src="register-sw.js"></script>

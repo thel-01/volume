@@ -880,6 +880,10 @@
       // open, not one started a second ago. Same breadcrumb technique as
       // volume:justUndone below.
       sessionStorage.setItem('volume:justStarted', data.id);
+      // Otherwise this modal is still "open" (just hidden by the page
+      // unload) — swiping back later can restore this exact page from the
+      // back-forward cache with it frozen on screen.
+      closeModal(startWorkoutModal);
       window.location.href = './log.html';
     });
 
@@ -1568,6 +1572,15 @@
     if (user) {
       await loadAll();
     }
+
+    // iOS can restore this page from its back-forward cache instead of
+    // reloading it (e.g. swiping back from log.html) — that leaves every
+    // button and stat frozen at whatever they were when you left, including
+    // "Start Workout" still showing after a workout has since started.
+    // Refetching on a persisted restore keeps it honest.
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted && user) loadAll();
+    });
   </script>
 
   <script src="register-sw.js"></script>
