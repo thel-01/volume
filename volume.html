@@ -73,11 +73,14 @@
       <div class="reference-line">
         <span class="reference-label">Avg estimated rest:</span>
         <span class="reference-value" id="i-rest"></span>
+        <button type="button" class="info-btn" id="rest-info-trigger" aria-label="How is this calculated?">?</button>
       </div>
-      <p class="muted" style="margin-top:var(--space-3);">
-        Rest is estimated from the gap between set logs within an exercise, minus 45 seconds
-        for the set itself.
-      </p>
+
+      <p class="section-label">Intensity over time</p>
+      <div class="chart-card">
+        <svg id="intensity-weekly-chart" viewBox="0 0 340 180" role="img" aria-label="Average intensity per week"></svg>
+      </div>
+      <p id="intensity-weekly-empty" class="empty-state" hidden></p>
 
       <p class="section-label">Averages · 4 weeks</p>
       <div class="reference-line">
@@ -103,9 +106,19 @@
 
   </main>
 
+  <div class="modal-backdrop" id="rest-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Estimated rest</h2>
+        <button type="button" class="modal-close" id="rest-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" style="font-size:var(--fs-base);line-height:1.5;">Rest is estimated from the gap between set logs within an exercise, minus 45 seconds for the set itself.</p>
+    </div>
+  </div>
+
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
-    import { renderBarChart, renderDonutChart, renderGaugeChart } from './chart.js';
+    import { renderBarChart, renderDonutChart, renderGaugeChart, renderIntensityBarChart } from './chart.js';
     import { mondayOf } from './date-utils.js';
 
     const AVERAGE_WEEKS = 4;
@@ -165,6 +178,16 @@
     const gaugeEmpty = document.getElementById('gauge-empty');
     const iSentence = document.getElementById('i-sentence');
     const iRest = document.getElementById('i-rest');
+
+    const intensityWeeklyChart = document.getElementById('intensity-weekly-chart');
+    const intensityWeeklyEmpty = document.getElementById('intensity-weekly-empty');
+
+    const restInfoTrigger = document.getElementById('rest-info-trigger');
+    const restInfoModal = document.getElementById('rest-info-modal');
+    const restInfoClose = document.getElementById('rest-info-close');
+    restInfoTrigger.addEventListener('click', () => { restInfoModal.hidden = false; });
+    restInfoClose.addEventListener('click', () => { restInfoModal.hidden = true; });
+    restInfoModal.addEventListener('click', (e) => { if (e.target === restInfoModal) restInfoModal.hidden = true; });
 
     const aSessions = document.getElementById('a-sessions');
     const aDuration = document.getElementById('a-duration');
@@ -258,6 +281,48 @@
         tooltipLines: (p) => [setsLabel(p.value), `week of ${formatFullDate(p.date)}`],
         ariaLabel: (p) => `${setsLabel(p.value)} in the week of ${formatFullDate(p.date)}`,
       });
+    }
+
+    /**
+     * One bar per week, averaging the same per-set intensity weight the
+     * gauge above uses for "this week" — just bucketed by week instead of
+     * collapsed into one. Same "never skip a week" rule renderWeekly
+     * follows, and for the same structural reason as much as the visual
+     * one here: the chart (and its shared label logic) always treats the
+     * LAST point as "this week", so a real rest week has to stay in the
+     * series as a 0 rather than being dropped — dropping it would either
+     * misdate every later bar or, if it's the most recent week, mislabel
+     * an older bar as "This week" entirely.
+     */
+    function renderIntensityWeekly(sets, firstMonday, thisMonday) {
+      const totals = new Map(); // week-start ms -> { sum, count }
+      for (const s of sets) {
+        const weekStart = mondayOf(new Date(s.sessions.start_time)).getTime();
+        const weight = s.quick_tag in INTENSITY_WEIGHT ? INTENSITY_WEIGHT[s.quick_tag] : INTENSITY_UNTAGGED_WEIGHT;
+        const entry = totals.get(weekStart) || { sum: 0, count: 0 };
+        entry.sum += weight;
+        entry.count += 1;
+        totals.set(weekStart, entry);
+      }
+
+      const points = [];
+      const earliest = Math.max(firstMonday.getTime(), thisMonday.getTime() - (MAX_CHART_WEEKS - 1) * WEEK_MS);
+      for (let t = earliest; t <= thisMonday.getTime(); t += WEEK_MS) {
+        const entry = totals.get(t);
+        points.push({ date: new Date(t).toISOString(), value: entry ? entry.sum / entry.count : 0 });
+      }
+
+      // Same floor as Sets per week — one bar has nothing to compare against.
+      if (points.length < 2) {
+        intensityWeeklyChart.closest('.chart-card').hidden = true;
+        intensityWeeklyEmpty.textContent = 'Not enough weeks logged yet. Come back later.';
+        intensityWeeklyEmpty.hidden = false;
+        return;
+      }
+
+      intensityWeeklyChart.closest('.chart-card').hidden = false;
+      intensityWeeklyEmpty.hidden = true;
+      renderIntensityBarChart(intensityWeeklyChart, { weeks: points, formatDate: formatCompactDate });
     }
 
     /**
@@ -537,6 +602,7 @@
       renderTopExercise(thisWeekSets, exerciseNames);
       renderIntensityGauge(thisWeekSets);
       renderIntensity(thisWeekSets);
+      renderIntensityWeekly(liveSets, mondayOf(earliest), thisMonday);
       renderAverages(fourWeekSets, enoughHistory);
     }
 

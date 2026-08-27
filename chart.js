@@ -442,7 +442,7 @@ function stripeSizeForBarWidth(barW) {
 
 let barStripeIdCounter = 0;
 /** Negative-space diagonal stripe — the bar's own material reads as "still being poured." */
-function addCurrentWeekStripe(svg, size) {
+function addCurrentWeekStripe(svg, size, color) {
   const id = `bar-stripe-${barStripeIdCounter++}`;
   const tile = size * 2;
   const defs = document.createElementNS(NS, 'defs');
@@ -459,7 +459,7 @@ function addCurrentWeekStripe(svg, size) {
   const stripe = document.createElementNS(NS, 'rect');
   stripe.setAttribute('width', size);
   stripe.setAttribute('height', tile);
-  stripe.setAttribute('fill', 'var(--live)');
+  stripe.setAttribute('fill', color);
   pattern.appendChild(base);
   pattern.appendChild(stripe);
   defs.appendChild(pattern);
@@ -486,6 +486,64 @@ function placeEdgeLabel(barCenter, w, side, leftBound, rightBound) {
   const idealRight = barCenter + w / 2;
   if (idealLeft >= leftBound && idealRight <= rightBound) return { anchor: 'middle', x: barCenter };
   return side === 'first' ? { anchor: 'start', x: leftBound } : { anchor: 'end', x: rightBound };
+}
+
+/**
+ * X-axis labels for any one-bar-per-week chart — measured, not guessed.
+ * "This week" is reserved first and never dropped, colored with
+ * `currentColor` (the one case a label can visually stretch back over a
+ * neighboring bar, so color is what still ties it to the right one). The
+ * oldest week is reserved next and is the only label allowed to drop.
+ * Everything else is tried left-to-right and kept only if its real
+ * measured width clears both its neighbor and the reserved "This week"
+ * zone. Shared by renderBarChart and renderIntensityBarChart so the two
+ * can never drift apart.
+ */
+function drawWeekAxisLabels(svg, weeks, xOfIndex, formatDate, M, currentColor) {
+  const n = weeks.length;
+  const leftBound = M.left, rightBound = BAR_VIEW_W - M.right;
+  const labelSize = 10.5;
+
+  function measure(content, bold) {
+    const t = text(0, 0, 'start', labelSize, 'var(--muted)', content);
+    if (bold) t.setAttribute('font-weight', '600');
+    svg.appendChild(t);
+    const w = t.getComputedTextLength();
+    svg.removeChild(t);
+    return w;
+  }
+
+  const lastW = measure('This week', true);
+  const lastPlace = placeEdgeLabel(xOfIndex(n - 1), lastW, 'last', leftBound, rightBound);
+  const lastLeft = labelExtent(lastPlace.anchor, lastPlace.x, lastW)[0];
+
+  const firstLabel = formatDate(weeks[0].date, false);
+  const firstW = measure(firstLabel, false);
+  const firstPlace = placeEdgeLabel(xOfIndex(0), firstW, 'first', leftBound, rightBound);
+  const firstRight = labelExtent(firstPlace.anchor, firstPlace.x, firstW)[1];
+
+  const showFirst = n < 2 || (firstRight + BAR_LABEL_GUTTER <= lastLeft);
+  const keep = [{ i: n - 1, ...lastPlace, txt: 'This week', current: true }];
+  if (showFirst) keep.push({ i: 0, ...firstPlace, txt: firstLabel });
+
+  let cursor = showFirst ? firstRight : -Infinity;
+  for (let i = 1; i <= n - 2; i++) {
+    const cx = xOfIndex(i);
+    const label = formatDate(weeks[i].date, false);
+    const w = measure(label, false);
+    const left = cx - w / 2, right = cx + w / 2;
+    if (left < cursor + BAR_LABEL_GUTTER) continue;
+    if (right > lastLeft - BAR_LABEL_GUTTER) continue;
+    keep.push({ i, x: cx, anchor: 'middle', txt: label });
+    cursor = right;
+  }
+
+  keep.sort((a, b) => a.i - b.i);
+  for (const k of keep) {
+    const t = text(k.x, BAR_VIEW_H - 6, k.anchor, labelSize, k.current ? currentColor : 'var(--muted)', k.txt);
+    if (k.current) t.setAttribute('font-weight', '600');
+    svg.appendChild(t);
+  }
 }
 
 /**
@@ -533,7 +591,7 @@ export function renderBarChart(svg, opts) {
   const bandW = plotW / n;
   const barW = Math.max(3, Math.min(bandW - 3, BAR_MAX_WIDTH));
   const xOfIndex = (i) => M.left + bandW * i + bandW / 2;
-  const currentFill = addCurrentWeekStripe(svg, stripeSizeForBarWidth(barW));
+  const currentFill = addCurrentWeekStripe(svg, stripeSizeForBarWidth(barW), 'var(--live)');
 
   let activeKey = null;
 
@@ -577,56 +635,7 @@ export function renderBarChart(svg, opts) {
     svg.appendChild(hit);
   });
 
-  // X-axis labels — measured, not guessed. "This week" is reserved first
-  // and never dropped, colored to match its bar (the one case it can
-  // visually stretch back over a neighboring bar, so color is what still
-  // ties it to the right one). The oldest week is reserved next and is the
-  // only label allowed to drop. Everything else is tried left-to-right and
-  // kept only if its real measured width clears both its neighbor and the
-  // reserved "This week" zone.
-  const leftBound = M.left, rightBound = BAR_VIEW_W - M.right;
-  const labelSize = 10.5;
-
-  function measure(content, bold) {
-    const t = text(0, 0, 'start', labelSize, 'var(--muted)', content);
-    if (bold) t.setAttribute('font-weight', '600');
-    svg.appendChild(t);
-    const w = t.getComputedTextLength();
-    svg.removeChild(t);
-    return w;
-  }
-
-  const lastW = measure('This week', true);
-  const lastPlace = placeEdgeLabel(xOfIndex(n - 1), lastW, 'last', leftBound, rightBound);
-  const lastLeft = labelExtent(lastPlace.anchor, lastPlace.x, lastW)[0];
-
-  const firstLabel = formatDate(weeks[0].date, false);
-  const firstW = measure(firstLabel, false);
-  const firstPlace = placeEdgeLabel(xOfIndex(0), firstW, 'first', leftBound, rightBound);
-  const firstRight = labelExtent(firstPlace.anchor, firstPlace.x, firstW)[1];
-
-  const showFirst = n < 2 || (firstRight + BAR_LABEL_GUTTER <= lastLeft);
-  const keep = [{ i: n - 1, ...lastPlace, txt: 'This week', current: true }];
-  if (showFirst) keep.push({ i: 0, ...firstPlace, txt: firstLabel });
-
-  let cursor = showFirst ? firstRight : -Infinity;
-  for (let i = 1; i <= n - 2; i++) {
-    const cx = xOfIndex(i);
-    const label = formatDate(weeks[i].date, false);
-    const w = measure(label, false);
-    const left = cx - w / 2, right = cx + w / 2;
-    if (left < cursor + BAR_LABEL_GUTTER) continue;
-    if (right > lastLeft - BAR_LABEL_GUTTER) continue;
-    keep.push({ i, x: cx, anchor: 'middle', txt: label });
-    cursor = right;
-  }
-
-  keep.sort((a, b) => a.i - b.i);
-  for (const k of keep) {
-    const t = text(k.x, BAR_VIEW_H - 6, k.anchor, labelSize, k.current ? 'var(--live)' : 'var(--muted)', k.txt);
-    if (k.current) t.setAttribute('font-weight', '600');
-    svg.appendChild(t);
-  }
+  drawWeekAxisLabels(svg, weeks, xOfIndex, formatDate, M, 'var(--live)');
 
   function clearTooltip() {
     activeKey = null;
@@ -874,4 +883,95 @@ export function renderGaugeChart(svg, opts) {
       svg.appendChild(dot);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Intensity-over-time chart — one bar per week, each colored by the same
+// good/warning/serious/critical quartile the intensity gauge already uses,
+// so the two can never disagree about what "high" means. Shares its
+// bar-chart mechanics (stripe, week-label placement) with renderBarChart
+// rather than reimplementing them, diverging only where the value itself
+// is different in kind: bounded 0..1, not an open-ended count.
+// ---------------------------------------------------------------------------
+
+/** Same quartile split renderGaugeChart uses for its bands, read off as a plain color lookup. */
+function intensityColor(value) {
+  const idx = Math.max(0, Math.min(GAUGE_COLORS.length - 1, Math.floor(value * GAUGE_COLORS.length)));
+  return GAUGE_COLORS[idx];
+}
+
+/**
+ * @param {SVGElement} svg
+ * @param {object}   opts
+ * @param {Array}    opts.weeks      [{ date, value }], value 0..1, oldest first — last is the current week
+ * @param {Function} opts.formatDate (iso, showYear) => x-axis label for a week
+ */
+export function renderIntensityBarChart(svg, opts) {
+  const { weeks, formatDate } = opts;
+
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', `0 0 ${BAR_VIEW_W} ${BAR_VIEW_H}`);
+  if (!weeks || weeks.length === 0) return;
+
+  const n = weeks.length;
+  const labelSize = 11;
+
+  // Low/Mid/High centered on the same quartile bands that color the bars
+  // (0.125 / 0.5 / 0.875 — the middle of the "good" band, the midpoint of
+  // the middle two bands combined, and the middle of "critical"), not
+  // evenly spaced, so the axis and the bar colors can never disagree about
+  // what counts as which.
+  const AXIS_LABELS = [{ v: 0.125, txt: 'Low' }, { v: 0.5, txt: 'Mid' }, { v: 0.875, txt: 'High' }];
+
+  // Measured, not guessed — same principle the x-axis labels already use,
+  // just applied to the y-axis: whichever word is widest sets the left
+  // margin, so a long label never clips against the chart's edge.
+  function measureWidth(content) {
+    const t = text(0, 0, 'start', labelSize, 'var(--muted)', content);
+    svg.appendChild(t);
+    const w = t.getComputedTextLength();
+    svg.removeChild(t);
+    return w;
+  }
+  const widestLabel = Math.max(...AXIS_LABELS.map((l) => measureWidth(l.txt)));
+  const M = { top: 16, right: 12, bottom: 24, left: Math.ceil(widestLabel) + 16 };
+
+  const plotW = BAR_VIEW_W - M.left - M.right;
+  const plotH = BAR_VIEW_H - M.top - M.bottom;
+  const baseline = M.top + plotH;
+  const yScale = (v) => baseline - v * plotH; // fixed 0..1 axis — intensity can legitimately reach the top, no headroom needed like an open-ended count
+
+  for (const { v, txt: t } of AXIS_LABELS) {
+    svg.appendChild(text(M.left - 8, yScale(v) + 3.5, 'end', labelSize, 'var(--muted)', t));
+  }
+
+  const bandW = plotW / n;
+  const barW = Math.max(3, Math.min(bandW - 3, BAR_MAX_WIDTH));
+  const xOfIndex = (i) => M.left + bandW * i + bandW / 2;
+
+  // A volume bar is amber while "in progress" because its color would
+  // otherwise imply a final total it hasn't reached yet. An intensity
+  // average doesn't have that problem — it's a real number the moment any
+  // set is logged — so the current week keeps its own real quartile color,
+  // stripe and label both, instead of a fixed "not done yet" amber.
+  let currentWeekColor = 'var(--text)';
+  weeks.forEach((wk, i) => {
+    const cx = xOfIndex(i);
+    const h = Math.max(3, wk.value * plotH); // 3px floor keeps a 0-intensity week visible
+    const y = baseline - h;
+    const isCurrent = i === n - 1;
+    const color = intensityColor(wk.value);
+    if (isCurrent) currentWeekColor = color;
+
+    const fill = isCurrent ? addCurrentWeekStripe(svg, stripeSizeForBarWidth(barW), color) : color;
+    const bar = document.createElementNS(NS, 'rect');
+    bar.setAttribute('x', cx - barW / 2);
+    bar.setAttribute('y', y);
+    bar.setAttribute('width', barW);
+    bar.setAttribute('height', h);
+    bar.setAttribute('fill', fill);
+    svg.appendChild(bar);
+  });
+
+  drawWeekAxisLabels(svg, weeks, xOfIndex, formatDate, M, currentWeekColor);
 }
