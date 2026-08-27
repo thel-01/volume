@@ -87,7 +87,7 @@
 
       <div class="btn-row" id="active-actions" style="margin-top:var(--space-4);">
         <button type="button" class="secondary" id="same-btn">Same</button>
-        <button type="button" class="secondary" style="color:var(--muted);" id="open-update-btn">Update</button>
+        <button type="button" class="secondary" id="open-update-btn">Update</button>
       </div>
 
       <p class="section-label" style="margin-top:var(--space-6);">Check-ins</p>
@@ -732,7 +732,6 @@
         const updateBtnEl = document.createElement('button');
         updateBtnEl.type = 'button';
         updateBtnEl.className = 'secondary';
-        updateBtnEl.style.color = 'var(--muted)';
         updateBtnEl.textContent = 'Update';
         updateBtnEl.addEventListener('click', (e) => { e.stopPropagation(); openUpdateModal(injuryObj, latest.pain); });
         actions.appendChild(updateBtnEl);
