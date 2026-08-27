@@ -42,25 +42,14 @@
 
     <div id="content" hidden>
 
-      <p class="section-label">Volume · this week</p>
+      <p class="section-label">Volume split · this week</p>
       <div class="chart-card donut-card">
         <svg id="split-chart" viewBox="0 0 120 120" role="img" aria-label="Sets this week by session type"></svg>
         <div id="split-legend" class="legend"></div>
       </div>
       <p id="split-empty" class="empty-state" hidden></p>
-
-      <p class="section-label">Sets per week</p>
-      <div class="chart-card">
-        <svg id="weekly-chart" viewBox="0 0 340 180" role="img" aria-label="Sets logged per week"></svg>
-      </div>
-      <p id="weekly-empty" class="empty-state" hidden></p>
-
-      <div class="reference-line">
-        <span class="reference-label">4-week avg:</span>
-        <span class="reference-value" id="v-average"></span>
-      </div>
-      <div class="reference-line">
-        <span class="reference-label">Most sets this week:</span>
+      <div class="reference-line" id="top-exercise-line">
+        <span class="reference-label">Most sets:</span>
         <span class="reference-value" id="v-top-exercise"></span>
       </div>
 
@@ -70,35 +59,24 @@
       </div>
       <p id="gauge-empty" class="empty-state" hidden></p>
       <p id="i-sentence" style="margin:var(--space-3) 0 0;font-size:15px;line-height:1.5;"></p>
-      <div class="reference-line">
+      <div class="reference-line" id="rest-line">
         <span class="reference-label">Avg estimated rest:</span>
         <span class="reference-value" id="i-rest"></span>
         <button type="button" class="info-btn" id="rest-info-trigger" aria-label="How is this calculated?">?</button>
       </div>
 
-      <p class="section-label">Intensity over time</p>
+      <p class="section-label">Volume per week</p>
+      <div class="chart-card">
+        <svg id="weekly-chart" viewBox="0 0 340 180" role="img" aria-label="Sets logged per week"></svg>
+      </div>
+      <p id="weekly-empty" class="empty-state" hidden></p>
+      <p id="averages-copy" class="averages-copy" hidden></p>
+
+      <p class="section-label">Intensity per week</p>
       <div class="chart-card">
         <svg id="intensity-weekly-chart" viewBox="0 0 340 180" role="img" aria-label="Average intensity per week"></svg>
       </div>
       <p id="intensity-weekly-empty" class="empty-state" hidden></p>
-
-      <p class="section-label">Averages · 4 weeks</p>
-      <div class="reference-line">
-        <span class="reference-label">Sessions per week:</span>
-        <span class="reference-value" id="a-sessions"></span>
-      </div>
-      <div class="reference-line">
-        <span class="reference-label">Time per session:</span>
-        <span class="reference-value" id="a-duration"></span>
-      </div>
-      <div class="reference-line">
-        <span class="reference-label">Exercises per session:</span>
-        <span class="reference-value" id="a-exercises"></span>
-      </div>
-      <div class="reference-line">
-        <span class="reference-label">Sets per exercise:</span>
-        <span class="reference-value" id="a-sets"></span>
-      </div>
 
     </div>
 
@@ -165,8 +143,8 @@
     const content = document.getElementById('content');
     const emptyState = document.getElementById('empty-state');
 
-    const vAverage = document.getElementById('v-average');
     const vTopExercise = document.getElementById('v-top-exercise');
+    const topExerciseLine = document.getElementById('top-exercise-line');
 
     const weeklyChart = document.getElementById('weekly-chart');
     const weeklyEmpty = document.getElementById('weekly-empty');
@@ -178,6 +156,7 @@
     const gaugeEmpty = document.getElementById('gauge-empty');
     const iSentence = document.getElementById('i-sentence');
     const iRest = document.getElementById('i-rest');
+    const restLine = document.getElementById('rest-line');
 
     const intensityWeeklyChart = document.getElementById('intensity-weekly-chart');
     const intensityWeeklyEmpty = document.getElementById('intensity-weekly-empty');
@@ -189,10 +168,7 @@
     restInfoClose.addEventListener('click', () => { restInfoModal.hidden = true; });
     restInfoModal.addEventListener('click', (e) => { if (e.target === restInfoModal) restInfoModal.hidden = true; });
 
-    const aSessions = document.getElementById('a-sessions');
-    const aDuration = document.getElementById('a-duration');
-    const aExercises = document.getElementById('a-exercises');
-    const aSets = document.getElementById('a-sets');
+    const averagesCopy = document.getElementById('averages-copy');
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
@@ -381,7 +357,8 @@
      * logged more recently.
      */
     function renderTopExercise(windowSets, exerciseNames) {
-      if (windowSets.length === 0) { vTopExercise.textContent = '—'; return; }
+      if (windowSets.length === 0) { topExerciseLine.hidden = true; return; }
+      topExerciseLine.hidden = false;
 
       const byExercise = new Map();
       for (const s of windowSets) {
@@ -429,10 +406,11 @@
 
     function renderIntensity(windowSets) {
       if (windowSets.length === 0) {
-        iSentence.textContent = 'Nothing logged yet this week.';
-        iRest.textContent = '—';
+        iSentence.hidden = true;
+        restLine.hidden = true;
         return;
       }
+      iSentence.hidden = false;
 
       const pct = (n) => Math.round((n / windowSets.length) * 100);
       const failure = pct(windowSets.filter((s) => s.quick_tag === 'failure').length);
@@ -462,9 +440,10 @@
       }
 
       if (gapCount === 0) {
-        iRest.textContent = '—';
+        restLine.hidden = true;
         return;
       }
+      restLine.hidden = false;
       // Never below zero: sets logged back to back would otherwise imply
       // negative rest, which is just "none".
       const restSeconds = Math.max(0, gapTotal / gapCount / 1000 - SET_DURATION_SECONDS);
@@ -472,18 +451,18 @@
     }
 
     /**
-     * The shape of a typical session over the last 4 completed weeks. Same
-     * "divides by a fixed 4" reasoning as the sets/week average, so it needs
-     * the same full-window guard, and the same half-rounding for the same
-     * reason: a flat "3" hides whether that's every session or a mix of 2s
-     * and 4s.
+     * One paragraph instead of a 5-number table — the 4-week sets/week
+     * average plus the shape of a typical session, read as a sentence
+     * directly under the Volume per week chart rather than their own
+     * section. Same "divides by a fixed 4" reasoning and full-window guard
+     * as before, and the same half-rounding for the same reason (a flat "3"
+     * hides whether that's every session or a mix of 2s and 4s) — just
+     * folded into prose. Below 4 full weeks of history it doesn't render at
+     * all, same as every other guarded rolling average on this page.
      */
     function renderAverages(fourWeekSets, enoughHistory) {
       if (!enoughHistory || fourWeekSets.length === 0) {
-        aSessions.textContent = '—';
-        aDuration.textContent = '—';
-        aExercises.textContent = '—';
-        aSets.textContent = '—';
+        averagesCopy.hidden = true;
         return;
       }
 
@@ -504,13 +483,18 @@
       const sessions = [...bySession.values()];
       const mean = (values) => values.reduce((sum, v) => sum + v, 0) / values.length;
 
-      aSessions.textContent = formatHalfRounded(sessions.length / AVERAGE_WEEKS);
-
+      const setsPerWeek = Math.round(fourWeekSets.length / AVERAGE_WEEKS);
+      const sessionsPerWeek = formatHalfRounded(sessions.length / AVERAGE_WEEKS);
+      const exercisesPerSession = formatHalfRounded(mean(sessions.map((s) => s.exerciseIds.size)));
+      const setsPerExercise = formatHalfRounded(mean(sessions.map((s) => s.setCount / s.exerciseIds.size)));
       const durations = sessions.filter((s) => s.end).map((s) => (new Date(s.end) - new Date(s.start)) / 1000);
-      aDuration.textContent = durations.length === 0 ? '—' : formatDurationCoarse(mean(durations));
 
-      aExercises.textContent = formatHalfRounded(mean(sessions.map((s) => s.exerciseIds.size)));
-      aSets.textContent = formatHalfRounded(mean(sessions.map((s) => s.setCount / s.exerciseIds.size)));
+      let sentence = `You averaged ${setsPerWeek} sets a week over the last 4 weeks. You trained about ${sessionsPerWeek}x a week`;
+      if (durations.length > 0) sentence += `, ~${formatDurationCoarse(mean(durations))} a session`;
+      sentence += `, hitting ${exercisesPerSession} exercises for ${setsPerExercise} sets each.`;
+
+      averagesCopy.hidden = false;
+      averagesCopy.textContent = sentence;
     }
 
     // ------------------------------------------------------------------
@@ -593,9 +577,6 @@
       // Everything else on this page counts a single named week, so it needs
       // no such guard.
       const enoughHistory = earliest !== null && earliest <= averageStart;
-      vAverage.textContent = enoughHistory
-        ? `${Math.round(fourWeekSets.length / AVERAGE_WEEKS)} sets/week`
-        : '—';
 
       renderWeekly(liveSets, mondayOf(earliest), thisMonday);
       renderSplit(thisWeekSets, splitCategoryFor);

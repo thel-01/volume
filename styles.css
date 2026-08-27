@@ -961,12 +961,22 @@ button.danger.secondary {
   font-size: 13px;
   line-height: 1.45;
 }
+/* display:flex above is an author rule, which beats the browser's own
+   default `[hidden] { display: none }` UA rule regardless of specificity —
+   the same reason .modal-backdrop needs its own [hidden] override below.
+   Needed once volume.html started hiding a whole reference-line row
+   (rather than just blanking its value) for an empty section. */
+.reference-line[hidden] { display: none; }
 .reference-label {
   flex: 0 0 auto;
   color: var(--muted);
 }
 .reference-value { color: var(--text); }
 .reference-value.none { color: var(--muted); font-style: italic; }
+
+/* A plain-language stat paragraph — e.g. volume.html's 4-week averages —
+   sitting directly under its chart instead of its own numbers table. */
+.averages-copy { margin: var(--space-3) 0 0; font-size: 15px; line-height: 1.5; }
 
 /* Sets already logged this session. */
 .set-row {
