@@ -837,6 +837,10 @@ button.danger.secondary {
   font-weight: 500;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  /* Every chip gets its own stacking context, not just tagged ones — see
+     .chip .hint below for why. */
+  position: relative;
+  z-index: 0;
 }
 .chip.selected {
   background: var(--accent);
@@ -844,6 +848,42 @@ button.danger.secondary {
   color: var(--accent-ink);
   font-weight: 600;
 }
+
+/* Recommendation tag — a floating "longest since"-style hint above a chip,
+   nudging you toward one option among several. Built for dashboard.html's
+   start-workout quicklog; shared here (chip-tag.js builds/positions it) so
+   any future chip row can reuse it via tagChip()/positionHint() instead of
+   a page-local copy. */
+.chip.suggested { border-color: var(--live); color: var(--live); z-index: 2; }
+/* Selected wins outright once tapped — a colored ring around an otherwise
+   solid-white selected chip reads as two states fighting. */
+.chip.suggested.selected { color: var(--accent-ink); border-color: var(--accent); }
+.chip .hint {
+  /* Centered by default; positionHint() in chip-tag.js overrides left/
+     right/transform inline the moment centering would push the tag past
+     the chip row's own edge — a short chip can be far narrower than the
+     tag text itself. */
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--live);
+  color: var(--accent-ink);
+  /* --fs-2xs, not an invented size — the app's actual type-scale floor,
+     same value .badge ("First log") already hardcodes. Font and weight
+     are NOT set here: .badge has none either, so both inherit the real
+     body face at its default weight, explicitly overriding .chip's own
+     font-weight:500, which .hint would otherwise inherit. */
+  font-size: var(--fs-2xs);
+  font-weight: 400;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+/* Opt-in headroom for a chip row that may show a tag — NOT on the shared
+   .chips rule itself, since a tag pokes ~20px above its own chip and most
+   chip rows never show one; adding this everywhere would push every plain
+   chip row in the app down for no reason. */
+.chips.tagged-chips { margin-top: 18px; }
 
 /* Session header: category + running clock + End button on one row. */
 .session-bar {

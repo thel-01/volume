@@ -31,6 +31,7 @@ const APP_SHELL = [
   './strength-index.js',
   './weight-utils.js',
   './toast.js',
+  './chip-tag.js',
   './register-sw.js',
   './manifest.json',
   './vendor/supabase.js',
