@@ -61,7 +61,7 @@
         <p class="muted">Choose how your bodyweight trend line is calculated.</p>
         <button type="button" class="info-btn" id="trend-info-trigger" aria-label="How is this calculated?">?</button>
       </div>
-      <div class="chips" id="trend-method-chips">
+      <div class="chips tagged-chips" id="trend-method-chips">
         <button type="button" class="chip" data-method="sma">Simple</button>
         <button type="button" class="chip" data-method="ewma">Advanced</button>
       </div>
@@ -157,6 +157,7 @@
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { showToast } from './toast.js';
+    import { tagChip, positionHint } from './chip-tag.js';
     import { DEFAULT_TREND_METHOD } from './weight-utils.js';
 
     // ------------------------------------------------------------------
@@ -836,6 +837,12 @@
     trendInfoTrigger.addEventListener('click', () => { trendInfoModal.hidden = false; });
     trendInfoClose.addEventListener('click', () => { trendInfoModal.hidden = true; });
     trendInfoModal.addEventListener('click', (e) => { if (e.target === trendInfoModal) trendInfoModal.hidden = true; });
+
+    // Advanced is the default for a reason (see the info popup above) —
+    // flagged the same way dashboard.html flags its own suggested chip.
+    const advancedChip = trendMethodChips.querySelector('[data-method="ewma"]');
+    tagChip(advancedChip, 'Recommended');
+    positionHint(advancedChip, trendMethodChips);
 
     function renderTrendMethodChips(method) {
       for (const chip of trendMethodChips.children) {
