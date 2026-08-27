@@ -559,11 +559,21 @@ button.secondary {
   stroke-dasharray: 1;
   animation: step-loader-draw 1.8s steps(4, jump-end) infinite;
 }
+/* pathLength="1" on the <path> makes its total length exactly 1, so a
+   single-value stroke-dasharray of 1 is one dash the full length of the
+   path plus an equal-length gap (period 2). Sliding stroke-dashoffset from
+   1 down to -1 draws the path in from one end, holds it fully drawn, then
+   wipes it back out the same end it drew in from — but that crosses zero
+   into negative dashoffset, which iOS Safari renders incorrectly (the wipe
+   collapses to a single leftover segment instead of sweeping cleanly).
+   Shifted the whole thing up by one full period (+2) so it's never
+   negative — mathematically identical motion, since the pattern repeats
+   every 2 units, just expressed with numbers WebKit handles correctly. */
 @keyframes step-loader-draw {
-  0%   { stroke-dashoffset: 1; }
-  45%  { stroke-dashoffset: 0; }
-  55%  { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: -1; }
+  0%   { stroke-dashoffset: 3; }
+  45%  { stroke-dashoffset: 2; }
+  55%  { stroke-dashoffset: 2; }
+  100% { stroke-dashoffset: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .step-loader path { animation-duration: 3.6s; }
