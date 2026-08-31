@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.48.0';
+const VERSION = 'v1.49.0';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -32,6 +32,7 @@ const APP_SHELL = [
   './weight-utils.js',
   './toast.js',
   './chip-tag.js',
+  './session-type-colors.js',
   './register-sw.js',
   './manifest.json',
   './vendor/supabase.js',
