@@ -875,8 +875,15 @@
       }
 
       // Only worth showing before you've started — once set 1 is in, you're
-      // warm and it's just clutter.
-      if (entry.sets.length === 0) {
+      // warm and it's just clutter. That check now has to look past this one
+      // block too: a fresh second block of the same exercise (pull-ups
+      // again, later in the session) starts at 0 sets of its own, but
+      // you're already warm from the earlier block, so the ladder should
+      // stay suppressed there as well.
+      const warmedUpElsewhere = entries.some(
+        (e) => e !== entry && e.exercise.id === entry.exercise.id && e.sets.length > 0
+      );
+      if (entry.sets.length === 0 && !warmedUpElsewhere) {
         const ladder = computeWarmup(entry, session.id);
         if (ladder) {
           const line = document.createElement('div');
@@ -1334,7 +1341,7 @@
       logBtn.addEventListener('click', async () => {
         hide(localStatus);
 
-        const payload = { session_id: session.id, exercise_id: entry.exercise.id };
+        const payload = { session_id: session.id, exercise_id: entry.exercise.id, session_exercise_id: entry.sessionExerciseId };
 
         if (type === 'time_based') {
           const secs = parseInt(durationInput.value.trim(), 10);
@@ -1566,13 +1573,12 @@
 
     function renderPickerList() {
       const query = pickerSearch.value.trim().toLowerCase();
-      const alreadyAdded = new Set(entries.map((e) => e.exercise.id));
 
       pickerList.innerHTML = '';
       if (query) {
-        renderPickerSearchResults(query, alreadyAdded);
+        renderPickerSearchResults(query);
       } else {
-        renderPickerDefault(alreadyAdded);
+        renderPickerDefault();
       }
 
       // A prompt, not an auto-opened form — every new search collapses the
@@ -1585,7 +1591,7 @@
       if (query && !exactExists) {
         const typed = pickerSearch.value.trim();
         const hasPartialMatches = allExercises.some(
-          (ex) => !alreadyAdded.has(ex.id) && ex.name.toLowerCase().includes(query)
+          (ex) => ex.name.toLowerCase().includes(query)
         );
         pickerNoMatchText.hidden = hasPartialMatches;
         pickerNoMatchText.textContent = `No exercises match "${typed}".`;
@@ -1604,10 +1610,8 @@
       pickerCreate.hidden = false;
     });
 
-    function renderPickerSearchResults(query, alreadyAdded) {
-      const matches = allExercises.filter(
-        (ex) => !alreadyAdded.has(ex.id) && ex.name.toLowerCase().includes(query)
-      );
+    function renderPickerSearchResults(query) {
+      const matches = allExercises.filter((ex) => ex.name.toLowerCase().includes(query));
       appendPickerSection(null, matches);
     }
 
@@ -1615,19 +1619,22 @@
      * Before you've typed anything: what you did last time this session type
      * ran, then everything else grouped by movement pattern — patterns tagged
      * for this session type first, then the rest, then anything with no
-     * pattern at all.
+     * pattern at all. Nothing here is excluded for already being active in
+     * this session — picking one again either reopens its existing block
+     * (if you're re-picking whatever you were just on) or starts a new one,
+     * see addExerciseToSession.
      */
-    function renderPickerDefault(alreadyAdded) {
+    function renderPickerDefault() {
       const shown = new Set();
       const category = (session.category || '').trim().toLowerCase();
 
-      const lastTime = lastCategoryExercises.filter((ex) => !alreadyAdded.has(ex.id));
+      const lastTime = lastCategoryExercises;
       if (lastTime.length > 0) {
         appendPickerSection(`Last ${session.category} session`, lastTime);
         for (const ex of lastTime) shown.add(ex.id);
       }
 
-      const remaining = allExercises.filter((ex) => !alreadyAdded.has(ex.id) && !shown.has(ex.id));
+      const remaining = allExercises.filter((ex) => !shown.has(ex.id));
 
       const byPattern = new Map(); // pattern id -> exercises[]
       const uncategorized = [];
@@ -1665,7 +1672,7 @@
       if (pickerList.children.length === 0) {
         const p = document.createElement('p');
         p.className = 'empty-state';
-        p.textContent = 'Every exercise you have is already in this workout.';
+        p.textContent = "You haven't added any exercises yet.";
         pickerList.appendChild(p);
       }
     }
@@ -1759,8 +1766,8 @@
       await addExerciseToSession(data);
     });
 
-    /** Retries a couple of times before giving up — the exact history this
-     *  fetch returns matters more here than most reads (see isReAdd below). */
+    /** Retries a couple of times before giving up — a dropped history fetch
+     *  costs the sticky-weight/warm-up reference lines, not the add itself. */
     async function loadExerciseHistoryWithRetry(exerciseId, attempts = 3) {
       let result;
       for (let i = 0; i < attempts; i++) {
@@ -1772,11 +1779,27 @@
     }
 
     /**
-     * Adds an exercise to the session: creates the session_exercises row
-     * (which is both the comment holder and the "was part of this workout"
-     * record), then loads that exercise's history for the reference lines.
+     * Adds an exercise to the session: creates a new session_exercises row
+     * (a "block" — the comment holder and the "was part of this workout"
+     * record for this one occurrence), then loads that exercise's history
+     * for the reference lines. A session can now hold more than one block
+     * for the same exercise, so this always creates a genuinely new block —
+     * except when the exercise you just picked is the same one you're
+     * already sitting on (the last entry in the list): re-picking it with
+     * nothing logged in between is never a real "second round," it's just
+     * you getting back to where you were, so that case reopens the existing
+     * block instead of creating an empty duplicate right next to it.
      */
     async function addExerciseToSession(exercise) {
+      const last = entries[entries.length - 1];
+      if (last && last.exercise.id === exercise.id) {
+        for (const e of entries) e.expanded = false;   // accordion: one at a time
+        last.expanded = true;
+        renderEntries();
+        showView('session');
+        return;
+      }
+
       hide(pickerStatus);
       show(pickerStatus, 'info', `Adding ${exercise.name}…`);
 
@@ -1786,63 +1809,30 @@
         .select()
         .single();
 
-      let sessionExerciseId = se?.id;
-      let comment = se?.comment ?? '';
-      let isReAdd = false;
-
       if (seError) {
-        if (seError.code === '23505') {
-          // Already added earlier (e.g. a retry after a dropped connection).
-          isReAdd = true;
-          const { data: existing, error: fetchError } = await supabase
-            .from('session_exercises')
-            .select('*')
-            .eq('session_id', session.id)
-            .eq('exercise_id', exercise.id)
-            .maybeSingle();
-          if (fetchError || !existing) {
-            show(pickerStatus, 'error', `Could not add ${exercise.name}: ${(fetchError || seError).message}`);
-            return;
-          }
-          sessionExerciseId = existing.id;
-          comment = existing.comment ?? '';
-        } else {
-          show(pickerStatus, 'error', `Could not add ${exercise.name}: ${seError.message}`);
-          return;
-        }
+        show(pickerStatus, 'error', `Could not add ${exercise.name}: ${seError.message}`);
+        return;
       }
 
       const { history, error: historyError } = await loadExerciseHistoryWithRetry(exercise.id);
       if (historyError) {
-        if (isReAdd) {
-          // This slot already existed, which means real sets might already
-          // be logged against it this session — we just couldn't fetch them.
-          // Showing it as empty risks "Discard exercise" wiping the slot
-          // while those sets sit orphaned server-side. Refuse rather than
-          // guess; the slot itself is untouched, so trying again is safe.
-          show(pickerStatus, 'error',
-            `Added earlier, but couldn't confirm what's already logged: ${historyError.message}. Try again once your connection's back.`);
-          return;
-        }
-        // A brand-new slot genuinely has no sets yet regardless of this
+        // A brand-new block genuinely has no sets yet regardless of this
         // fetch, so it's safe to proceed — you just lose the reference lines.
         flash(`Added, but couldn't load past history: ${historyError.message}`, 'error', 5000);
       }
 
-      const setsThisSession = history
-        .filter((s) => s.session_id === session.id)
-        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
       for (const e of entries) e.expanded = false;
       entries.push({
         exercise,
-        sessionExerciseId,
-        comment,
-        isExtra: se?.is_extra ?? false,
-        sets: setsThisSession,
-        history,
+        sessionExerciseId: se.id,
+        comment: se.comment ?? '',
+        isExtra: se.is_extra ?? false,
+        // A freshly inserted block can never have pre-existing sets — this
+        // row didn't exist a moment ago.
+        sets: [],
+        history: history || [],
         expanded: true,
-        commentExpanded: !!comment || !!se?.is_extra,
+        commentExpanded: false,
       });
 
       hide(pickerStatus);
@@ -2020,7 +2010,7 @@
         sessionExerciseId: row.id,
         comment: row.comment || '',
         isExtra: row.is_extra || false,
-        sets: setsRes.data.filter((s) => s.exercise_id === row.exercise_id),
+        sets: setsRes.data.filter((s) => s.session_exercise_id === row.id),
         history: histories[i].history,
         expanded: false,
         commentExpanded: !!(row.comment && row.comment.trim()) || !!row.is_extra,

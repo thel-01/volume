@@ -533,7 +533,7 @@
           sessionExercise: se,
           exercise: se.exercises,
           sets: allSets
-            .filter((set) => set.session_id === session.id && set.exercise_id === se.exercise_id)
+            .filter((set) => set.session_exercise_id === se.id)
             .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
         }))
         .filter((entry) => entry.exercise); // guard against a dangling join
@@ -751,7 +751,7 @@
         removeYes.textContent = 'Removing…';
 
         const { error: setsErr } = await supabase.from('sets')
-          .delete().eq('session_id', currentSessionId).eq('exercise_id', entry.exercise.id);
+          .delete().eq('session_exercise_id', entry.sessionExercise.id);
         if (setsErr) {
           removeYes.disabled = false;
           removeYes.textContent = 'Yes, remove';
@@ -767,7 +767,7 @@
           return;
         }
 
-        allSets = allSets.filter((s) => !(s.session_id === currentSessionId && s.exercise_id === entry.exercise.id));
+        allSets = allSets.filter((s) => s.session_exercise_id !== entry.sessionExercise.id);
         allSessionExercises = allSessionExercises.filter((se) => se.id !== entry.sessionExercise.id);
 
         renderDetail();
@@ -916,7 +916,7 @@
 
       addBtn.addEventListener('click', async () => {
         hide(addStatus);
-        const payload = { session_id: currentSessionId, exercise_id: entry.exercise.id };
+        const payload = { session_id: currentSessionId, exercise_id: entry.exercise.id, session_exercise_id: entry.sessionExercise.id };
 
         if (type === 'time_based') {
           const secs = parseInt(durationInput.value.trim(), 10);

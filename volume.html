@@ -510,7 +510,7 @@
         // slice in the split donut below, rather than counting toward
         // whatever category the session itself was — a bonus pull-up on a
         // push day shouldn't blend into Push (or Pull) volume either way.
-        supabase.from('session_exercises').select('session_id, exercise_id').eq('is_extra', true),
+        supabase.from('session_exercises').select('id').eq('is_extra', true),
       ]);
     }
 
@@ -536,12 +536,18 @@
       const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
       loading.hidden = true;
 
-      const extraKeys = new Set(
-        (sessionExercisesRes.data || []).map((r) => `${r.session_id}:${r.exercise_id}`)
-      );
-      /** The category a set counts toward in the split donut. */
+      const extraKeys = new Set((sessionExercisesRes.data || []).map((r) => r.id));
+      /**
+       * The category a set counts toward in the split donut. Keyed by the
+       * specific block (session_exercise_id), not exercise+session — a
+       * session can now hold more than one block of the same exercise, and
+       * only one of them might be flagged Extra. A set with no
+       * session_exercise_id (a rare pre-migration/gap-window orphan) just
+       * falls through to its session's normal category — extraKeys.has(null)
+       * is always false, deliberately, not a bug.
+       */
       function splitCategoryFor(s) {
-        if (extraKeys.has(`${s.session_id}:${s.exercise_id}`)) return 'Extra';
+        if (extraKeys.has(s.session_exercise_id)) return 'Extra';
         return s.sessions.category || 'Other';
       }
 

@@ -278,15 +278,21 @@ create table if not exists public.session_exercises (
   -- category, so a bonus pull-up doesn't count as Push volume.
   is_extra     boolean not null default false,
 
-  created_at   timestamptz not null default now(),
+  created_at   timestamptz not null default now()
 
-  -- One comment row per exercise per session.
-  constraint session_exercises_unique_pair unique (session_id, exercise_id)
+  -- Deliberately no unique(session_id, exercise_id) any more — the same
+  -- exercise can now show up as more than one block in a session (a few
+  -- pull-ups early, more later). What ties a set to the specific block it
+  -- was logged into is sets.session_exercise_id below, not this pairing.
 );
 
 -- Brings an already-existing session_exercises table up to the current
 -- shape. No-op on a brand new database.
 alter table public.session_exercises add column if not exists is_extra boolean not null default false;
+
+-- Was "one row per exercise per session" — no longer true, since an
+-- exercise can now show up as more than one block in the same session.
+alter table public.session_exercises drop constraint if exists session_exercises_unique_pair;
 
 create index if not exists session_exercises_session_idx
   on public.session_exercises (session_id);
@@ -320,6 +326,15 @@ create table if not exists public.sets (
   -- deleted out from under its sets. You'd get a loud error instead of
   -- silently losing months of training history.
   exercise_id       uuid not null references public.exercises (id) on delete restrict,
+
+  -- Which specific block/card this set was logged into. A session can now
+  -- have more than one block for the same exercise (a few pull-ups early,
+  -- more later), so exercise_id alone no longer says which block a set
+  -- belongs to. Nullable, and ON DELETE SET NULL rather than CASCADE:
+  -- session_exercises rows are always deleted individually by app code,
+  -- never in bulk, so a set should never vanish just because its
+  -- bookkeeping row did.
+  session_exercise_id uuid references public.session_exercises (id) on delete set null,
 
   -- Kilograms. Always kg, everywhere, no exceptions.
   -- For 'assisted' this is how much help the machine gave — lower is better.
@@ -379,6 +394,27 @@ create table if not exists public.sets (
 alter table public.sets add column if not exists weight_direction text;
 alter table public.sets add column if not exists bodyweight_kg numeric(5, 2);
 alter table public.sets add column if not exists limiting_side text;
+alter table public.sets add column if not exists session_exercise_id uuid references public.session_exercises (id) on delete set null;
+
+-- One-time fixup for sets logged before this column existed. Before now,
+-- session_exercises was guaranteed exactly one row per (session_id,
+-- exercise_id), so every set logged back then has exactly one possible
+-- session_exercises row it could belong to — this only assigns where
+-- that's still true (exactly one candidate), so a still-null set sitting in
+-- a now-ambiguous multi-block session is correctly left alone rather than
+-- guessed at. Only ever touches still-null rows, so safe to leave here and
+-- re-run indefinitely.
+update public.sets s
+  set session_exercise_id = se.id
+  from public.session_exercises se
+  where se.session_id = s.session_id
+    and se.exercise_id = s.exercise_id
+    and s.session_exercise_id is null
+    and (
+      select count(*) from public.session_exercises se2
+      where se2.session_id = s.session_id and se2.exercise_id = s.exercise_id
+    ) = 1;
+
 alter table public.sets drop constraint if exists sets_weight_direction_valid;
 alter table public.sets add constraint sets_weight_direction_valid
   check (weight_direction is null or weight_direction in ('assist', 'add'));
@@ -397,6 +433,12 @@ create index if not exists sets_session_idx
 -- first.
 create index if not exists sets_exercise_idx
   on public.sets (exercise_id, created_at desc);
+
+-- Fetching one block's own sets — the log/history screens' primary read
+-- once a set knows which specific block it belongs to.
+create index if not exists sets_session_exercise_idx
+  on public.sets (session_exercise_id)
+  where session_exercise_id is not null;
 
 
 -- ===========================================================================
