@@ -418,13 +418,21 @@
       iSentence.textContent =
         `You took ${failure}% of your sets to failure and tagged ${hard}% as hard.`;
 
-      // Gaps only count within one exercise in one session — the pause while
-      // you walk to the next machine isn't rest between sets.
+      // Gaps only count within one block (one continuous stretch of an
+      // exercise) — the pause while you walk to the next machine isn't rest
+      // between sets, and neither is however long you spent on a different
+      // exercise between two separate blocks of this one (a few pull-ups
+      // early, more later). Keying by exercise+session alone would merge
+      // those two blocks' timelines and could misread "did something else
+      // in between" as a long rest, so this keys off the specific block
+      // instead. A set with no session_exercise_id (a rare pre-migration
+      // orphan) has no reliable block to group it into, so it's skipped
+      // here rather than risking a nonsense gap between unrelated sets.
       const byGroup = new Map();
       for (const s of windowSets) {
-        const key = `${s.session_id}:${s.exercise_id}`;
-        if (!byGroup.has(key)) byGroup.set(key, []);
-        byGroup.get(key).push(new Date(s.created_at).getTime());
+        if (!s.session_exercise_id) continue;
+        if (!byGroup.has(s.session_exercise_id)) byGroup.set(s.session_exercise_id, []);
+        byGroup.get(s.session_exercise_id).push(new Date(s.created_at).getTime());
       }
 
       let gapTotal = 0;
