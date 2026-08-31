@@ -159,6 +159,7 @@
     import { showToast } from './toast.js';
     import { tagChip, positionHint } from './chip-tag.js';
     import { DEFAULT_TREND_METHOD } from './weight-utils.js';
+    import { nextColorIndex } from './session-type-colors.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -632,13 +633,23 @@
         show(stStatus, 'error', `"${name}" is already in your list.`);
         return;
       }
+      // "Other" and "Extra" are reserved — Other is the built-in pseudo-type
+      // every chip list already offers, and Extra is the volume donut's own
+      // synthetic label. A real type sharing either name would always
+      // render in the reserved muted color and never get a real slot of
+      // its own, indistinguishable from the true catch-all bucket.
+      if (['other', 'extra'].includes(name.toLowerCase())) {
+        show(stStatus, 'error', `"${name}" is reserved and can't be used as a session type.`);
+        return;
+      }
 
       if (triggerEl) triggerEl.disabled = true;
       hide(stStatus);
 
+      const colorIndex = nextColorIndex(sessionTypes.map((t) => t.color_index));
       const { data, error } = await supabase
         .from('session_types')
-        .insert({ user_id: user.id, name })
+        .insert({ user_id: user.id, name, color_index: colorIndex })
         .select()
         .single();
 

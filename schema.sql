@@ -160,10 +160,26 @@ create table if not exists public.session_types (
 
   name        text not null,
 
+  -- Which palette slot this type's donut/legend color comes from — see
+  -- session-type-colors.js. An INDEX into the shared palette, not a color
+  -- value, so the palette can be retuned later with no migration. Nullable:
+  -- an existing row gets one from the one-time backfill below; a new row
+  -- gets one from the app at insert time — the smallest index not already
+  -- used by one of this user's other LIVE types.
+  color_index integer,
+
   created_at  timestamptz not null default now(),
 
-  constraint session_types_name_not_blank check (length(btrim(name)) > 0)
+  constraint session_types_name_not_blank check (length(btrim(name)) > 0),
+  constraint session_types_color_index_sane check (color_index is null or color_index >= 0)
 );
+
+-- Brings an already-existing session_types table up to the current shape.
+-- No-op on a brand new database.
+alter table public.session_types add column if not exists color_index integer;
+alter table public.session_types drop constraint if exists session_types_color_index_sane;
+alter table public.session_types add constraint session_types_color_index_sane
+  check (color_index is null or color_index >= 0);
 
 create index if not exists session_types_user_idx
   on public.session_types (user_id);
@@ -172,6 +188,29 @@ create index if not exists session_types_user_idx
 -- movement_patterns' name uniqueness.
 create unique index if not exists session_types_unique_name
   on public.session_types (user_id, lower(btrim(name)));
+
+-- No two of a user's LIVE types can claim the same slot — the DB-level half
+-- of "distinct among active types". Partial so an unbackfilled/unallocated
+-- row never blocks anything.
+create unique index if not exists session_types_unique_live_color
+  on public.session_types (user_id, color_index)
+  where color_index is not null;
+
+-- One-time fixup for types created before color_index existed: each user's
+-- existing types get a slot by creation order (oldest -> 0, next -> 1, …) —
+-- the exact order Settings already displays them in, so this migration is
+-- visually a no-op for existing data, it just makes the color stick going
+-- forward. Only touches still-null rows, safe to leave here and re-run
+-- indefinitely — once the app allocates color_index at insert time,
+-- re-running this file later can never clobber an existing assignment.
+update public.session_types st
+  set color_index = ranked.rn
+  from (
+    select id, row_number() over (partition by user_id order by created_at, id) - 1 as rn
+    from public.session_types
+    where color_index is null
+  ) ranked
+  where st.id = ranked.id;
 
 
 -- ===========================================================================

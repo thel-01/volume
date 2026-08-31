@@ -98,6 +98,7 @@
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderBarChart, renderDonutChart, renderGaugeChart, renderIntensityBarChart } from './chart.js';
     import { mondayOf } from './date-utils.js';
+    import { colorForIndex, OTHER_COLOR, EXTRA_COLOR } from './session-type-colors.js';
 
     const AVERAGE_WEEKS = 4;
     const MAX_CHART_WEEKS = 26;
@@ -116,15 +117,6 @@
     // capped to this value, since even a capped number would still be a
     // guess standing in for rest that probably looked nothing like it.
     const REST_GAP_CEILING_MS = 5 * 60 * 1000;
-
-    // Enough distinct hues for any realistic number of session types; anything
-    // past the end shares the last colour rather than going invisible.
-    // Fixed order, dataviz-skill-validated (lightness band, chroma floor, CVD
-    // separation, contrast — all checked against --surface, not eyeballed).
-    const SLICE_COLORS = [
-      'var(--chart-cat-1)', 'var(--chart-cat-2)', 'var(--chart-cat-3)', 'var(--chart-cat-4)',
-      'var(--chart-cat-5)', 'var(--chart-cat-6)', 'var(--chart-cat-7)', 'var(--chart-cat-8)',
-    ];
 
     // How hard a tag says a set was, 0..1 — the inverse of the app's existing
     // easy > untagged > hard > failure quality ordering (tagQuality() in
@@ -306,7 +298,7 @@
      * middle. A breakdown of what actually happened, so a part-finished week
      * is just a shorter period rather than a misleading one.
      */
-    function renderSplit(windowSets, categoryFor) {
+    function renderSplit(windowSets, categoryFor, colorForKey) {
       splitLegend.innerHTML = '';
 
       if (windowSets.length === 0) {
@@ -324,13 +316,16 @@
       for (const s of windowSets) {
         const raw = categoryFor(s).trim();
         const key = raw.toLowerCase();
-        if (!byKey.has(key)) byKey.set(key, { label: raw, value: 0 });
+        if (!byKey.has(key)) byKey.set(key, { label: raw, key, value: 0 });
         byKey.get(key).value++;
       }
 
+      // Sort order is purely a display concern (biggest slice drawn/listed
+      // first) — color is looked up by the category's own persistent
+      // identity below, not by where it lands in this sort.
       const slices = [...byKey.values()]
         .sort((a, b) => b.value - a.value)
-        .map((slice, i) => ({ ...slice, color: SLICE_COLORS[Math.min(i, SLICE_COLORS.length - 1)] }));
+        .map((slice) => ({ ...slice, color: colorForKey(slice.key) }));
 
       renderDonutChart(splitChart, {
         slices,
@@ -519,22 +514,24 @@
         // whatever category the session itself was — a bonus pull-up on a
         // push day shouldn't blend into Push (or Pull) volume either way.
         supabase.from('session_exercises').select('id').eq('is_extra', true),
+        // Feeds each real session type's persistent donut color below.
+        supabase.from('session_types').select('id, name, color_index'),
       ]);
     }
 
     async function loadAll() {
-      let [setsRes, exercisesRes, sessionExercisesRes] = await fetchVolumeData();
+      let [setsRes, exercisesRes, sessionExercisesRes, sessionTypesRes] = await fetchVolumeData();
 
       // A standalone iOS PWA freezes its JS (including the library's own
       // background token refresh) while backgrounded, so the very first
       // query after reopening can hit a stale token. Refresh and retry once
       // before showing an error for something that isn't a real failure.
-      if (isAuthError(setsRes.error || exercisesRes.error || sessionExercisesRes.error)) {
+      if (isAuthError(setsRes.error || exercisesRes.error || sessionExercisesRes.error || sessionTypesRes.error)) {
         await supabase.auth.refreshSession();
-        [setsRes, exercisesRes, sessionExercisesRes] = await fetchVolumeData();
+        [setsRes, exercisesRes, sessionExercisesRes, sessionTypesRes] = await fetchVolumeData();
       }
 
-      const err = setsRes.error || exercisesRes.error || sessionExercisesRes.error;
+      const err = setsRes.error || exercisesRes.error || sessionExercisesRes.error || sessionTypesRes.error;
       if (err) {
         loading.hidden = true;
         show(topStatus, 'error', `Could not load your training data: ${err.message}`);
@@ -557,6 +554,27 @@
       function splitCategoryFor(s) {
         if (extraKeys.has(s.session_exercise_id)) return 'Extra';
         return s.sessions.category || 'Other';
+      }
+
+      const typeColorIndexByName = new Map(
+        (sessionTypesRes.data || []).map((t) => [t.name.trim().toLowerCase(), t.color_index])
+      );
+      /**
+       * A category's color is pinned to the session type's own persistent
+       * slot, not to how it ranks against other categories this particular
+       * week — that's the whole fix. "Extra" and "Other" (a real, pickable
+       * type as well as the fallback for a blank category) get their own
+       * reserved colors, never drawn from the same pool a real type could
+       * claim. Anything else unrecognized (a deleted type's name surviving
+       * in old history) falls through to the same "Other" color — from the
+       * user's side, "doesn't match any current type" reads the same as
+       * "Other" either way.
+       */
+      function colorForKey(key) {
+        if (key === 'extra') return EXTRA_COLOR;
+        if (key === 'other') return OTHER_COLOR;
+        const idx = typeColorIndexByName.get(key);
+        return idx == null ? OTHER_COLOR : colorForIndex(idx);
       }
 
       if (liveSets.length === 0) {
@@ -593,7 +611,7 @@
       const enoughHistory = earliest !== null && earliest <= averageStart;
 
       renderWeekly(liveSets, mondayOf(earliest), thisMonday);
-      renderSplit(thisWeekSets, splitCategoryFor);
+      renderSplit(thisWeekSets, splitCategoryFor, colorForKey);
       renderTopExercise(thisWeekSets, exerciseNames);
       renderIntensityGauge(thisWeekSets);
       renderIntensity(thisWeekSets);
