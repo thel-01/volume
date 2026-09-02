@@ -54,6 +54,12 @@
           </div>
           <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
         </li>
+        <li class="list-item" id="imported-weight-link" tabindex="0" role="button">
+          <div class="list-item-body">
+            <div class="list-item-name">Imported Weight Data</div>
+          </div>
+          <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
+        </li>
       </ul>
 
       <p class="section-label" style="margin-top:24px;">Bodyweight trend</p>
@@ -142,6 +148,26 @@
       </div>
     </section>
 
+    <!-- =================== IMPORTED WEIGHT DATA =================== -->
+    <section id="imported-weight-view" hidden>
+      <div class="page-header">
+        <button id="iw-back" class="icon-link" type="button" aria-label="Back to settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
+        <h1>Imported Weight Data</h1>
+        <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+      </div>
+
+      <p class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-5);">Every bulk import you've done, in case you notice a problem later rather than right away. Not time-limited — imports are rare, low-volume events.</p>
+
+      <div id="iw-loading" class="loading-state">
+        <svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" role="status" aria-label="Loading">
+          <path d="M 6,30 L 18,30 L 18,18 L 30,18 L 30,6" pathLength="1" />
+        </svg>
+      </div>
+
+      <ul id="iw-batch-list" class="list" hidden></ul>
+      <p id="iw-empty" class="empty-state" hidden>No imports yet.</p>
+    </section>
+
   </main>
 
   <div class="modal-backdrop" id="trend-info-modal" hidden>
@@ -192,6 +218,13 @@
     const deletedSessionListEl = document.getElementById('deleted-session-list');
     const emptyDeletedSessions = document.getElementById('empty-deleted-sessions');
 
+    const importedWeightView = document.getElementById('imported-weight-view');
+    const importedWeightLink = document.getElementById('imported-weight-link');
+    const iwBack = document.getElementById('iw-back');
+    const iwLoading = document.getElementById('iw-loading');
+    const iwBatchListEl = document.getElementById('iw-batch-list');
+    const iwEmpty = document.getElementById('iw-empty');
+
     // ------------------------------------------------------------------
     // State
     // ------------------------------------------------------------------
@@ -200,6 +233,9 @@
     let deletedExercises = [];
     let deletedSessions = [];
     let loaded = false;
+
+    let importBatches = [];
+    let importBatchesLoaded = false;
 
     let sessionTypes = [];
     let sessionTypesLoaded = false;
@@ -245,6 +281,7 @@
       homeView.hidden = view !== 'home';
       recentlyDeletedView.hidden = view !== 'recently-deleted';
       sessionTypesView.hidden = view !== 'session-types';
+      importedWeightView.hidden = view !== 'imported-weight';
     }
 
     // ------------------------------------------------------------------
@@ -269,6 +306,16 @@
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSessionTypes(); }
     });
     stBack.addEventListener('click', () => showView('home'));
+
+    function openImportedWeight() {
+      showView('imported-weight');
+      if (!importBatchesLoaded) loadImportBatches();
+    }
+    importedWeightLink.addEventListener('click', openImportedWeight);
+    importedWeightLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openImportedWeight(); }
+    });
+    iwBack.addEventListener('click', () => showView('home'));
 
     // ------------------------------------------------------------------
     // Loading
@@ -533,6 +580,128 @@
       deletedSessions = deletedSessions.filter((x) => x.id !== s.id);
       renderSessions();
       flash('Session restored.');
+    }
+
+    // ------------------------------------------------------------------
+    // Imported weight data — batches derived by grouping body_weights on
+    // import_batch_id, nothing extra stored. Not time-limited, unlike
+    // Recently Deleted above: imports are rare, low-volume events.
+    // ------------------------------------------------------------------
+    async function loadImportBatches() {
+      iwLoading.hidden = false;
+      iwBatchListEl.hidden = true;
+      iwEmpty.hidden = true;
+
+      const { data, error } = await supabase
+        .from('body_weights')
+        .select('weight_kg, measured_at, created_at, import_batch_id')
+        .not('import_batch_id', 'is', null)
+        .order('measured_at', { ascending: true });
+
+      iwLoading.hidden = true;
+      importBatchesLoaded = true;
+
+      if (error) {
+        flash(`Could not load imported weight data: ${error.message}`, 'error');
+        return;
+      }
+
+      const byBatch = new Map();
+      for (const row of data || []) {
+        if (!byBatch.has(row.import_batch_id)) {
+          byBatch.set(row.import_batch_id, {
+            id: row.import_batch_id, count: 0,
+            minDate: row.measured_at, maxDate: row.measured_at, importedAt: row.created_at,
+          });
+        }
+        const b = byBatch.get(row.import_batch_id);
+        b.count += 1;
+        if (row.measured_at < b.minDate) b.minDate = row.measured_at;
+        if (row.measured_at > b.maxDate) b.maxDate = row.measured_at;
+        if (row.created_at < b.importedAt) b.importedAt = row.created_at;
+      }
+      // Most recently imported first.
+      importBatches = Array.from(byBatch.values()).sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt));
+      renderImportBatches();
+    }
+
+    function renderImportBatches() {
+      iwBatchListEl.innerHTML = '';
+      if (importBatches.length === 0) {
+        iwBatchListEl.hidden = true;
+        iwEmpty.hidden = false;
+        return;
+      }
+      iwEmpty.hidden = true;
+      iwBatchListEl.hidden = false;
+
+      for (const b of importBatches) {
+        const li = document.createElement('li');
+        li.className = 'list-item';
+        li.style.alignItems = 'flex-start';
+
+        const minD = new Date(b.minDate), maxD = new Date(b.maxDate);
+        const range = minD.toDateString() === maxD.toDateString()
+          ? formatDate(b.minDate)
+          : `${formatDate(b.minDate)} – ${formatDate(b.maxDate)}`;
+
+        const body = document.createElement('div');
+        body.className = 'list-item-body';
+        body.innerHTML = `
+          <div class="list-item-name">${b.count} reading${b.count === 1 ? '' : 's'}</div>
+          <div class="list-item-meta">${range} · imported ${new Date(b.importedAt).toLocaleString()}</div>
+        `;
+        li.appendChild(body);
+        li.appendChild(buildImportUndoButton(b));
+        iwBatchListEl.appendChild(li);
+      }
+    }
+
+    // Undo, not "Delete" — and not the plain "Delete"/"Tap again" text
+    // swap the session-type delete below still uses, which predates this
+    // project's stylebook audit and was never folded into either of its
+    // two documented arming styles. An import batch's rows are
+    // self-contained (tagged by one id, nothing else references them),
+    // the same low blast-radius as a single logged set — matches
+    // .set-delete's arm/confirm-timeout category (via its text-labeled
+    // sibling, .arm-confirm-btn) rather than the heavier "reveals
+    // Cancel/Yes, delete" zone reserved for exercises/movement patterns.
+    function buildImportUndoButton(batch) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'arm-confirm-btn';
+      btn.textContent = 'Undo';
+      let armed = false, timer = null;
+      btn.addEventListener('click', async () => {
+        if (!armed) {
+          armed = true;
+          btn.classList.add('confirming');
+          btn.textContent = 'Undo?';
+          timer = setTimeout(() => {
+            armed = false;
+            btn.classList.remove('confirming');
+            btn.textContent = 'Undo';
+          }, 3000);
+          return;
+        }
+        clearTimeout(timer);
+        btn.disabled = true;
+        const { error } = await supabase.from('body_weights').delete().eq('import_batch_id', batch.id);
+        if (error) {
+          btn.disabled = false;
+          btn.classList.remove('confirming');
+          btn.textContent = 'Undo';
+          flash(`Could not undo that import: ${error.message}`, 'error');
+          return;
+        }
+        // Same rhythm as .set-delete: a brief "Undone" on the button
+        // itself before the row disappears, not an instant cut.
+        btn.classList.remove('confirming');
+        btn.textContent = 'Undone';
+        importBatches = importBatches.filter((x) => x.id !== batch.id);
+        setTimeout(() => renderImportBatches(), 900);
+      });
+      return btn;
     }
 
     // ------------------------------------------------------------------

@@ -107,6 +107,55 @@
     @media (max-width: 359px) {
       .stat-row .stat { flex: 1 1 0%; min-width: 0; }
     }
+
+    /* ---- Import weight data ---- */
+    pre.spec {
+      background: var(--surface); border: 1px solid var(--line);
+      padding: var(--space-3) var(--space-4); font-family: var(--font-mono);
+      font-size: 13px; color: var(--muted); overflow-x: auto; white-space: pre; margin: 0;
+    }
+    /* A fixed height, not a min-height — row 1's tallest natural element is
+       the plain weight text itself (24px line box), taller than both the
+       badge (its own padding+border included) and .info-btn (22px, fixed).
+       A skipped row has no weight text at all, so without this its row 1
+       fell back to whichever of badge/button was tallest instead of the
+       24px every OK row settles at. Scoped to this list specifically —
+       the value is derived from this exact content shape (16px/600-weight
+       text vs. a 22px .info-btn) and isn't guaranteed to generalize to
+       every other .list-item usage in the app. */
+    #import-preview-list .list-item-name { height: 24px; }
+    /* Custom isn't a pressable chip — a derived readout shown only when the
+       current per-row include state matches none of Exclude/Include/Auto.
+       Rendered with the same .chip.selected look so it reads as "this is
+       your current state," but non-interactive on purpose: a <span>, not a
+       <button>, so it needs the flex-centering .chip normally gets for
+       free from a <button>'s own implicit vertical-centering. */
+    #import-overlap-chips .chip.readout {
+      display: inline-flex; align-items: center; justify-content: center;
+      cursor: default; -webkit-tap-highlight-color: transparent;
+    }
+    /* An author display rule silently beats the browser's own default
+       [hidden]{display:none} (same gap as .reference-line/.modal-backdrop
+       elsewhere) — both the whole chip row and the Custom readout need
+       their own explicit override or "hidden" only sets the attribute,
+       not what's actually shown. */
+    #import-overlap-chips[hidden] { display: none; }
+    #import-overlap-chips .chip.readout[hidden] { display: none; }
+    /* .chip.selected's font-weight jump (500 -> 600) measurably widens a
+       width:auto chip, shifting every chip after it in the row the instant
+       you tap one. Scoped to just these three real toggle buttons
+       ([data-v] excludes the always-selected Custom span, which never
+       toggles and so never causes this) — the accent fill/border/color
+       already reads as "selected" on its own, so losing the extra weight
+       here costs nothing. */
+    #import-overlap-chips .chip[data-v].selected { font-weight: 500; }
+    /* Same fix as #chart-window-row above: shrink chip padding only below
+       the width where the worst case (all 4 chips, Custom showing) would
+       actually wrap — measured, not guessed: wraps at 389px with full
+       padding, 10px padding clears all the way down to 341px. */
+    @media (max-width: 395px) {
+      #import-overlap-chips.chips .chip { padding: 0 10px; }
+    }
   </style>
 </head>
 <body>
@@ -114,6 +163,7 @@
 
     <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
 
+    <section id="home-view">
     <div class="page-header">
       <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
       <h1>Weight</h1>
@@ -167,6 +217,14 @@
       <div id="stale-notice" class="status info" hidden></div>
 
       <button id="add-toggle" type="button" style="margin-top:var(--space-5);">+ Log weight</button>
+      <!-- .link-button + .nav-link, combined: this opens a full-page
+           takeover (#import-view), which reads as leaving the page to the
+           user even though it's the same HTML file — no href to hang
+           .nav-link alone off of, so .link-button supplies the box-model
+           reset and .nav-link supplies the color/underline. See the
+           Stylebook's "A fourth case: leaves the page, but there's no
+           href". -->
+      <button type="button" class="link-button nav-link" id="import-open-btn" style="display:block;margin-top:var(--space-4);">Import weight data from elsewhere</button>
 
       <!-- Add form. Date and time stay tucked away: the overwhelmingly common
            case is weighing yourself and logging it there and then. -->
@@ -204,8 +262,99 @@
       <p id="empty-entries" class="empty-state" hidden>No weight logged yet.</p>
 
     </div>
+    </section>
+
+    <!-- =================== IMPORT WEIGHT DATA =================== -->
+    <section id="import-view" hidden>
+
+      <!-- ---- STEP 1: get data in ---- -->
+      <div id="import-step1">
+        <div class="page-header">
+          <button type="button" class="icon-link" id="import-step1-back" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
+          <h1>Import weight data</h1>
+          <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+        </div>
+
+        <div class="field">
+          <label for="import-paste">Paste your data</label>
+          <textarea id="import-paste" placeholder="Date,Time,Weight&#10;2026-06-01,07:15,82.4&#10;2026-06-02,,81.9"></textarea>
+        </div>
+
+        <button type="button" class="link-button" id="import-spec-toggle" style="display:block;">+ How should my data look?</button>
+        <div id="import-spec-reveal" hidden style="margin-top:var(--space-3);">
+          <pre class="spec">Date,Time,Weight (kg)
+2026-06-01,07:15,82.4
+2026-06-02,,81.9</pre>
+          <p class="muted" style="margin:var(--space-2) 0 var(--space-3);">Date as YYYY-MM-DD, time as 24-hour HH:MM (or blank), weight in kg. Comma or semicolon-separated both work, and pasting straight from a spreadsheet works too.</p>
+          <button type="button" class="link-button" id="import-copy-prompt-btn" style="display:block;">Copy a prompt to reformat your data with AI</button>
+        </div>
+
+        <div class="btn-row" style="margin-top:var(--space-5);">
+          <button type="button" class="secondary" id="import-step1-cancel">Cancel</button>
+          <button type="button" id="import-step1-continue">Continue</button>
+        </div>
+        <div id="import-step1-status" class="status" role="status" hidden></div>
+      </div>
+
+      <!-- ---- STEP 2: review ---- -->
+      <div id="import-step2" hidden>
+        <div class="page-header">
+          <button type="button" class="icon-link" id="import-step2-back" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
+          <h1>Review</h1>
+          <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+        </div>
+
+        <p id="import-detect-line" class="muted"></p>
+        <p id="import-summary-line" style="font-size:var(--fs-lg);font-weight:600;margin:var(--space-2) 0 var(--space-3);"></p>
+
+        <p class="muted" id="import-overlap-question" style="margin-bottom:var(--space-2);">How should we deal with entries that overlap with your existing data?</p>
+        <div class="chips tagged-chips" id="import-overlap-chips" style="margin-bottom:var(--space-4);">
+          <button type="button" class="chip" data-v="exclude">Exclude</button>
+          <button type="button" class="chip" data-v="include">Include</button>
+          <button type="button" class="chip" id="import-auto-chip" data-v="auto">Auto</button>
+          <span class="chip readout selected" id="import-custom-chip" hidden>Custom</span>
+        </div>
+
+        <ul class="list" id="import-preview-list"></ul>
+
+        <div class="btn-row" style="margin-top:var(--space-3);">
+          <button type="button" class="secondary" id="import-step2-back2">Back</button>
+          <button type="button" id="import-step2-continue">Continue</button>
+        </div>
+        <div id="import-step2-status" class="status" role="status" hidden></div>
+      </div>
+
+      <!-- ---- STEP 3: confirm ---- -->
+      <div id="import-step3" hidden>
+        <div class="page-header">
+          <button type="button" class="icon-link" id="import-step3-back" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></button>
+          <h1>Confirm</h1>
+          <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+        </div>
+
+        <p id="import-confirm-summary" style="font-size:var(--fs-lg);font-weight:600;"></p>
+        <p class="muted" id="import-confirm-note"></p>
+
+        <div class="btn-row" style="margin-top:var(--space-5);">
+          <button type="button" class="secondary" id="import-step3-back2">Back</button>
+          <button type="button" id="import-step3-commit">Import</button>
+        </div>
+        <div id="import-step3-status" class="status" role="status" hidden></div>
+      </div>
+
+    </section>
 
   </main>
+
+  <div class="modal-backdrop" id="import-reason-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="import-reason-modal-title">Why this row was skipped</h2>
+        <button type="button" class="modal-close" id="import-reason-modal-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" id="import-reason-modal-body" style="font-size:var(--fs-base);line-height:1.5;"></p>
+    </div>
+  </div>
 
   <div class="modal-backdrop" id="weight-trend-info-modal" hidden>
     <div class="modal-card">
@@ -238,6 +387,10 @@
       personalizedNoiseBand, genericNoiseBand,
       DEFAULT_TREND_METHOD,
     } from './weight-utils.js';
+    import { tagChip, positionHint } from './chip-tag.js';
+    import {
+      parseImportText, annotateOverlaps, looksLikeWrongFileShape, REASON_LABEL,
+    } from './weight-import.js';
 
     // Spelled out in full, same copy as dashboard.html's hero card — this
     // used to stay on weight-utils.js's shorter TREND_LABEL ("trend"), but
@@ -332,9 +485,50 @@
     const entryList = document.getElementById('entry-list');
     const emptyEntries = document.getElementById('empty-entries');
 
+    // Import weight data
+    const homeView = document.getElementById('home-view');
+    const importView = document.getElementById('import-view');
+    const importOpenBtn = document.getElementById('import-open-btn');
+    const importStep1 = document.getElementById('import-step1');
+    const importStep2 = document.getElementById('import-step2');
+    const importStep3 = document.getElementById('import-step3');
+    const importPaste = document.getElementById('import-paste');
+    const importSpecToggle = document.getElementById('import-spec-toggle');
+    const importSpecReveal = document.getElementById('import-spec-reveal');
+    const importCopyPromptBtn = document.getElementById('import-copy-prompt-btn');
+    const importStep1Back = document.getElementById('import-step1-back');
+    const importStep1Cancel = document.getElementById('import-step1-cancel');
+    const importStep1Continue = document.getElementById('import-step1-continue');
+    const importStep1Status = document.getElementById('import-step1-status');
+    const importStep2Back = document.getElementById('import-step2-back');
+    const importStep2Back2 = document.getElementById('import-step2-back2');
+    const importStep2Continue = document.getElementById('import-step2-continue');
+    const importStep2Status = document.getElementById('import-step2-status');
+    const importDetectLine = document.getElementById('import-detect-line');
+    const importSummaryLine = document.getElementById('import-summary-line');
+    const importOverlapQuestion = document.getElementById('import-overlap-question');
+    const importOverlapChips = document.getElementById('import-overlap-chips');
+    const importAutoChip = document.getElementById('import-auto-chip');
+    const importCustomChip = document.getElementById('import-custom-chip');
+    const importPreviewList = document.getElementById('import-preview-list');
+    const importStep3Back = document.getElementById('import-step3-back');
+    const importStep3Back2 = document.getElementById('import-step3-back2');
+    const importStep3Commit = document.getElementById('import-step3-commit');
+    const importStep3Status = document.getElementById('import-step3-status');
+    const importConfirmSummary = document.getElementById('import-confirm-summary');
+    const importConfirmNote = document.getElementById('import-confirm-note');
+    const importReasonModal = document.getElementById('import-reason-modal');
+    const importReasonModalTitle = document.getElementById('import-reason-modal-title');
+    const importReasonModalBody = document.getElementById('import-reason-modal-body');
+    const importReasonModalClose = document.getElementById('import-reason-modal-close');
+
     let user = null;
     let entries = [];          // newest first
     let editingId = null;
+
+    let importParse = null;
+    let importAnnotated = null;
+    let importLastBulkMode = 'auto';
 
     // ------------------------------------------------------------------
     // Helpers
@@ -993,6 +1187,381 @@
       // Arrived from the dashboard's "Log weight" shortcut.
       if (new URLSearchParams(window.location.search).get('add') === '1') openAddForm();
     }
+
+    // ------------------------------------------------------------------
+    // Import weight data
+    // ------------------------------------------------------------------
+    function showHomeView() {
+      importView.hidden = true;
+      homeView.hidden = false;
+    }
+    function showImportStep(step) {
+      importStep1.hidden = step !== 1;
+      importStep2.hidden = step !== 2;
+      importStep3.hidden = step !== 3;
+    }
+    function openImportView() {
+      importPaste.value = '';
+      importSpecReveal.hidden = true;
+      hide(importStep1Status);
+      showImportStep(1);
+      homeView.hidden = true;
+      importView.hidden = false;
+    }
+    importOpenBtn.addEventListener('click', openImportView);
+    importStep1Back.addEventListener('click', showHomeView);
+    importStep1Cancel.addEventListener('click', showHomeView);
+
+    importSpecToggle.addEventListener('click', () => {
+      importSpecReveal.hidden = !importSpecReveal.hidden;
+      importSpecToggle.textContent = importSpecReveal.hidden ? '+ How should my data look?' : '− Hide';
+    });
+
+    const IMPORT_AI_PROMPT = `Please reformat my bodyweight log into CSV with exactly these columns and nothing else: Date,Time,Weight
+- Date: YYYY-MM-DD
+- Time: 24-hour HH:MM, or leave blank if you don't know the time
+- Weight: in kg, as a plain number with a dot for the decimal (e.g. 80.5)
+One reading per line. No extra commentary, just the CSV.
+
+Example:
+Date,Time,Weight
+2026-06-01,07:15,82.4
+2026-06-02,,81.9
+
+Here's my data:
+`;
+    importCopyPromptBtn.addEventListener('click', async () => {
+      const original = importCopyPromptBtn.textContent;
+      try {
+        await navigator.clipboard.writeText(IMPORT_AI_PROMPT);
+        importCopyPromptBtn.textContent = 'Copied!';
+      } catch {
+        importCopyPromptBtn.textContent = 'Could not copy automatically. Select the text above.';
+      }
+      setTimeout(() => { importCopyPromptBtn.textContent = original; }, 2000);
+    });
+
+    // If most rows come back "wrong number of columns," that's not a pile
+    // of individually malformed lines — delimiter/column detection guessed
+    // wrong for the whole file. Caught in weight-import.js's
+    // looksLikeWrongFileShape(), used here as a step-1 gate.
+    importStep1Continue.addEventListener('click', () => {
+      const text = importPaste.value;
+      if (!text.trim()) {
+        show(importStep1Status, 'error', 'Paste some data first.');
+        return;
+      }
+      const parsed = parseImportText(text);
+      // A header-only paste (or a paste of only blank lines) parses
+      // cleanly to zero rows — neither "wrong shape" nor a real per-row
+      // skip, just nothing to show.
+      if (parsed.rows.length === 0) {
+        show(importStep1Status, 'error', 'Couldn’t find any readings in that text. Check "How should my data look?" above.');
+        return;
+      }
+      if (looksLikeWrongFileShape(parsed.rows)) {
+        show(importStep1Status, 'error', 'This doesn’t look like it’s in the right format. Check "How should my data look?" above.');
+        return;
+      }
+      hide(importStep1Status);
+      importParse = parsed;
+      importAnnotated = annotateOverlaps(importParse.rows, entries);
+      importLastBulkMode = 'auto';
+      // Show the view BEFORE rendering, not after — renderImportPreview()
+      // calls positionHint() on the Auto chip's tag, which measures real
+      // layout via getBoundingClientRect(). Measuring while import-step2 is
+      // still hidden reads all-zero rects and force-anchors the tag flush
+      // left/right regardless of which chip it's on — same hazard, same
+      // fix, as dashboard.html's own start-workout chips.
+      showImportStep(2);
+      renderImportPreview();
+    });
+
+    // ---- Step 2: review ----
+    function buildImportInfoBtn(ariaLabel, onClick) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'info-btn';
+      btn.setAttribute('aria-label', ariaLabel);
+      btn.textContent = '?';
+      btn.addEventListener('click', onClick);
+      return btn;
+    }
+    function buildImportRowToggle(row, onToggle) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = `row-toggle${row.include ? ' active' : ''}`;
+      toggle.setAttribute('aria-label', row.include ? 'Included, tap to exclude' : 'Excluded, tap to include');
+      // Built via the SVG DOM API with an explicit stroke per state, not
+      // `currentColor` — that inheritance chain is where the glyph went
+      // missing in an earlier draft.
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('viewBox', '0 0 24 24');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M4 13 L10 19 L20 5');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', row.include ? 'var(--accent-ink)' : 'var(--muted)');
+      path.setAttribute('stroke-width', '3');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(path);
+      toggle.appendChild(svg);
+      toggle.addEventListener('click', onToggle);
+      return toggle;
+    }
+
+    // Every badge a row can carry gets its own "?" explanation — a plain,
+    // badge-less row has nothing distinctive to explain, so it gets no
+    // button. explain is a function, not a fixed string: it always shows
+    // the actual numbers behind the flag, not a generic notice.
+    const IMPORT_OVERLAP_BADGE = {
+      duplicate: {
+        label: 'duplicate', cls: 'badge-danger',
+        explain: (row) => `You're entering ${row.weightKg.toFixed(1)} kg. You already have ${row.overlap.other.toFixed(1)} kg logged that day. That's close enough that this looks like the same reading, so it's excluded by default.`,
+      },
+      overlap: {
+        label: 'overlap', cls: 'badge-warning',
+        explain: (row) => `You're entering ${row.weightKg.toFixed(1)} kg. You already have ${row.overlap.other.toFixed(1)} kg logged that day. Readings on the same day get averaged together, so this one is included by default.`,
+      },
+      'large-swing': {
+        label: 'check this', cls: 'badge-danger',
+        explain: (row) => `You're entering ${row.weightKg.toFixed(1)} kg. You already have ${row.overlap.other.toFixed(1)} kg logged that day. That's a big enough jump to be more likely a mistake than a real reading, so it's excluded by default.`,
+      },
+    };
+
+    function importReasonModalOpen(title, text) {
+      importReasonModalTitle.textContent = title;
+      importReasonModalBody.textContent = text;
+      importReasonModal.hidden = false;
+    }
+    importReasonModalClose.addEventListener('click', () => { importReasonModal.hidden = true; });
+    importReasonModal.addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.hidden = true; });
+
+    /**
+     * Row 1 carries the status (weight+badge for an OK row, just the badge
+     * for a skipped one) plus the "?" whenever a badge is present; row 2
+     * carries the detail (date/time for OK, the raw pasted line for
+     * skipped). The skipped card mirrors the OK one rather than
+     * disagreeing about which row means what. The trailing slot is
+     * reserved for the include/exclude toggle alone; a skipped row has no
+     * toggle at all (it's unparseable, not a judgment call), so it has no
+     * trailing slot either.
+     */
+    function buildImportRowCard(row) {
+      const li = document.createElement('li');
+      li.className = 'list-item';
+
+      if (!row.ok) {
+        const body = document.createElement('div');
+        body.className = 'list-item-body';
+
+        const name = document.createElement('div');
+        name.className = 'list-item-name';
+        name.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        name.innerHTML = `<span class="badge badge-danger" style="margin-left:0;">${REASON_LABEL[row.reasonCode] || 'skipped'}</span>`;
+        name.appendChild(buildImportInfoBtn('Why was this skipped?', () => importReasonModalOpen('Why this row was skipped', row.reason)));
+        body.appendChild(name);
+
+        // Strikethrough belongs to the rejected raw text, not to row 1's
+        // badge/"?" — a struck-through button reads as broken, not as
+        // "this control is unavailable."
+        const meta = document.createElement('div');
+        meta.className = 'list-item-meta';
+        meta.style.cssText = 'color:var(--muted);text-decoration:line-through;';
+        const rawSpan = document.createElement('span');
+        rawSpan.className = 'truncate';
+        rawSpan.textContent = row.raw;
+        meta.appendChild(rawSpan);
+        body.appendChild(meta);
+
+        li.appendChild(body);
+        return li;
+      }
+
+      const dateLabel = row.dateStr + (row.timeStr ? ` · ${row.timeStr}` : ' · no time');
+      const badgeInfo = row.overlap ? IMPORT_OVERLAP_BADGE[row.overlap.kind] : null;
+
+      const body = document.createElement('div');
+      body.className = 'list-item-body';
+
+      const name = document.createElement('div');
+      name.className = 'list-item-name';
+      name.style.cssText = 'display:flex;align-items:center;gap:6px;';
+      name.innerHTML = `<span>${row.weightKg.toFixed(1)} kg</span>`;
+      if (badgeInfo) name.innerHTML += `<span class="badge ${badgeInfo.cls}" style="margin-left:0;">${badgeInfo.label}</span>`;
+      if (badgeInfo) name.appendChild(buildImportInfoBtn('What does this mean?', () => importReasonModalOpen('Why this is flagged', badgeInfo.explain(row))));
+      body.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'list-item-meta';
+      const dateSpan = document.createElement('span');
+      dateSpan.className = 'truncate';
+      dateSpan.textContent = dateLabel;
+      meta.appendChild(dateSpan);
+      body.appendChild(meta);
+
+      li.appendChild(body);
+      li.appendChild(buildImportRowToggle(row, () => { row.include = !row.include; renderImportPreview(); }));
+
+      return li;
+    }
+
+    // ---- overlap bulk-decision chips ----
+    // "Custom" is never a pressable option — it's a derived readout: does
+    // the current per-row include state still match whichever bulk mode
+    // was last actually chosen (importLastBulkMode, seeded to 'auto' since
+    // that's exactly what annotateOverlaps() sets every row to before any
+    // chip is touched)? If not, the user has hand-toggled a row away from
+    // it, so Custom shows. Anchored to the last CHOSEN mode, not "whichever
+    // of the three the current state happens to match" — with only one
+    // overlapping row (or more generally, whenever every row shares the
+    // same include value), that value can trivially satisfy two modes at
+    // once, and picking one by array order made Auto un-selectable in
+    // exactly that case.
+    function importOverlapRows() {
+      return importAnnotated.filter((r) => r.ok && r.overlap);
+    }
+    function importMatchesBulkMode(rows, mode) {
+      if (rows.length === 0) return false;
+      if (mode === 'exclude') return rows.every((r) => r.include === false);
+      if (mode === 'include') return rows.every((r) => r.include === true);
+      if (mode === 'auto') return rows.every((r) => r.include === r.defaultInclude);
+      return false;
+    }
+    function importApplyBulkMode(mode) {
+      for (const r of importOverlapRows()) {
+        r.include = mode === 'exclude' ? false : mode === 'include' ? true : r.defaultInclude;
+      }
+      importLastBulkMode = mode;
+      renderImportPreview();
+    }
+    function renderImportOverlapChips(rows) {
+      const hasOverlap = rows.length > 0;
+      importOverlapQuestion.hidden = !hasOverlap;
+      importOverlapChips.hidden = !hasOverlap;
+      if (!hasOverlap) return;
+
+      const activeMode = importMatchesBulkMode(rows, importLastBulkMode) ? importLastBulkMode : null;
+      for (const btn of importOverlapChips.querySelectorAll('.chip[data-v]')) {
+        btn.classList.toggle('selected', btn.dataset.v === activeMode);
+      }
+      importCustomChip.hidden = activeMode !== null;
+      positionHint(importAutoChip, importOverlapChips);
+    }
+    importOverlapChips.addEventListener('click', (e) => {
+      const btn = e.target.closest('.chip[data-v]');
+      if (!btn) return;
+      importApplyBulkMode(btn.dataset.v);
+    });
+    // Static tag, built once — tagChip() appends a fresh .hint span each
+    // call, so this can't live inside renderImportOverlapChips() without
+    // stacking copies.
+    tagChip(importAutoChip, 'Recommended');
+
+    function renderImportPreview() {
+      const delimName = { ',': 'comma', ';': 'semicolon', '\t': 'tab (pasted)' }[importParse.delimiter];
+      const decimalName = importParse.decimalSeparator === ',' ? 'comma' : importParse.decimalSeparator === '.' ? 'dot' : 'sniffed per row';
+      importDetectLine.textContent =
+        `Detected: ${delimName}-separated, ${decimalName} decimals${importParse.hadHeader ? ', header row skipped' : ''}.`;
+
+      const ok = importAnnotated.filter((r) => r.ok);
+      const skipped = importAnnotated.filter((r) => !r.ok);
+      const overlapping = ok.filter((r) => r.overlap);
+      importSummaryLine.textContent =
+        `${ok.length} ready, ${overlapping.length} overlap${overlapping.length === 1 ? 's' : ''}, ${skipped.length} skipped.`;
+
+      renderImportOverlapChips(overlapping);
+
+      importPreviewList.innerHTML = '';
+      importAnnotated.forEach((row) => importPreviewList.appendChild(buildImportRowCard(row)));
+
+      const anyIncluded = importAnnotated.some((r) => r.ok && r.include);
+      importStep2Continue.disabled = !anyIncluded;
+    }
+
+    importStep2Back.addEventListener('click', () => showImportStep(1));
+    importStep2Back2.addEventListener('click', () => showImportStep(1));
+    importStep2Continue.addEventListener('click', () => {
+      const toImport = importAnnotated.filter((r) => r.ok && r.include);
+      if (toImport.length === 0) {
+        show(importStep2Status, 'error', 'Nothing selected. Include at least one reading to continue.');
+        return;
+      }
+      hide(importStep2Status);
+      const single = toImport.length === 1;
+      importConfirmSummary.textContent = `Import ${toImport.length} reading${single ? '' : 's'}?`;
+      importConfirmNote.textContent =
+        `This adds ${single ? 'a new reading' : 'new readings'}. It never changes or removes anything you've already logged, and you can undo the whole import afterward if something's wrong.`;
+      showImportStep(3);
+    });
+
+    // ---- Step 3: confirm ----
+    importStep3Back.addEventListener('click', () => showImportStep(2));
+    importStep3Back2.addEventListener('click', () => showImportStep(2));
+
+    // A few hundred rows per request, both to stay well clear of any
+    // response-size limits and so a late validation miss can't sink an
+    // entire multi-hundred-row import at once.
+    const IMPORT_CHUNK_SIZE = 300;
+    async function undoImportBatch(batchId) {
+      const { error } = await supabase.from('body_weights').delete().eq('import_batch_id', batchId);
+      if (error) return false;
+      entries = entries.filter((e) => e.import_batch_id !== batchId);
+      entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+      render();
+      return true;
+    }
+
+    importStep3Commit.addEventListener('click', async () => {
+      const toImport = importAnnotated.filter((r) => r.ok && r.include);
+      if (toImport.length === 0) { showImportStep(2); return; } // defense in depth — should be unreachable
+
+      importStep3Commit.disabled = true;
+      importStep3Commit.textContent = 'Importing…';
+      hide(importStep3Status);
+
+      const batchId = crypto.randomUUID();
+      const payload = toImport.map((r) => ({
+        user_id: user.id,
+        weight_kg: r.weightKg,
+        measured_at: r.measuredAt.toISOString(),
+        time_known: r.timeKnown,
+        import_batch_id: batchId,
+      }));
+
+      const inserted = [];
+      for (let i = 0; i < payload.length; i += IMPORT_CHUNK_SIZE) {
+        const chunk = payload.slice(i, i + IMPORT_CHUNK_SIZE);
+        const { data, error } = await supabase.from('body_weights').insert(chunk).select();
+        if (error) {
+          importStep3Commit.disabled = false;
+          importStep3Commit.textContent = 'Import';
+          show(importStep3Status, 'error', `Could not import: ${error.message}${inserted.length ? ` (${inserted.length} rows already saved — visible in Settings' "Imported weight data" if you need to undo them)` : ''}`);
+          return;
+        }
+        inserted.push(...(data || []));
+      }
+
+      importStep3Commit.disabled = false;
+      importStep3Commit.textContent = 'Import';
+
+      entries = entries.concat(inserted);
+      entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+      showHomeView();
+      render();
+
+      showToast(`Imported ${inserted.length} reading${inserted.length === 1 ? '' : 's'}.`, 'ok', {
+        actionLabel: 'Undo',
+        onAction: async () => {
+          const ok = await undoImportBatch(batchId);
+          // A separate, fresh toast — not just this same toast's own title
+          // rewriting itself in place. The original toast was already
+          // visible for however long it took to notice the mistake, so a
+          // subtle text swap inside it is easy to miss.
+          showToast(ok ? 'Import undone.' : 'Could not undo the import — try again from Settings.', ok ? 'ok' : 'error');
+        },
+      });
+    });
 
     user = await requireSession('./index.html');
     if (user) await loadAll();

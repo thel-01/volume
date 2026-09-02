@@ -505,6 +505,17 @@ create table if not exists public.body_weights (
   -- UI can show a date alone and mean it.
   time_known   boolean not null default true,
 
+  -- Which bulk-import operation inserted this row, or NULL for an ordinary
+  -- single-entry "+ Log weight" row. A fresh client-generated uuid, stamped
+  -- on every row one import inserts — not a foreign key, there's no
+  -- import_batches table: a batch's own summary (date range, count, when) is
+  -- derived by grouping body_weights on this column, so the "batch" simply
+  -- stops existing, with nothing else to clean up, the moment its last
+  -- tagged row is gone. Editing an imported row afterward through the
+  -- normal edit form leaves this set — still "from that import" for undo
+  -- purposes even once corrected.
+  import_batch_id uuid,
+
   created_at   timestamptz not null default now(),
 
   -- Wide enough for any human, narrow enough to catch a slipped decimal
@@ -512,10 +523,20 @@ create table if not exists public.body_weights (
   constraint body_weights_sane check (weight_kg > 20 and weight_kg < 500)
 );
 
+-- Brings an already-existing body_weights table up to the current shape.
+-- No-op on a brand new database.
+alter table public.body_weights add column if not exists import_batch_id uuid;
+
 -- The one access pattern: this user's readings, newest first.
 create index if not exists body_weights_user_measured_idx
   on public.body_weights (user_id, measured_at desc);
 
+-- Powers the Settings "Imported weight data" list and the bulk-undo
+-- delete. Partial so an ordinary single-entry row (the overwhelming
+-- majority) never bloats it.
+create index if not exists body_weights_import_batch_idx
+  on public.body_weights (user_id, import_batch_id)
+  where import_batch_id is not null;
 
 -- ===========================================================================
 -- 5c. injuries & injury_checkins — the "Injury Journal" case log

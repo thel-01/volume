@@ -776,6 +776,33 @@ button.danger.secondary {
   color: var(--muted);
 }
 
+/* Row include/exclude toggle — same on/off convention as .chip.selected
+   (surface-2+muted "off" vs accent-fill "on") applied to a small square
+   icon button, in the same trailing-slot position .list-item-chevron
+   takes on a navigational row. The checkmark is built in JS via the SVG
+   DOM API with an explicit stroke color per state, not `currentColor`
+   inheritance — that inheritance chain is where the glyph went missing
+   in an early draft. */
+.row-toggle {
+  box-sizing: border-box;
+  flex: 0 0 auto; width: 40px; height: 40px; min-width: 40px; min-height: 40px;
+  padding: 0; margin: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius); border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--muted); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: transform var(--motion-fast);
+}
+.row-toggle:active { transform: scale(0.94); }
+.row-toggle.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.row-toggle svg { display: block; pointer-events: none; }
+
+/* Single-line ellipsis for a .list-item-body child whose text length isn't
+   bounded (unlike .list-item-name, which already truncates on its own —
+   this is for .list-item-meta and similar, where source text such as a
+   raw pasted CSV line can run arbitrarily long and would otherwise wrap
+   the row taller than its siblings). */
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+
 .badge {
   display: inline-block;
   padding: 1px 5px;
@@ -797,6 +824,16 @@ button.danger.secondary {
   background: var(--live);
   color: var(--accent-ink);
   border-color: var(--live);
+}
+
+/* Same solid-fill treatment as .badge-warning, --danger instead of --live
+   — a flag serious enough that it's excluded by default (a near-duplicate
+   reading, an implausible same-day swing), not just "worth a second
+   look." */
+.badge-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
 }
 
 .empty-state {
@@ -1028,6 +1065,30 @@ button.danger.secondary {
   font-weight: 600;
 }
 
+/* .set-delete's sibling for a control that's always text-labeled, never an
+   icon-only round button (a set's own × has no meaningful label; this one
+   does, e.g. "Undo"). Same idle -> armed-confirm -> transient-result
+   rhythm and timing (3000ms) as .set-delete, just sized for a label from
+   the start instead of widening out of a round shape on arm. */
+.arm-confirm-btn {
+  width: auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+}
+.arm-confirm-btn.confirming {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
 /* Weight + reps side by side. */
 .field-row {
   display: flex;
@@ -1051,13 +1112,19 @@ button.danger.secondary {
   cursor: pointer;
 }
 
-/* Text link that navigates to a different page — same size/weight as
+/* Text link for anything that leaves the page — same size/weight as
    .link-button, but white + underlined, so "does this leave the page"
-   reads consistently everywhere it shows up (three call sites: dashboard
-   .html's "Change in Settings", exercises.html's "Recover it in Settings",
-   app.html's noscript fallback). Unlike .link-button this isn't always a
-   <button> — some of these sit mid-sentence in a <p> — so it doesn't set
-   width/min-height/display; each call site keeps controlling that itself. */
+   reads consistently everywhere it shows up. "Leaves the page" means what
+   the user experiences, not whether the URL/HTML file actually changed:
+   most call sites are a real `<a href>` (dashboard.html's "Change in
+   Settings", exercises.html's "Recover it in Settings", app.html's
+   noscript fallback) where .nav-link alone is enough, but weight.html's
+   "Import weight data from elsewhere" is a same-document full-page
+   takeover on a bare <button> with no href — combined with .link-button
+   (`class="link-button nav-link"`) there, since an anchor has no button
+   chrome to reset but a bare <button> still would. Unlike .link-button
+   this doesn't set width/min-height/display on its own — an <a> call site
+   controls that itself, sitting mid-sentence in a <p> or block-level. */
 .nav-link {
   color: var(--accent);
   font-size: 14px;

@@ -45,7 +45,10 @@ function dayFloor(iso) {
   const d = new Date(iso);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
-function dayKey(iso) {
+/** Exported so weight-import.js can group rows by the same definition of
+ *  "same day" this file already uses internally, instead of growing a
+ *  second one. */
+export function dayKey(iso) {
   const d = dayFloor(iso);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
