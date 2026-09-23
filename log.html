@@ -1906,6 +1906,21 @@
     let addingExercise = false;
 
     /**
+     * A random v4 uuid. crypto.randomUUID() only exists on a secure page
+     * (https or localhost), so on the plain-http LAN preview it's missing
+     * and threw, leaving the picker stuck on "Adding…". getRandomValues()
+     * works everywhere, so it's the fallback.
+     */
+    function newUuid() {
+      if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      b[6] = (b[6] & 0x0f) | 0x40; // version 4
+      b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+      const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+
+    /**
      * Inserts one session_exercises row, safely retryable: the id is made
      * here rather than by the database, so if the response is lost after
      * the row actually landed (the request timed out, the connection
@@ -1913,7 +1928,7 @@
      * reply, instead of a retry tap inserting the same block twice.
      */
     async function insertSessionExercise(exerciseId) {
-      const id = crypto.randomUUID();
+      const id = newUuid();
       const { data, error } = await supabase
         .from('session_exercises')
         .insert({ id, session_id: session.id, exercise_id: exerciseId })
@@ -1977,12 +1992,22 @@
       addingExercise = true;
       hide(pickerStatus);
       setPickerBusy(true, row);
+      // try/finally: any unexpected throw must still release the lock and
+      // the dimmed picker, or every later tap is silently ignored.
+      try {
+        await insertNewBlock(exercise);
+      } catch (err) {
+        flash(`Could not add ${exercise.name}: ${err.message}`, 'error', 5000);
+      } finally {
+        addingExercise = false;
+        setPickerBusy(false, row);
+      }
+    }
 
+    async function insertNewBlock(exercise) {
       const { data: se, error: seError } = await insertSessionExercise(exercise.id);
 
       if (seError) {
-        addingExercise = false;
-        setPickerBusy(false, row);
         // A toast, not #picker-status — that sits below the whole list,
         // out of sight on anything longer than a screen.
         flash(`Could not add ${exercise.name}: ${seError.message}`, 'error', 5000);
@@ -2010,8 +2035,6 @@
         commentExpanded: false,
       });
 
-      addingExercise = false;
-      setPickerBusy(false, row);
       renderEntries();
       showView('session');
     }
