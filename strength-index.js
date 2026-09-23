@@ -87,6 +87,56 @@ export function isScorable(set, type) {
   return load > 0 && Number(set.reps) > 0;
 }
 
+/**
+ * The key the index tracks a set under: its exercise, or — for a set logged
+ * at a named level (exercise_levels, bodyweight type only) — its exercise
+ * plus that level. A level has no honest kg value ("the big box is 12%
+ * harder" is a guess), so each level is its own variation, exactly like
+ * Back Squat vs Front Squat: reps gained within a level count, and moving
+ * up a level joins neutrally (see compositeIndexBreakdown's rule 3) instead
+ * of reading as a strength drop just because the rep count fell. Ordinary
+ * sets (Assist / BW / Weight) keep the plain exercise id, so nothing about
+ * them changes.
+ */
+export function variationKey(set) {
+  return set.level_id ? `${set.exercise_id}:${set.level_id}` : set.exercise_id;
+}
+
+/** The exercise id inside a variationKey() — uuids never contain ':'. */
+export function baseExerciseId(key) {
+  return key.split(':')[0];
+}
+
+/**
+ * Which of one exercise's sets are eligible to be its PR, before the usual
+ * estimated-1RM ranking picks among them.
+ *
+ * Level sets and ordinary kg sets (Assist / BW / Weight) can't be ranked
+ * against each other — "Yellow band × 8" vs "BW × 3" has no honest answer —
+ * so only the kind you trained most recently competes. Within level sets,
+ * the highest level wins outright: your first big-box set is a PR even
+ * with fewer reps than your best small-box set, because moving up *is* the
+ * progress. Reps then decide within that one level, via the caller's own
+ * ranking. With no level sets at all this returns `sets` unchanged.
+ *
+ * `levelPositionById`: Map<levelId, position> (easiest = lowest).
+ */
+export function prCandidates(sets, levelPositionById) {
+  if (!sets.some((s) => s.level_id)) return sets;
+  const when = (s) => new Date(s.sessions?.start_time ?? s.created_at).getTime();
+  const latest = sets.reduce((a, b) => {
+    const d = when(b) - when(a);
+    if (d !== 0) return d > 0 ? b : a;
+    return new Date(b.created_at) > new Date(a.created_at) ? b : a;
+  });
+  if (!latest.level_id) return sets.filter((s) => !s.level_id);
+
+  const levelSets = sets.filter((s) => s.level_id);
+  const rank = (s) => levelPositionById.get(s.level_id) ?? -Infinity;
+  const top = Math.max(...levelSets.map(rank));
+  return levelSets.filter((s) => rank(s) === top);
+}
+
 function geometricMean(values) {
   if (values.length === 0) return null;
   // Averaged in log space: with dozens of values a plain product would drift
@@ -104,11 +154,14 @@ function geometricMean(values) {
  * matched order statistics across sessions is what makes set count tractable:
  * adding a 4th set cannot change C₁–C₃, it only creates C₄.
  *
- * Returns Map<exerciseId, [{ date, caps, best, sets }]> sorted oldest first.
+ * Keyed by variationKey(): the plain exercise id for ordinary sets, and
+ * exercise + level for each named level, so every level gets its own curve.
+ *
+ * Returns Map<variationKey, [{ date, caps, best, sets }]> sorted oldest first.
  */
 export function sessionCapacities(sets, exercises) {
   const typeById = new Map(exercises.map((e) => [e.id, e.type]));
-  const byExercise = new Map(); // exerciseId -> sessionId -> { date, scored[] }
+  const byExercise = new Map(); // variationKey -> sessionId -> { date, scored[] }
 
   for (const s of sets) {
     const type = typeById.get(s.exercise_id);
@@ -119,8 +172,9 @@ export function sessionCapacities(sets, exercises) {
     const value = epley(effectiveLoad(s, type), effectiveReps(s.reps, s.quick_tag));
     if (value === null) continue;
 
-    if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, new Map());
-    const bySession = byExercise.get(s.exercise_id);
+    const key = variationKey(s);
+    if (!byExercise.has(key)) byExercise.set(key, new Map());
+    const bySession = byExercise.get(key);
     if (!bySession.has(s.session_id)) {
       bySession.set(s.session_id, { date: s.sessions.start_time, scored: [] });
     }
@@ -128,7 +182,7 @@ export function sessionCapacities(sets, exercises) {
   }
 
   const out = new Map();
-  for (const [exerciseId, bySession] of byExercise) {
+  for (const [key, bySession] of byExercise) {
     const points = [];
     for (const { date, scored } of bySession.values()) {
       scored.sort((a, b) => b.value - a.value);
@@ -140,7 +194,7 @@ export function sessionCapacities(sets, exercises) {
       });
     }
     points.sort((a, b) => new Date(a.date) - new Date(b.date));
-    out.set(exerciseId, points);
+    out.set(key, points);
   }
   return out;
 }
@@ -346,8 +400,12 @@ export function compositeIndexBreakdown(sets, exercises) {
   const exerciseById = new Map(exercises.map((e) => [e.id, e]));
 
   // An exercise with no movement pattern counts as its own pattern — there are
-  // no grounds to assume two unfiled exercises train the same thing.
-  const patternKey = (exerciseId) => {
+  // no grounds to assume two unfiled exercises train the same thing. Keys
+  // here are variationKey()s: every level of one exercise belongs to that
+  // exercise's pattern (or, unfiled, to the exercise's own), which is what
+  // makes moving up a level a neutral variation swap.
+  const patternKey = (key) => {
+    const exerciseId = baseExerciseId(key);
     const ex = exerciseById.get(exerciseId);
     return ex && ex.movement_pattern_id ? `p:${ex.movement_pattern_id}` : `e:${exerciseId}`;
   };

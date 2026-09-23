@@ -292,6 +292,61 @@ create unique index if not exists exercises_unique_live_name
 
 
 -- ===========================================================================
+-- 3b. exercise_levels — named, ordered progressions with no number
+-- ===========================================================================
+-- "Small box" -> "Big box", or "Red band" -> "Green band": a progression
+-- that's real but has no honest kg value. Bodyweight-type exercises only
+-- (it's the fourth chip in the Assist / BW / Weight / Level row on the Log
+-- screen). A set logged at a level points at it via sets.level_id.
+--
+-- Only the ORDER means anything — easiest first (lowest position). Nothing
+-- anywhere assumes how much harder one level is than another: the strength
+-- index tracks each level as its own variation (moving up is neutral), and
+-- the PR rule only ever asks "which level is higher", then compares reps
+-- within that one level.
+--
+-- No user_id of its own: ownership is proved through the parent exercise,
+-- same shape as injury_checkins. Never locks, unlike exercises.type —
+-- renaming is safe because sets point at the id, not the name, and
+-- reordering is safe because the index never compares across levels.
+-- A level with logged sets can't be deleted (the sets FK below restricts
+-- it); the app archives it instead, hiding it from logging but keeping it
+-- in history.
+
+create table if not exists public.exercise_levels (
+  id           uuid primary key default gen_random_uuid(),
+  exercise_id  uuid not null references public.exercises (id) on delete cascade,
+
+  name         text not null,
+  -- Easiest first. Not unique: reordering swaps two rows' positions one
+  -- update at a time, which a unique constraint would reject mid-swap.
+  position     integer not null default 0,
+
+  archived_at  timestamptz,
+  created_at   timestamptz not null default now(),
+
+  -- Chips, not paragraphs — keeps every level a short tappable label.
+  -- Mirrors LEVEL_NAME_MAX in levels.js.
+  constraint exercise_levels_name_length
+    check (length(btrim(name)) between 1 and 24),
+
+  -- Lets sets reference (level_id, exercise_id) as a pair, so a set can
+  -- never point at a level that belongs to a different exercise.
+  constraint exercise_levels_id_exercise_key unique (id, exercise_id)
+);
+
+-- Two live levels on the same exercise can't share a name
+-- (case-insensitively). Archived ones are excluded, so a name frees up
+-- again once its level is archived.
+create unique index if not exists exercise_levels_unique_live_name
+  on public.exercise_levels (exercise_id, lower(btrim(name)))
+  where archived_at is null;
+
+create index if not exists exercise_levels_exercise_idx
+  on public.exercise_levels (exercise_id, position);
+
+
+-- ===========================================================================
 -- 4. session_exercises — one exercise's comment (and extra-flag) for one
 --    specific day
 -- ===========================================================================
@@ -409,6 +464,12 @@ create table if not exists public.sets (
   -- 'failure' — an 'easy' set didn't get limited by either side.
   limiting_side     text,
 
+  -- Bodyweight type only: which named level (see exercise_levels) this set
+  -- was done at, instead of an Assist/Weight kg amount. Null for every
+  -- ordinary set. Constrained further in the fixup block below: the level
+  -- must belong to this same exercise, and a level set carries no kg delta.
+  level_id          uuid,
+
   note              text,
 
   created_at        timestamptz not null default now(),
@@ -463,6 +524,27 @@ alter table public.sets add constraint sets_bodyweight_sane
 alter table public.sets drop constraint if exists sets_limiting_side_valid;
 alter table public.sets add constraint sets_limiting_side_valid
   check (limiting_side is null or limiting_side in ('left', 'right', 'even'));
+
+alter table public.sets add column if not exists level_id uuid;
+-- A pair, not level_id alone: the level has to belong to this set's own
+-- exercise. RESTRICT: a level with logged sets can't vanish out from under
+-- them — the app archives it instead. MATCH SIMPLE (the default) means an
+-- ordinary set with a null level_id skips the check entirely.
+alter table public.sets drop constraint if exists sets_level_fk;
+alter table public.sets add constraint sets_level_fk
+  foreign key (level_id, exercise_id)
+  references public.exercise_levels (id, exercise_id)
+  on delete restrict;
+-- The level *is* the load description, so a level set is always plain
+-- bodyweight otherwise: no Assist/Weight kg on top. Keeps "which level"
+-- and "how many kg" from ever both claiming to be the difficulty.
+alter table public.sets drop constraint if exists sets_level_no_delta;
+alter table public.sets add constraint sets_level_no_delta
+  check (level_id is null or (coalesce(weight, 0) = 0 and weight_direction is null));
+
+create index if not exists sets_level_idx
+  on public.sets (level_id)
+  where level_id is not null;
 
 -- Fetching a session's sets in the order they were logged.
 create index if not exists sets_session_idx
@@ -718,6 +800,7 @@ alter table public.session_types     enable row level security;
 alter table public.injuries          enable row level security;
 alter table public.injury_checkins   enable row level security;
 alter table public.user_settings     enable row level security;
+alter table public.exercise_levels   enable row level security;
 
 
 -- --- grants -----------------------------------------------------------------
@@ -741,6 +824,7 @@ grant select, insert, update, delete on public.body_weights      to authenticate
 grant select, insert, update, delete on public.session_types     to authenticated;
 grant select, insert, update, delete on public.injuries          to authenticated;
 grant select, insert, update, delete on public.injury_checkins   to authenticated;
+grant select, insert, update, delete on public.exercise_levels   to authenticated;
 -- No delete — a settings row is never independently deleted.
 grant select, insert, update         on public.user_settings     to authenticated;
 
@@ -1106,6 +1190,62 @@ create policy injury_checkins_delete_own on public.injury_checkins
   );
 
 
+-- --- exercise_levels -------------------------------------------------------
+-- No user_id of its own, so ownership is proved through the parent
+-- exercise, same shape as injury_checkins.
+
+drop policy if exists exercise_levels_select_own on public.exercise_levels;
+create policy exercise_levels_select_own on public.exercise_levels
+  for select to authenticated
+  using (
+    exists (
+      select 1 from public.exercises e
+      where e.id = exercise_levels.exercise_id
+        and e.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists exercise_levels_insert_own on public.exercise_levels;
+create policy exercise_levels_insert_own on public.exercise_levels
+  for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.exercises e
+      where e.id = exercise_levels.exercise_id
+        and e.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists exercise_levels_update_own on public.exercise_levels;
+create policy exercise_levels_update_own on public.exercise_levels
+  for update to authenticated
+  using (
+    exists (
+      select 1 from public.exercises e
+      where e.id = exercise_levels.exercise_id
+        and e.user_id = (select auth.uid())
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.exercises e
+      where e.id = exercise_levels.exercise_id
+        and e.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists exercise_levels_delete_own on public.exercise_levels;
+create policy exercise_levels_delete_own on public.exercise_levels
+  for delete to authenticated
+  using (
+    exists (
+      select 1 from public.exercises e
+      where e.id = exercise_levels.exercise_id
+        and e.user_id = (select auth.uid())
+    )
+  );
+
+
 -- --- user_settings ------------------------------------------------------------
 -- Directly owned via user_id, which is the primary key itself here (one row
 -- per user) rather than a separate id column — no delete policy, a settings
@@ -1146,7 +1286,7 @@ create policy user_settings_update_own on public.user_settings
 -- join pg_namespace n on n.oid = c.relnamespace
 -- left join pg_policies p on p.schemaname = n.nspname and p.tablename = c.relname
 -- where n.nspname = 'public'
---   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings')
+--   and c.relname in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings', 'exercise_levels')
 -- group by c.relname, c.relrowsecurity
 -- order by c.relname;
 
@@ -1160,6 +1300,6 @@ create policy user_settings_update_own on public.user_settings
 -- from information_schema.role_table_grants
 -- where table_schema = 'public'
 --   and grantee = 'authenticated'
---   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings')
+--   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings', 'exercise_levels')
 -- group by table_name
 -- order by table_name;

@@ -80,6 +80,7 @@
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
+    import { fetchLevels, levelsFor, describeLevelSet } from './levels.js';
 
     const QUICK_TAGS = [
       { value: 'easy', label: 'Easy' },
@@ -129,6 +130,9 @@
     // known bodyweight rather than one as-of that date — a known
     // simplification, since retroactively adding to a past session is rare.
     let latestBodyweightKg = null;
+    // Every exercise level (archived included — old sets still show theirs).
+    let allLevels = [];
+    let levelsById = new Map();
     let bodyweightLoaded = false;
     async function ensureLatestBodyweightLoaded() {
       if (bodyweightLoaded) return;
@@ -229,6 +233,7 @@
       return hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
     }
     function describeSet(set, type) {
+      if (set.level_id) return describeLevelSet(set, levelsById);
       if (type === 'time_based') return formatDuration(set.duration_seconds);
       // Zero assistance on a legacy 'assisted' exercise isn't assisted at
       // all — it's a plain bodyweight rep, so it reads as one.
@@ -257,11 +262,22 @@
      * returns the (not-yet-appended) magnitude field for the caller to place
      * in its own field-row, plus accessors for reading the current mode.
      */
-    function buildBodyweightModeField(container, initialDirection, initialMagnitude) {
+    function buildBodyweightModeField(container, initialDirection, initialMagnitude, exerciseId, initialLevelId = null) {
       const modeChips = document.createElement('div');
-      modeChips.className = 'chips';
+      modeChips.className = 'chips bw-modes';
       modeChips.style.margin = '10px 0';
       container.appendChild(modeChips);
+
+      // Level chips — offered only when this exercise has levels to pick
+      // from. New levels are created on the Log screen or in the exercise
+      // editor; this is a correction form, not a place to invent new ones.
+      // An archived level still shows here when it's the one this set
+      // already uses, so editing reps doesn't silently move the set off it.
+      const levelOptions = levelsFor(allLevels, exerciseId, { includeArchived: true })
+        .filter((l) => !l.archived_at || l.id === initialLevelId);
+      const levelArea = document.createElement('div');
+      container.appendChild(levelArea);
+      let levelId = initialLevelId;
 
       const magField = document.createElement('div');
       magField.className = 'field';
@@ -278,11 +294,29 @@
         { value: 'none', label: 'BW' },
         { value: 'add', label: 'Weight' },
       ];
+      if (levelOptions.length > 0) MODES.push({ value: 'level', label: 'Level' });
       const modeButtons = new Map();
+      const renderLevelChips = () => {
+        levelArea.innerHTML = '';
+        if (direction !== 'level') return;
+        const row = document.createElement('div');
+        row.className = 'chips';
+        row.style.margin = '0 0 10px';
+        for (const lvl of levelOptions) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'chip' + (lvl.id === levelId ? ' selected' : '');
+          chip.textContent = lvl.name;
+          chip.addEventListener('click', () => { levelId = lvl.id; renderLevelChips(); });
+          row.appendChild(chip);
+        }
+        levelArea.appendChild(row);
+      };
       const updateModeUI = () => {
         for (const [value, btn] of modeButtons) btn.classList.toggle('selected', value === direction);
-        magField.hidden = direction === 'none';
+        magField.hidden = direction !== 'assist' && direction !== 'add';
         magLabel.textContent = direction === 'assist' ? 'Assistance (kg)' : 'Added weight (kg)';
+        renderLevelChips();
       };
       for (const m of MODES) {
         const chip = document.createElement('button');
@@ -293,10 +327,10 @@
         modeChips.appendChild(chip);
         modeButtons.set(m.value, chip);
       }
-      magInput.value = direction === 'none' ? '' : initialMagnitude;
+      magInput.value = direction === 'none' || direction === 'level' ? '' : initialMagnitude;
       updateModeUI();
 
-      return { magField, magnitudeInput: magInput, getDirection: () => direction };
+      return { magField, magnitudeInput: magInput, getDirection: () => direction, getLevelId: () => levelId };
     }
     function showView(view) {
       listView.hidden = view !== 'list';
@@ -315,6 +349,7 @@
           .order('id')),
         fetchAllRows(() => supabase.from('session_exercises').select('*, exercises(*)').order('created_at').order('id')),
         fetchAllRows(() => supabase.from('sets').select('*').order('created_at').order('id')),
+        fetchLevels(),
       ]);
     }
 
@@ -323,24 +358,26 @@
       sessionListEl.hidden = true;
       hide(topStatus);
 
-      let [sessionsRes, seRes, setsRes] = await fetchHistoryData();
+      let [sessionsRes, seRes, setsRes, levelsRes] = await fetchHistoryData();
 
       // A standalone iOS PWA freezes its JS (including the library's own
       // background token refresh) while backgrounded, so the very first
       // query after reopening can hit a stale token. Refresh and retry once
       // before showing an error for something that isn't a real failure.
-      if (isAuthError(sessionsRes.error || seRes.error || setsRes.error)) {
+      if (isAuthError(sessionsRes.error || seRes.error || setsRes.error || levelsRes.error)) {
         await supabase.auth.refreshSession();
-        [sessionsRes, seRes, setsRes] = await fetchHistoryData();
+        [sessionsRes, seRes, setsRes, levelsRes] = await fetchHistoryData();
       }
 
       loading.hidden = true;
 
-      const err = sessionsRes.error || seRes.error || setsRes.error;
+      const err = sessionsRes.error || seRes.error || setsRes.error || levelsRes.error;
       if (err) {
         show(topStatus, 'error', `Could not load history: ${err.message}`);
         return;
       }
+      allLevels = levelsRes.levels;
+      levelsById = levelsRes.byId;
 
       allSessions = sessionsRes.data;
       allSessionExercises = seRes.data;
@@ -844,9 +881,10 @@
         fieldRow.appendChild(f);
       } else if (type === 'bodyweight') {
         const last = entry.sets[entry.sets.length - 1];
-        const initialDirection = last && Number(last.weight || 0) !== 0 ? (last.weight_direction ?? 'add') : 'none';
+        const initialDirection = last?.level_id ? 'level'
+          : last && Number(last.weight || 0) !== 0 ? (last.weight_direction ?? 'add') : 'none';
         const initialMagnitude = last && last.weight !== null ? formatWeight(last.weight) : '0';
-        bwMode = buildBodyweightModeField(container, initialDirection, initialMagnitude);
+        bwMode = buildBodyweightModeField(container, initialDirection, initialMagnitude, entry.exercise.id, last?.level_id ?? null);
         fieldRow.appendChild(bwMode.magField);
 
         const rf = document.createElement('div');
@@ -938,7 +976,13 @@
           }
           const direction = bwMode.getDirection();
           let magnitude = 0;
-          if (direction !== 'none') {
+          if (direction === 'level') {
+            if (!bwMode.getLevelId()) {
+              show(addStatus, 'error', 'Pick a level.');
+              return;
+            }
+            payload.level_id = bwMode.getLevelId();
+          } else if (direction !== 'none') {
             const raw = bwMode.magnitudeInput.value.trim().replace(',', '.');
             magnitude = raw === '' ? 0 : parseFloat(raw);
             if (!Number.isFinite(magnitude) || magnitude < 0) {
@@ -947,7 +991,7 @@
             }
           }
           payload.weight = magnitude;
-          payload.weight_direction = magnitude === 0 ? null : direction;
+          payload.weight_direction = magnitude === 0 || direction === 'level' ? null : direction;
           payload.bodyweight_kg = latestBodyweightKg;
           payload.reps = reps;
         } else {
@@ -1004,6 +1048,7 @@
       if (error.message?.includes('sets_duration_sane')) return 'Duration must be above 0 seconds.';
       if (error.message?.includes('sets_weight_sane')) return "Weight can't be negative.";
       if (error.message?.includes('sets_not_empty')) return 'Enter at least a weight, reps, or a duration.';
+      if (error.message?.includes('sets_level_fk')) return "That level isn't part of this exercise anymore. Reload the page and pick again.";
       return `Could not save: ${error.message}`;
     }
 
@@ -1121,9 +1166,10 @@
         f.appendChild(durationInput);
         fieldRow.appendChild(f);
       } else if (type === 'bodyweight') {
-        const initialDirection = Number(set.weight || 0) !== 0 ? (set.weight_direction ?? 'add') : 'none';
+        const initialDirection = set.level_id ? 'level'
+          : Number(set.weight || 0) !== 0 ? (set.weight_direction ?? 'add') : 'none';
         const initialMagnitude = set.weight === null ? '0' : formatWeight(set.weight);
-        bwMode = buildBodyweightModeField(form, initialDirection, initialMagnitude);
+        bwMode = buildBodyweightModeField(form, initialDirection, initialMagnitude, entry.exercise.id, set.level_id ?? null);
         fieldRow.appendChild(bwMode.magField);
 
         const rf = document.createElement('div');
@@ -1226,7 +1272,12 @@
           }
           const direction = bwMode.getDirection();
           let magnitude = 0;
-          if (direction !== 'none') {
+          if (direction === 'level') {
+            if (!bwMode.getLevelId()) {
+              show(editStatus, 'error', 'Pick a level.');
+              return;
+            }
+          } else if (direction !== 'none') {
             const raw = bwMode.magnitudeInput.value.trim().replace(',', '.');
             magnitude = raw === '' ? 0 : parseFloat(raw);
             if (!Number.isFinite(magnitude) || magnitude < 0) {
@@ -1236,8 +1287,11 @@
           }
           // bodyweight_kg is left untouched — it's a snapshot of what your
           // bodyweight actually was when this set was originally logged.
+          // level_id is always written, so moving a set out of Level mode
+          // clears it rather than leaving a stale level behind.
+          payload.level_id = direction === 'level' ? bwMode.getLevelId() : null;
           payload.weight = magnitude;
-          payload.weight_direction = magnitude === 0 ? null : direction;
+          payload.weight_direction = magnitude === 0 || direction === 'level' ? null : direction;
           payload.reps = reps;
           payload.duration_seconds = null;
         } else {

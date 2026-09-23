@@ -88,8 +88,9 @@
     import { renderLineChart } from './chart.js';
     import {
       epley, compositeIndexBreakdown, deltaVsDaysAgo,
-      effectiveLoad, effectiveReps, isBodyweightEquivalent,
+      effectiveLoad, effectiveReps, isBodyweightEquivalent, prCandidates,
     } from './strength-index.js';
+    import { fetchLevels, levelPositions, describeLevelSet } from './levels.js';
     import { daysAgo } from './date-utils.js';
 
     // Preview count on the records list — this page's main job is the
@@ -155,6 +156,7 @@
       return '';
     }
     function describeSet(set, type) {
+      if (set.level_id) return describeLevelSet(set, levelsById, tagLetter(set.quick_tag));
       if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
       if (isBodyweightEquivalent(set, type)) return describeBodyweightSet(set);
       const weight = set.weight === null ? null : `${formatWeight(set.weight)} kg`;
@@ -226,6 +228,8 @@
       return 0;
     }
     function findPr(sets, type) {
+      // Level sets vs. kg sets, and which level: see prCandidates().
+      sets = prCandidates(sets, levelPositionById);
       if (sets.length === 0) return null;
       let best = null;
       let bestScore = null;
@@ -486,28 +490,35 @@
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
         fetchAllRows(() => supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at').order('id')),
         supabase.from('movement_patterns').select('id, name').is('deleted_at', null),
+        fetchLevels(),
       ]);
     }
 
+    // Exercise levels, for PR ranking (which level is highest) and display.
+    let levelsById = new Map();
+    let levelPositionById = new Map();
+
     async function loadAll() {
-      let [exercisesRes, setsRes, patternsRes] = await fetchProgressData();
+      let [exercisesRes, setsRes, patternsRes, levelsRes] = await fetchProgressData();
 
       // A standalone iOS PWA freezes its JS (including the library's own
       // background token refresh) while backgrounded, so the very first
       // query after reopening can hit a stale token. Refresh and retry once
       // before showing an error for something that isn't a real failure.
-      if (isAuthError(exercisesRes.error || setsRes.error || patternsRes.error)) {
+      if (isAuthError(exercisesRes.error || setsRes.error || patternsRes.error || levelsRes.error)) {
         await supabase.auth.refreshSession();
-        [exercisesRes, setsRes, patternsRes] = await fetchProgressData();
+        [exercisesRes, setsRes, patternsRes, levelsRes] = await fetchProgressData();
       }
 
-      const err = exercisesRes.error || setsRes.error || patternsRes.error;
+      const err = exercisesRes.error || setsRes.error || patternsRes.error || levelsRes.error;
       if (err) {
         loading.hidden = true;
         show(topStatus, 'error', `Could not load your training data: ${err.message}`);
         return;
       }
 
+      levelsById = levelsRes.byId;
+      levelPositionById = levelPositions(levelsRes.levels);
       const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
       loading.hidden = true;
 

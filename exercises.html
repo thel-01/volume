@@ -143,6 +143,24 @@
           </p>
         </div>
 
+        <!-- Bodyweight type only: the named progressions behind the Log
+             screen's Level chip (Small box -> Big box). Every change here
+             saves immediately, like the Log screen's inline "+ Level" —
+             it doesn't wait for the form's own Save button. -->
+        <div class="field" id="ex-levels-field" hidden>
+          <label>Levels <span style="color:var(--text-tertiary);">· easiest first</span></label>
+          <p id="ex-levels-new-note" class="muted" hidden style="margin:0;">Save the exercise first, then add levels here or straight from the Log screen.</p>
+          <div id="ex-levels-body">
+            <div id="ex-levels-list"></div>
+            <div id="ex-level-add-form" style="display:none;gap:var(--space-3);margin-bottom:var(--space-2);">
+              <input id="ex-level-name" type="text" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" placeholder="Name the new level" style="flex:1;min-width:0;">
+              <button id="ex-level-add-btn" type="button" style="width:auto;flex:0 0 auto;">Add</button>
+            </div>
+            <button id="ex-level-add-toggle" type="button" class="link-button">+ Add level</button>
+            <p class="muted" style="margin:var(--space-2) 0 0;font-size:var(--fs-sm);">Pick a level while logging instead of a kg amount. Reps are only ever compared to reps at the same level.</p>
+          </div>
+        </div>
+
         <div class="field">
           <label for="ex-pattern">Movement pattern</label>
           <select id="ex-pattern">
@@ -179,8 +197,9 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { showToast } from './toast.js';
+    import { createLevel, validateLevelName, describeLevelError, LEVEL_NAME_MAX } from './levels.js';
 
     const TYPE_LABELS = {
       weight_reps: 'Standard',
@@ -250,6 +269,14 @@
     const exerciseDeleteName = document.getElementById('exercise-delete-name');
     const exerciseDeleteCancel = document.getElementById('exercise-delete-cancel');
     const exerciseDeleteConfirmBtn = document.getElementById('exercise-delete-confirm-btn');
+    const exLevelsField = document.getElementById('ex-levels-field');
+    const exLevelsNewNote = document.getElementById('ex-levels-new-note');
+    const exLevelsBody = document.getElementById('ex-levels-body');
+    const exLevelsList = document.getElementById('ex-levels-list');
+    const exLevelAddForm = document.getElementById('ex-level-add-form');
+    const exLevelName = document.getElementById('ex-level-name');
+    const exLevelAddBtn = document.getElementById('ex-level-add-btn');
+    const exLevelAddToggle = document.getElementById('ex-level-add-toggle');
 
     // ------------------------------------------------------------------
     // State
@@ -266,6 +293,10 @@
     let editingPatternId = null;   // null while creating a pattern
     let editingExerciseId = null;  // null while creating an exercise
     let editingExerciseLocked = false;
+    // The open exercise's levels (archived included) and which of them
+    // have sets logged — those can only be archived, never deleted.
+    let editingLevels = [];
+    let usedLevelIds = new Set();
 
     // Same two icons used for every success/error status across the app —
     // color-only otherwise, which doesn't hold up for anyone who can't rely
@@ -729,6 +760,266 @@
       exUnilateralChip.classList.toggle('selected');
     });
 
+    // ------------------------------------------------------------------
+    // Levels editor (bodyweight exercises only)
+    // ------------------------------------------------------------------
+    exLevelName.maxLength = LEVEL_NAME_MAX;
+
+    /** Shown for a bodyweight exercise; a not-yet-saved one just gets a note. */
+    function updateLevelsFieldVisibility() {
+      const isBodyweight = exTypeSelect.value === 'bodyweight';
+      exLevelsField.hidden = !isBodyweight;
+      exLevelsNewNote.hidden = !!editingExerciseId;
+      exLevelsBody.hidden = !editingExerciseId;
+    }
+    exTypeSelect.addEventListener('change', () => {
+      updateLevelsFieldVisibility();
+      // Switched to bodyweight on a still-unlocked exercise: its levels (if
+      // any were made before) weren't loaded when the form opened.
+      if (exTypeSelect.value === 'bodyweight' && editingExerciseId) loadLevelsForEditor(editingExerciseId);
+    });
+
+    async function loadLevelsForEditor(exerciseId) {
+      editingLevels = [];
+      usedLevelIds = new Set();
+      exLevelsList.innerHTML = '';
+      const [levelsRes, usedRes] = await Promise.all([
+        supabase.from('exercise_levels').select('*').eq('exercise_id', exerciseId).order('position').order('created_at'),
+        fetchAllRows(() => supabase.from('sets').select('level_id').eq('exercise_id', exerciseId).not('level_id', 'is', null).order('id')),
+      ]);
+      if (editingExerciseId !== exerciseId) return;
+      const err = levelsRes.error || usedRes.error;
+      if (err) {
+        show(exerciseFormStatus, 'error', `Could not load this exercise's levels: ${err.message}`);
+        return;
+      }
+      editingLevels = levelsRes.data;
+      usedLevelIds = new Set(usedRes.data.map((r) => r.level_id));
+      renderLevelsEditor();
+    }
+
+    const ARROW_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 15 L12 8 L19 15"/></svg>';
+    const ARROW_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9 L12 16 L19 9"/></svg>';
+    const byPosition = (a, b) => a.position - b.position || new Date(a.created_at) - new Date(b.created_at);
+
+    function renderLevelsEditor() {
+      exLevelsList.innerHTML = '';
+      const live = editingLevels.filter((l) => !l.archived_at).sort(byPosition);
+      const archived = editingLevels.filter((l) => l.archived_at).sort(byPosition);
+      if (live.length === 0 && archived.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.style.margin = '0 0 var(--space-2)';
+        p.textContent = 'No levels yet.';
+        exLevelsList.appendChild(p);
+      }
+      live.forEach((lvl, i) => exLevelsList.appendChild(buildLevelRow(lvl, i, live)));
+      for (const lvl of archived) {
+        exLevelsList.appendChild(buildLevelRow(lvl, -1, live));
+        const cap = document.createElement('p');
+        cap.className = 'level-caption';
+        cap.textContent = 'Archived. Hidden when logging, kept in history.';
+        exLevelsList.appendChild(cap);
+      }
+    }
+
+    function buildLevelRow(lvl, index, live) {
+      const archived = !!lvl.archived_at;
+      const row = document.createElement('div');
+      row.className = 'level-row' + (archived ? ' archived' : '');
+
+      const rank = document.createElement('span');
+      rank.className = 'level-rank';
+      rank.textContent = archived ? '' : String(index + 1);
+      row.appendChild(rank);
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = lvl.name;
+      input.maxLength = LEVEL_NAME_MAX;
+      input.autocomplete = 'off';
+      input.disabled = archived;
+      input.setAttribute('aria-label', `Level ${index + 1} name`);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
+      input.addEventListener('change', () => renameLevel(lvl, input));
+      row.appendChild(input);
+
+      const up = document.createElement('button');
+      up.type = 'button';
+      up.className = 'level-move';
+      up.innerHTML = ARROW_UP;
+      up.setAttribute('aria-label', `Move ${lvl.name} easier`);
+      up.disabled = archived || index === 0;
+      up.addEventListener('click', () => moveLevel(live, index, index - 1));
+      row.appendChild(up);
+
+      const down = document.createElement('button');
+      down.type = 'button';
+      down.className = 'level-move';
+      down.innerHTML = ARROW_DOWN;
+      down.setAttribute('aria-label', `Move ${lvl.name} harder`);
+      down.disabled = archived || index === live.length - 1;
+      down.addEventListener('click', () => moveLevel(live, index, index + 1));
+      row.appendChild(down);
+
+      row.appendChild(buildLevelRemoveButton(lvl));
+      return row;
+    }
+
+    /** Archive (has sets) / Delete (unused) with the shared arm-confirm rhythm; Restore is a plain tap. */
+    function buildLevelRemoveButton(lvl) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'arm-confirm-btn';
+      if (lvl.archived_at) {
+        btn.textContent = 'Restore';
+        btn.addEventListener('click', () => setLevelArchived(lvl, false, btn));
+        return btn;
+      }
+      const used = usedLevelIds.has(lvl.id);
+      const idle = used ? 'Archive' : 'Delete';
+      btn.textContent = idle;
+      let armed = false;
+      let timer = null;
+      btn.addEventListener('click', async () => {
+        if (!armed) {
+          armed = true;
+          btn.classList.add('confirming');
+          btn.textContent = `${idle}?`;
+          timer = setTimeout(() => {
+            armed = false;
+            btn.classList.remove('confirming');
+            btn.textContent = idle;
+          }, 3000);
+          return;
+        }
+        clearTimeout(timer);
+        if (used) {
+          await setLevelArchived(lvl, true, btn);
+        } else {
+          btn.disabled = true;
+          const { error } = await supabase.from('exercise_levels').delete().eq('id', lvl.id);
+          if (error) {
+            btn.disabled = false;
+            // A set may have been logged at it since this form opened —
+            // the database refuses the delete, so archive it instead.
+            if (error.code === '23503') {
+              usedLevelIds.add(lvl.id);
+              await setLevelArchived(lvl, true, btn);
+              return;
+            }
+            flash(describeLevelError(error, lvl.name), 'error', 5000);
+            renderLevelsEditor();
+            return;
+          }
+          editingLevels = editingLevels.filter((l) => l.id !== lvl.id);
+          renderLevelsEditor();
+          flash(`Deleted level "${lvl.name}".`);
+        }
+      });
+      return btn;
+    }
+
+    async function setLevelArchived(lvl, archive, btn) {
+      btn.disabled = true;
+      const { data, error } = await supabase
+        .from('exercise_levels')
+        .update({ archived_at: archive ? new Date().toISOString() : null })
+        .eq('id', lvl.id)
+        .select()
+        .single();
+      if (error) {
+        btn.disabled = false;
+        flash(describeLevelError(error, lvl.name), 'error', 5000);
+        renderLevelsEditor();
+        return;
+      }
+      Object.assign(lvl, data);
+      renderLevelsEditor();
+      flash(archive ? `Archived "${lvl.name}".` : `Restored "${lvl.name}".`);
+    }
+
+    async function renameLevel(lvl, input) {
+      const { name, error: invalid } = validateLevelName(input.value);
+      if (invalid) {
+        flash(invalid, 'error', 5000);
+        input.value = lvl.name;
+        return;
+      }
+      if (name === lvl.name) { input.value = name; return; }
+      input.disabled = true;
+      const { data, error } = await supabase.from('exercise_levels').update({ name }).eq('id', lvl.id).select().single();
+      input.disabled = false;
+      if (error) {
+        flash(describeLevelError(error, name), 'error', 5000);
+        input.value = lvl.name;
+        return;
+      }
+      Object.assign(lvl, data);
+      renderLevelsEditor();
+      flash(`Renamed to "${data.name}".`);
+    }
+
+    /**
+     * Swap two neighbours, then write back clean 0..n-1 positions for every
+     * live level whose number changed (archived ones keep theirs). Positions
+     * aren't unique in the database, so there's no mid-swap collision to
+     * dodge — and renumbering heals any ties from older rows along the way.
+     */
+    async function moveLevel(live, from, to) {
+      const order = [...live];
+      [order[from], order[to]] = [order[to], order[from]];
+      const changes = order
+        .map((lvl, i) => ({ lvl, position: i }))
+        .filter(({ lvl, position }) => lvl.position !== position);
+      for (const { lvl, position } of changes) lvl.position = position;
+      renderLevelsEditor();
+      const results = await Promise.all(changes.map(({ lvl, position }) =>
+        supabase.from('exercise_levels').update({ position }).eq('id', lvl.id)));
+      const failed = results.find((r) => r.error);
+      if (failed) {
+        flash(`Could not reorder: ${failed.error.message}`, 'error', 5000);
+        await loadLevelsForEditor(editingExerciseId); // back to what's actually saved
+      }
+    }
+
+    exLevelAddToggle.addEventListener('click', () => {
+      exLevelAddForm.style.display = 'flex';
+      exLevelAddToggle.hidden = true;
+      exLevelName.value = '';
+      exLevelName.focus();
+    });
+
+    async function addLevelFromEditor() {
+      const exerciseId = editingExerciseId;
+      exLevelAddBtn.disabled = true;
+      exLevelAddBtn.textContent = 'Adding…';
+      const { data, error } = await createLevel(exerciseId, exLevelName.value, editingLevels);
+      exLevelAddBtn.disabled = false;
+      exLevelAddBtn.textContent = 'Add';
+      if (editingExerciseId !== exerciseId) return;
+      if (error) {
+        flash(error, 'error', 5000);
+        exLevelName.focus();
+        return;
+      }
+      editingLevels.push(data);
+      exLevelName.value = '';
+      exLevelName.focus(); // ready for the next one
+      renderLevelsEditor();
+      flash(`Added level "${data.name}".`, 'ok', 1800);
+    }
+    exLevelAddBtn.addEventListener('click', addLevelFromEditor);
+    exLevelName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addLevelFromEditor(); } });
+
+    function resetLevelsEditor() {
+      editingLevels = [];
+      usedLevelIds = new Set();
+      exLevelsList.innerHTML = '';
+      exLevelAddForm.style.display = 'none';
+      exLevelAddToggle.hidden = false;
+    }
+
     function openCreateExerciseForm(presetPatternId) {
       editingExerciseId = null;
       editingExerciseLocked = false;
@@ -753,6 +1044,8 @@
       exerciseDeleteConfirm.hidden = true;
       exerciseDeleteBtn.hidden = false;
       hide(exerciseFormStatus);
+      resetLevelsEditor();
+      updateLevelsFieldVisibility();
 
       showView('exercise-form');
       exNameInput.focus();
@@ -780,6 +1073,9 @@
 
       showView('exercise-form');
 
+      resetLevelsEditor();
+      exTypeSelect.value = ex.type; // updateLevelsFieldVisibility reads the select
+
       // Starts disabled with a "checking…" placeholder while we find out
       // whether it's allowed to change, then settles into locked or open.
       exTypeSelect.disabled = true;
@@ -788,6 +1084,8 @@
       exUnilateralChip.disabled = true;
       exUnilateralChip.classList.toggle('selected', !!ex.unilateral);
       exUnilateralLockedNote.hidden = true;
+      updateLevelsFieldVisibility();
+      if (ex.type === 'bodyweight') loadLevelsForEditor(ex.id);
 
       const { count, error } = await supabase
         .from('sets')

@@ -335,7 +335,8 @@
   <script type="module">
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
-    import { epley, compositeIndexSeries, deltaVsDaysAgo, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
+    import { epley, compositeIndexSeries, deltaVsDaysAgo, effectiveLoad, effectiveReps, isBodyweightEquivalent, prCandidates } from './strength-index.js';
+    import { fetchLevels, levelPositions, describeLevelSet } from './levels.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
     import { showToast } from './toast.js';
     import { tagChip, positionHint } from './chip-tag.js';
@@ -463,6 +464,7 @@
       return '';
     }
     function describeSet(set, type) {
+      if (set.level_id) return describeLevelSet(set, levelsById, tagLetter(set.quick_tag));
       if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
       // Zero assistance on a legacy 'assisted' exercise isn't assisted at
       // all — it's a plain bodyweight rep, so it reads as one.
@@ -546,14 +548,20 @@
         // Seeds the start-workout popup's chips — same query log.html's own
         // loadCategories() runs.
         supabase.from('session_types').select('name').order('created_at'),
+        // Which level is highest, for the PR count. A nicety like the two
+        // above: if it fails, level sets simply all compete on reps.
+        fetchLevels(),
       ]);
     }
+
+    let levelsById = new Map();
+    let levelPositionById = new Map();
 
     async function loadAll() {
       loading.hidden = false;
       content.hidden = true;
 
-      let [exercisesRes, setsRes, sessionsRes, openRes, settingsRes, sessionTypesRes] = await fetchDashboardData();
+      let [exercisesRes, setsRes, sessionsRes, openRes, settingsRes, sessionTypesRes, levelsRes] = await fetchDashboardData();
 
       // A standalone iOS PWA freezes its JS (including the library's own
       // background token refresh) while backgrounded, so the very first
@@ -561,12 +569,16 @@
       // before showing an error for something that isn't a real failure.
       if (isAuthError(exercisesRes.error || setsRes.error || sessionsRes.error)) {
         await supabase.auth.refreshSession();
-        [exercisesRes, setsRes, sessionsRes, openRes, settingsRes, sessionTypesRes] = await fetchDashboardData();
+        [exercisesRes, setsRes, sessionsRes, openRes, settingsRes, sessionTypesRes, levelsRes] = await fetchDashboardData();
       }
 
       // A load failure here shouldn't block starting a workout — Other still
       // works. It just means the chip row is short until the next reload.
       sessionTypeNames = sessionTypesRes.error ? [] : sessionTypesRes.data.map((row) => row.name);
+      if (!levelsRes.error) {
+        levelsById = levelsRes.byId;
+        levelPositionById = levelPositions(levelsRes.levels);
+      }
 
       trendMethod = (!settingsRes.error && settingsRes.data) ? settingsRes.data.weight_trend_method : DEFAULT_TREND_METHOD;
 
@@ -1107,6 +1119,8 @@
     }
 
     function findPr(sets, type) {
+      // Level sets vs. kg sets, and which level: see prCandidates().
+      sets = prCandidates(sets, levelPositionById);
       if (sets.length === 0) return null;
       let best = null;
       let bestScore = null;

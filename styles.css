@@ -616,6 +616,10 @@ button.secondary {
   font-size: 12px;
 }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
+/* Same author-display-beats-[hidden] gap as .reference-line and
+   .modal-backdrop: without this, exercise-trend.html's `legend.hidden = …`
+   never actually hid anything (a lone "Set 1" legend kept showing). */
+.legend[hidden] { display: none; }
 
 /* ---------------------------------------------------------------------
    Shared beyond the login/placeholder pages: list + form screens
@@ -939,6 +943,49 @@ button.danger.secondary {
    chip rows never show one; adding this everywhere would push every plain
    chip row in the app down for no reason. */
 .chips.tagged-chips { margin-top: 18px; }
+
+/* Bodyweight mode row — Assist / BW / Weight / Level (log.html, and the
+   add/edit-set forms in history.html). Four chips on one row only just fit
+   at the shared 16px padding, so like weight.html's chip rows the padding
+   shrinks only for this row and only below the measured width where it
+   would wrap. Measured with the iPhone's own system font (chips don't use
+   Inter — buttons never set a font, so they render in the system face),
+   real card padding, every chip tried as the selected one: 16px fits a
+   390px screen by just 4px and wraps at 375 (iPhone SE); 10px fits down to
+   340; 6px fits 320 (8px would still be 2px short). 399, not 389: 4px of
+   room at 390 is too little to trust. Tap height is untouched throughout.
+   Selected stays at weight 500 — .chip.selected's jump to 600 widens a
+   chip the instant it's tapped, same fix as weight.html's overlap chips. */
+.bw-modes .chip.selected { font-weight: 500; }
+@media (max-width: 399px) {
+  .bw-modes .chip { padding: 0 10px; }
+}
+@media (max-width: 339px) {
+  .bw-modes .chip { padding: 0 6px; }
+}
+/* "+ Level" at the end of a level row — an action, not a level, so it
+   reads as a dashed, muted outline rather than another selectable chip. */
+.chip.chip-add { color: var(--muted); border-style: dashed; }
+
+/* Level ladder rows in exercises.html: rank · name · move up/down · remove.
+   Buttons, not drag-to-reorder — nothing in the app is a drag. */
+.level-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.level-rank { flex: 0 0 20px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.level-row input[type='text'] { flex: 1; min-width: 0; }
+.level-row.archived input { color: var(--text-tertiary); text-decoration: line-through; }
+.level-move {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: 40px; height: 40px; min-height: 40px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.level-move:disabled { opacity: 0.25; }
+.level-row .arm-confirm-btn { min-height: 40px; }
+.level-caption { margin: 2px 0 var(--space-3) 28px; font-size: var(--fs-xs); color: var(--text-tertiary); }
 
 /* Session header: category + running clock + End button on one row. */
 .session-bar {

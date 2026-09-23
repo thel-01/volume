@@ -48,11 +48,22 @@
       </div>
       <p id="index-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
 
-      <p class="section-label">Top set weight</p>
+      <p class="section-label" id="top-set-label">Top set weight</p>
       <div class="chart-card" id="top-set-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Top set weight over time"></svg>
       </div>
       <p id="top-set-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
+
+      <!-- Sets logged at a named level (Small box, Red band…): no kg to
+           chart, so reps instead — one step line per level. -->
+      <div id="levels-section" hidden>
+        <p class="section-label">Top set, per level</p>
+        <div class="chart-card" id="levels-card">
+          <svg id="levels-chart" viewBox="0 0 340 180" role="img" aria-label="Top set reps per level over time"></svg>
+          <div id="levels-legend" class="legend"></div>
+        </div>
+        <p id="levels-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
+      </div>
     </div>
 
     <p id="empty-state" class="empty-state" hidden></p>
@@ -60,9 +71,10 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
-    import { sessionCapacities, displayDepths, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
+    import { sessionCapacities, displayDepths, effectiveLoad, effectiveReps, isBodyweightEquivalent, compositeIndexBreakdown } from './strength-index.js';
+    import { levelsFor, describeLevelSet } from './levels.js';
 
     // Set 1 is the loudest, deeper sets recede — a monochrome fade, not a
     // hue ramp. Order carries the meaning here, same principle as a single-
@@ -90,6 +102,16 @@
     const indexEmpty = document.getElementById('index-empty');
     const indexLabel = document.getElementById('index-label');
     const legend = document.getElementById('legend');
+    const topSetLabel = document.getElementById('top-set-label');
+    const levelsSection = document.getElementById('levels-section');
+    const levelsCard = document.getElementById('levels-card');
+    const levelsChart = document.getElementById('levels-chart');
+    const levelsLegend = document.getElementById('levels-legend');
+    const levelsEmpty = document.getElementById('levels-empty');
+
+    // This exercise's levels, archived included (old sets still show theirs).
+    let levels = [];
+    let levelsById = new Map();
 
     // ------------------------------------------------------------------
     // Small shared helpers (same shape as the rest of the app)
@@ -124,6 +146,7 @@
       return '';
     }
     function describeSet(set, type) {
+      if (set.level_id) return describeLevelSet(set, levelsById, tagLetter(set.quick_tag));
       if (type === 'time_based') return formatDuration(set.duration_seconds) + tagLetter(set.quick_tag);
       // Zero assistance on a legacy 'assisted' exercise isn't assisted at
       // all — it's a plain bodyweight rep, so it reads as one.
@@ -284,6 +307,75 @@
       legend.hidden = depths < 2;
     }
 
+    /**
+     * The index for an exercise that uses levels. The per-set fan above
+     * can't be drawn honestly here: it scales everything against one
+     * baseline estimated 1RM, and a level has no kg — so moving to the
+     * harder box would plot as a collapse. Instead this is the same
+     * per-level chaining the composite index uses (each level its own
+     * variation, moving up joins neutrally), for this one exercise.
+     */
+    function drawLevelAwareIndex(series) {
+      renderLineChart(indexChart, {
+        series: [{ points: series, dots: true, tappable: true }],
+        formatValue: (v) => String(Math.round(v)),
+        formatDate: formatCompactDate,
+        minRange: 8,
+        tooltipLines: (p) => [p.value.toFixed(0), formatFullDate(p.date)],
+        ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
+      });
+      legend.hidden = true;
+    }
+
+    // Categorical hues in ladder order (easiest first), assigned by the
+    // level's place in the ladder — never by which levels happen to have
+    // data, so a level keeps its color as others fill in around it.
+    const LEVEL_COLORS = ['var(--chart-cat-1)', 'var(--chart-cat-2)', 'var(--chart-cat-3)', 'var(--chart-cat-4)',
+                          'var(--chart-cat-5)', 'var(--chart-cat-6)', 'var(--chart-cat-7)', 'var(--chart-cat-8)'];
+
+    /** One step line per level: the most reps in a single set, per session. */
+    function drawLevels(levelSets) {
+      const ladder = levelsFor(levels, exercise.id, { includeArchived: true });
+      const series = [];
+      const legendItems = [];
+      ladder.forEach((lvl, i) => {
+        const bySession = new Map();
+        for (const s of levelSets) {
+          if (s.level_id !== lvl.id) continue;
+          const prev = bySession.get(s.session_id);
+          if (!prev || effectiveReps(s.reps, s.quick_tag) > effectiveReps(prev.reps, prev.quick_tag)) bySession.set(s.session_id, s);
+        }
+        if (bySession.size === 0) return;
+        const color = LEVEL_COLORS[i % LEVEL_COLORS.length];
+        const points = [...bySession.values()]
+          .map((s) => ({ date: s.sessions.start_time, value: s.reps, set: s }))
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        series.push({ key: lvl.id, points, dots: true, tappable: true, step: true, color, width: '2' });
+        legendItems.push({ color, name: lvl.name });
+      });
+
+      renderLineChart(levelsChart, {
+        series,
+        formatValue: (v) => String(Math.round(v)),
+        formatDate: formatCompactDate,
+        minRange: 4,
+        paddingPct: 0.18,
+        tooltipLines: (p) => [describeSet(p.set, exercise.type), formatFullDate(p.date)],
+        ariaLabel: (p) => `${describeSet(p.set, exercise.type)} on ${formatFullDate(p.date)}`,
+      });
+
+      levelsLegend.innerHTML = '';
+      for (const item of legendItems) {
+        const span = document.createElement('span');
+        const swatch = document.createElement('i');
+        swatch.style.background = item.color;
+        span.appendChild(swatch);
+        span.appendChild(document.createTextNode(item.name));
+        levelsLegend.appendChild(span);
+      }
+      levelsLegend.hidden = legendItems.length < 2;
+    }
+
     /** Drawn for every type alongside the index (when there is one) — the literal top set/effort per session, never just the estimate. */
     function drawTopSet(points, type) {
       const maxValue = Math.max(...points.map((p) => p.value));
@@ -318,24 +410,27 @@
     // ------------------------------------------------------------------
     // Boot
     // ------------------------------------------------------------------
+    let exercise = null;
+
     async function loadAll(exerciseId) {
       const fetchExerciseTrendData = () => Promise.all([
         supabase.from('exercises').select('*').eq('id', exerciseId).is('deleted_at', null).maybeSingle(),
-        supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').eq('exercise_id', exerciseId).order('created_at'),
+        fetchAllRows(() => supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').eq('exercise_id', exerciseId).order('created_at').order('id')),
+        supabase.from('exercise_levels').select('*').eq('exercise_id', exerciseId).order('position'),
       ]);
 
-      let [exerciseRes, setsRes] = await fetchExerciseTrendData();
+      let [exerciseRes, setsRes, levelsRes] = await fetchExerciseTrendData();
 
       // A standalone iOS PWA freezes its JS (including the library's own
       // background token refresh) while backgrounded, so the very first
       // query after reopening can hit a stale token. Refresh and retry once
       // before showing an error for something that isn't a real failure.
-      if (isAuthError(exerciseRes.error || setsRes.error)) {
+      if (isAuthError(exerciseRes.error || setsRes.error || levelsRes.error)) {
         await supabase.auth.refreshSession();
-        [exerciseRes, setsRes] = await fetchExerciseTrendData();
+        [exerciseRes, setsRes, levelsRes] = await fetchExerciseTrendData();
       }
 
-      const err = exerciseRes.error || setsRes.error;
+      const err = exerciseRes.error || setsRes.error || levelsRes.error;
       if (err) {
         loading.hidden = true;
         show(topStatus, 'error', `Could not load this exercise: ${err.message}`);
@@ -347,18 +442,23 @@
         return;
       }
 
-      const exercise = exerciseRes.data;
+      exercise = exerciseRes.data;
+      levels = levelsRes.data;
+      levelsById = new Map(levels.map((l) => [l.id, l]));
       heading.textContent = exercise.name;
       // Long names would otherwise crowd the back arrow on a phone.
       if (exercise.name.length > 22) heading.style.fontSize = '18px';
       document.title = `Volume — ${exercise.name}`;
 
       const liveSets = setsRes.data.filter((s) => s.sessions && !s.sessions.deleted_at);
-      const topSetPoints = computeSessionBests(liveSets, exercise.type);
+      // Level sets have no kg worth charting (their load is just your
+      // bodyweight that day) — they get their own per-level reps chart.
+      const levelSets = liveSets.filter((s) => s.level_id);
+      const topSetPoints = computeSessionBests(liveSets.filter((s) => !s.level_id), exercise.type);
 
       loading.hidden = true;
 
-      if (topSetPoints.length === 0) {
+      if (topSetPoints.length === 0 && levelSets.length === 0) {
         emptyState.textContent = `No sets logged for ${exercise.name} yet.`;
         emptyState.hidden = false;
         return;
@@ -371,7 +471,15 @@
       // exercises get the top-set chart alone. Either way, a single workout
       // isn't a trend — the chart needs a second point before it draws.
       const capacity = sessionCapacities(liveSets, [exercise]).get(exercise.id);
-      if (capacity && capacity.length >= 2) {
+      const levelIndex = levelSets.length > 0 ? compositeIndexBreakdown(liveSets, [exercise]).composite : null;
+      if (levelIndex) {
+        // Any level sets at all: the per-level chained line, never the fan.
+        indexLabel.hidden = false;
+        const enough = levelIndex.length >= 2;
+        indexCard.hidden = !enough;
+        indexEmpty.hidden = enough;
+        if (enough) drawLevelAwareIndex(levelIndex);
+      } else if (capacity && capacity.length >= 2) {
         indexLabel.hidden = false;
         indexCard.hidden = false;
         indexEmpty.hidden = true;
@@ -392,7 +500,18 @@
         drawTopSet(topSetPoints, exercise.type);
       } else {
         topSetCard.hidden = true;
-        topSetEmpty.hidden = false;
+        // Only worth an "not enough yet" note if kg sets exist at all — an
+        // exercise done purely at levels just doesn't have this chart.
+        topSetEmpty.hidden = topSetPoints.length === 0;
+      }
+      topSetLabel.hidden = topSetPoints.length === 0;
+
+      levelsSection.hidden = levelSets.length === 0;
+      if (levelSets.length > 0) {
+        const sessionsWithLevels = new Set(levelSets.map((s) => s.session_id)).size;
+        levelsCard.hidden = sessionsWithLevels < 2;
+        levelsEmpty.hidden = sessionsWithLevels >= 2;
+        if (sessionsWithLevels >= 2) drawLevels(levelSets);
       }
     }
 
