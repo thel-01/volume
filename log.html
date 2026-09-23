@@ -122,6 +122,14 @@
         <div id="end-summary"></div>
       </div>
 
+      <!-- Only shown when your last set was a while ago, e.g. you forgot to
+           tap End and are only closing the workout out now. -->
+      <div id="end-time-field" hidden style="margin-bottom:var(--space-4);">
+        <p class="section-label">Workout ended</p>
+        <div id="end-time-chips" class="chips"></div>
+        <p id="end-time-caption" class="muted" style="margin:var(--space-2) 0 0;"></p>
+      </div>
+
       <button id="session-comment-toggle" type="button" class="link-button" style="margin-bottom:var(--space-4);">+ Add a comment</button>
       <div class="field" id="session-comment-field" hidden>
         <label for="session-comment">How did it go?</label>
@@ -139,7 +147,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
 
@@ -199,6 +207,9 @@
     const endCancel = document.getElementById('end-cancel');
     const endConfirm = document.getElementById('end-confirm');
     const endStatus = document.getElementById('end-status');
+    const endTimeField = document.getElementById('end-time-field');
+    const endTimeChips = document.getElementById('end-time-chips');
+    const endTimeCaption = document.getElementById('end-time-caption');
 
     // ------------------------------------------------------------------
     // State
@@ -209,7 +220,8 @@
     let allPatterns = [];        // live movement patterns, for inline create
     let patternsById = new Map();
     let sessionTypeNames = [];   // your Settings-managed session_types, by name
-    let lastCategoryExercises = []; // exercises logged last time this session's category ran
+    let lastCategoryExercises = []; // what you usually do on this session type, in your usual order
+    let recentUsage = new Map();    // exercise id -> sessions in the last 90 days that included it
 
     // One entry per exercise in this session, in the order they were added.
     // { exercise, sessionExerciseId, comment, sets[], history, expanded, stickyWeight }
@@ -680,19 +692,32 @@
 
       session = data;
       entries = [];
-      lastCategoryExercises = await loadLastCategoryExercises(session.category);
+      [lastCategoryExercises, recentUsage] = await Promise.all([
+        loadLastCategoryExercises(session.category),
+        loadRecentUsage(),
+      ]);
       enterSession();
     });
 
+    // How many past sessions of the same type feed the picker's suggestions.
+    // One session alone is brittle: a skipped exercise that day would drop
+    // out of the suggestions entirely.
+    const SUGGESTION_SESSIONS = 3;
+
     /**
-     * What you logged the last time you did this same session type (Push,
-     * Pull, ...), so the picker can offer it before you've typed anything.
-     * Only completed sessions count, and never the one in progress.
+     * What you usually do on this session type (Push, Pull, ...), in the
+     * order you usually do it, so the picker can offer it before you've
+     * typed anything. Drawn from your last few completed sessions of this
+     * type, never the one in progress. Each exercise is ranked by where it
+     * typically falls in those sessions (0 = first, 1 = last, averaged), so
+     * once the exercises you've done today are filtered out (see
+     * renderPickerDefault), whatever usually comes next rises to the top.
+     * An exercise done in more of those sessions wins a tie.
      */
     async function loadLastCategoryExercises(category) {
       if (!category) return [];
 
-      const { data: lastSession, error } = await supabase
+      const { data: recent, error } = await supabase
         .from('sessions')
         .select('id')
         .is('deleted_at', null)
@@ -700,20 +725,62 @@
         .ilike('category', category)
         .neq('id', session.id)
         .order('start_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error || !lastSession) return [];
+        .limit(SUGGESTION_SESSIONS);
+      if (error || !recent || recent.length === 0) return [];
 
       const { data: rows, error: seError } = await supabase
         .from('session_exercises')
-        .select('exercise_id, created_at, exercises(*)')
-        .eq('session_id', lastSession.id)
-        .order('created_at');
+        .select('session_id, exercise_id, created_at, exercises(*)')
+        .in('session_id', recent.map((s) => s.id))
+        .order('created_at')
+        .order('id');
       if (seError) return [];
 
-      return rows
-        .filter((r) => r.exercises && !r.exercises.deleted_at)
-        .map((r) => r.exercises);
+      const bySession = new Map(recent.map((s) => [s.id, []]));
+      for (const r of rows) {
+        if (r.exercises && !r.exercises.deleted_at) bySession.get(r.session_id)?.push(r.exercises);
+      }
+
+      const stats = new Map(); // exercise id -> { exercise, positions[] }
+      for (const list of bySession.values()) {
+        // A repeated block counts once per session, at its first position.
+        const seen = new Set();
+        const distinct = list.filter((ex) => !seen.has(ex.id) && seen.add(ex.id));
+        distinct.forEach((ex, i) => {
+          if (!stats.has(ex.id)) stats.set(ex.id, { exercise: ex, positions: [] });
+          stats.get(ex.id).positions.push(distinct.length === 1 ? 0 : i / (distinct.length - 1));
+        });
+      }
+
+      const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+      return [...stats.values()]
+        .sort((a, b) =>
+          avg(a.positions) - avg(b.positions)
+          || b.positions.length - a.positions.length
+          || a.exercise.name.localeCompare(b.exercise.name))
+        .map((s) => s.exercise);
+    }
+
+    /** exercise id -> how many sessions in the last 90 days included it.
+     *  Only a tiebreak for search results; a failed load just means none. */
+    async function loadRecentUsage() {
+      const since = new Date(Date.now() - 90 * 86400000).toISOString();
+      const { data, error } = await fetchAllRows(() => supabase
+        .from('session_exercises')
+        .select('exercise_id, session_id, sessions!inner(start_time, deleted_at)')
+        .gte('sessions.start_time', since)
+        .is('sessions.deleted_at', null)
+        .order('id'));
+      const usage = new Map();
+      if (error) return usage;
+      const counted = new Set();
+      for (const r of data) {
+        const key = `${r.session_id}:${r.exercise_id}`;
+        if (counted.has(key)) continue;
+        counted.add(key);
+        usage.set(r.exercise_id, (usage.get(r.exercise_id) || 0) + 1);
+      }
+      return usage;
     }
 
     // ------------------------------------------------------------------
@@ -1610,28 +1677,62 @@
       pickerCreate.hidden = false;
     });
 
+    /** Exercise ids already in this session, most recently added first. */
+    function exercisesDoneThisSession() {
+      const ids = [];
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const id = entries[i].exercise.id;
+        if (!ids.includes(id)) ids.push(id);
+      }
+      return ids;
+    }
+
+    /**
+     * Best match first: a name that starts with what you typed, then one
+     * with a word that does ("press" → "Bench Press"), then anywhere in the
+     * name. Within each, exercises you've used more lately rise, and ones
+     * already done this session sink to the bottom. Still reachable, just
+     * rarely what you're searching for.
+     */
     function renderPickerSearchResults(query) {
-      const matches = allExercises.filter((ex) => ex.name.toLowerCase().includes(query));
+      const done = new Set(exercisesDoneThisSession());
+      const matchRank = (name) => {
+        const n = name.toLowerCase();
+        if (n.startsWith(query)) return 0;
+        if (n.split(/[\s\-(/]+/).some((word) => word.startsWith(query))) return 1;
+        return 2;
+      };
+      const matches = allExercises
+        .filter((ex) => ex.name.toLowerCase().includes(query))
+        .map((ex) => ({ ex, rank: matchRank(ex.name), done: done.has(ex.id), uses: recentUsage.get(ex.id) || 0 }))
+        .sort((a, b) =>
+          (a.done - b.done)
+          || (a.rank - b.rank)
+          || (b.uses - a.uses)
+          || a.ex.name.localeCompare(b.ex.name))
+        .map((m) => m.ex);
       appendPickerSection(null, matches);
     }
 
     /**
-     * Before you've typed anything: what you did last time this session type
-     * ran, then everything else grouped by movement pattern — patterns tagged
-     * for this session type first, then the rest, then anything with no
-     * pattern at all. Nothing here is excluded for already being active in
-     * this session — picking one again either reopens its existing block
-     * (if you're re-picking whatever you were just on) or starts a new one,
-     * see addExerciseToSession.
+     * Before you've typed anything: "Up next" (what you usually do on this
+     * session type and haven't done yet today, in your usual order), then
+     * everything else grouped by movement pattern: patterns tagged for this
+     * session type first, then the rest, then anything with no pattern at
+     * all. Exercises already in this session go last, under their own
+     * heading. They're rarely what you want next, but picking one again
+     * still works: it either reopens its existing block (if you're re-picking
+     * whatever you were just on) or starts a new one, see addExerciseToSession.
      */
     function renderPickerDefault() {
-      const shown = new Set();
+      const doneIds = exercisesDoneThisSession();
+      const shown = new Set(doneIds);
       const category = (session.category || '').trim().toLowerCase();
 
-      const lastTime = lastCategoryExercises;
-      if (lastTime.length > 0) {
-        appendPickerSection(`Last ${session.category} session`, lastTime);
-        for (const ex of lastTime) shown.add(ex.id);
+      const upNext = lastCategoryExercises.filter((ex) => !shown.has(ex.id));
+      if (upNext.length > 0) {
+        appendPickerSection('Up next', upNext);
+        for (const ex of upNext) shown.add(ex.id);
       }
 
       const remaining = allExercises.filter((ex) => !shown.has(ex.id));
@@ -1667,6 +1768,12 @@
       }
       if (uncategorized.length > 0) {
         appendPickerSection('Uncategorized', uncategorized.sort((a, b) => a.name.localeCompare(b.name)));
+      }
+
+      const exercisesById = new Map(allExercises.map((ex) => [ex.id, ex]));
+      const done = doneIds.map((id) => exercisesById.get(id)).filter(Boolean);
+      if (done.length > 0) {
+        appendPickerSection('Already done this session', done);
       }
 
       if (pickerList.children.length === 0) {
@@ -1722,7 +1829,7 @@
       chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
       li.appendChild(chevron);
 
-      const pick = () => addExerciseToSession(ex);
+      const pick = () => addExerciseToSession(ex, li);
       li.addEventListener('click', pick);
       li.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
@@ -1779,38 +1886,106 @@
     }
 
     /**
+     * The block a re-pick of `exerciseId` should reopen instead of starting
+     * a new one, or null. That's the most recent block that actually has
+     * sets (or simply the last block, if none do) — skipping any empty
+     * blocks added after it, since an exercise you added and never logged
+     * isn't "something else done in between." Without that skip, A → B
+     * (added by mistake, never logged) → A again left two A blocks
+     * back to back once finishing dropped the empty B.
+     */
+    function blockToReopen(exerciseId) {
+      let i = entries.length - 1;
+      while (i > 0 && entries[i].sets.length === 0 && entries[i].exercise.id !== exerciseId) i--;
+      const candidate = entries[i];
+      return candidate && candidate.exercise.id === exerciseId ? candidate : null;
+    }
+
+    // One add at a time. A second tap while the first insert is still in
+    // flight (slow gym wifi, a double-tap) used to insert a second block.
+    let addingExercise = false;
+
+    /**
+     * Inserts one session_exercises row, safely retryable: the id is made
+     * here rather than by the database, so if the response is lost after
+     * the row actually landed (the request timed out, the connection
+     * dropped), checking for that id tells a real failure apart from a lost
+     * reply, instead of a retry tap inserting the same block twice.
+     */
+    async function insertSessionExercise(exerciseId) {
+      const id = crypto.randomUUID();
+      const { data, error } = await supabase
+        .from('session_exercises')
+        .insert({ id, session_id: session.id, exercise_id: exerciseId })
+        .select()
+        .single();
+      if (!error) return { data, error: null };
+
+      const { data: landed } = await supabase
+        .from('session_exercises')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      return landed ? { data: landed, error: null } : { data: null, error };
+    }
+
+    /** Dims the picker and marks the tapped row while an add is in flight,
+     *  so it's visible that the tap registered. */
+    function setPickerBusy(busy, row = null) {
+      pickerList.style.pointerEvents = busy ? 'none' : '';
+      pickerList.setAttribute('aria-busy', busy ? 'true' : 'false');
+      for (const li of pickerList.querySelectorAll('.list-item')) {
+        li.style.opacity = busy && li !== row ? '0.4' : '';
+      }
+      if (row) {
+        const meta = row.querySelector('.list-item-meta');
+        if (busy) {
+          meta.dataset.prev = meta.innerHTML;
+          meta.textContent = 'Adding…';
+        } else if (meta.dataset.prev !== undefined) {
+          meta.innerHTML = meta.dataset.prev;
+          delete meta.dataset.prev;
+        }
+      }
+      createExerciseBtn.disabled = busy;
+    }
+
+    /**
      * Adds an exercise to the session: creates a new session_exercises row
      * (a "block" — the comment holder and the "was part of this workout"
      * record for this one occurrence), then loads that exercise's history
      * for the reference lines. A session can now hold more than one block
      * for the same exercise, so this always creates a genuinely new block —
      * except when the exercise you just picked is the same one you're
-     * already sitting on (the last entry in the list): re-picking it with
-     * nothing logged in between is never a real "second round," it's just
-     * you getting back to where you were, so that case reopens the existing
+     * already sitting on (see blockToReopen): re-picking it with nothing
+     * logged in between is never a real "second round," it's just you
+     * getting back to where you were, so that case reopens the existing
      * block instead of creating an empty duplicate right next to it.
      */
-    async function addExerciseToSession(exercise) {
-      const last = entries[entries.length - 1];
-      if (last && last.exercise.id === exercise.id) {
+    async function addExerciseToSession(exercise, row = null) {
+      if (addingExercise) return;
+
+      const reopen = blockToReopen(exercise.id);
+      if (reopen) {
         for (const e of entries) e.expanded = false;   // accordion: one at a time
-        last.expanded = true;
+        reopen.expanded = true;
         renderEntries();
         showView('session');
         return;
       }
 
+      addingExercise = true;
       hide(pickerStatus);
-      show(pickerStatus, 'info', `Adding ${exercise.name}…`);
+      setPickerBusy(true, row);
 
-      const { data: se, error: seError } = await supabase
-        .from('session_exercises')
-        .insert({ session_id: session.id, exercise_id: exercise.id })
-        .select()
-        .single();
+      const { data: se, error: seError } = await insertSessionExercise(exercise.id);
 
       if (seError) {
-        show(pickerStatus, 'error', `Could not add ${exercise.name}: ${seError.message}`);
+        addingExercise = false;
+        setPickerBusy(false, row);
+        // A toast, not #picker-status — that sits below the whole list,
+        // out of sight on anything longer than a screen.
+        flash(`Could not add ${exercise.name}: ${seError.message}`, 'error', 5000);
         return;
       }
 
@@ -1835,7 +2010,8 @@
         commentExpanded: false,
       });
 
-      hide(pickerStatus);
+      addingExercise = false;
+      setPickerBusy(false, row);
       renderEntries();
       showView('session');
     }
@@ -1900,8 +2076,52 @@
       }
 
       endConfirm.textContent = keptEntries.length === 0 ? 'Discard workout' : 'Finish';
+      renderEndTimeChoice(keptEntries);
       showView('end');
     });
+
+    // Past this gap since the last set, "now" probably isn't when the workout
+    // really ended (you forgot to tap End), so Finish offers to end it at
+    // the last set instead, and picks that by default.
+    const FORGOT_TO_END_AFTER_MS = 15 * 60 * 1000;
+    let endAtIso = null; // null = end it now
+
+    function formatClockTime(iso) {
+      return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+
+    function renderEndTimeChoice(keptEntries) {
+      const lastSetIso = keptEntries
+        .flatMap((e) => e.sets.map((s) => s.created_at))
+        .reduce((max, iso) => (!max || iso > max ? iso : max), null);
+      const gapMs = lastSetIso ? Date.now() - new Date(lastSetIso).getTime() : 0;
+
+      if (!lastSetIso || gapMs < FORGOT_TO_END_AFTER_MS) {
+        endAtIso = null;
+        endTimeField.hidden = true;
+        return;
+      }
+
+      endAtIso = lastSetIso;
+      const options = [
+        { iso: lastSetIso, label: `At last set · ${formatClockTime(lastSetIso)}` },
+        { iso: null, label: `Now · ${formatClockTime(new Date().toISOString())}` },
+      ];
+      const draw = () => {
+        endTimeChips.innerHTML = '';
+        for (const opt of options) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'chip' + (endAtIso === opt.iso ? ' selected' : '');
+          chip.textContent = opt.label;
+          chip.addEventListener('click', () => { endAtIso = opt.iso; draw(); });
+          endTimeChips.appendChild(chip);
+        }
+      };
+      draw();
+      endTimeCaption.textContent = `Your last set was ${elapsedSince(lastSetIso)} ago.`;
+      endTimeField.hidden = false;
+    }
 
     endBack.addEventListener('click', () => showView('session'));
     endCancel.addEventListener('click', () => showView('session'));
@@ -1950,7 +2170,7 @@
       const comment = sessionCommentInput.value.trim() || null;
       const { error } = await supabase
         .from('sessions')
-        .update({ end_time: new Date().toISOString(), comment })
+        .update({ end_time: endAtIso || new Date().toISOString(), comment })
         .eq('id', session.id);
 
       endConfirm.disabled = false;
@@ -2021,11 +2241,13 @@
     /** Pick up exactly where a phone lock / reload / undo left off. */
     async function resumeSession(row) {
       session = row;
-      const [, lastCat] = await Promise.all([
+      const [, lastCat, usage] = await Promise.all([
         restoreSessionEntries(),
         loadLastCategoryExercises(session.category),
+        loadRecentUsage(),
       ]);
       lastCategoryExercises = lastCat;
+      recentUsage = usage;
       enterSession();
     }
 
