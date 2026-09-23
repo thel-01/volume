@@ -378,7 +378,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { showToast } from './toast.js';
@@ -1147,10 +1147,11 @@
     // ------------------------------------------------------------------
     function fetchWeightData() {
       return Promise.all([
-        supabase
+        fetchAllRows(() => supabase
           .from('body_weights')
           .select('*')
-          .order('measured_at', { ascending: false }),
+          .order('measured_at', { ascending: false })
+          .order('id')),
         // A nicety, not the point of the page — if this fails or the row
         // doesn't exist yet, just fall back to the shipped default.
         supabase

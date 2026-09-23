@@ -333,7 +333,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart, renderGaugeChart } from './chart.js';
     import { epley, compositeIndexSeries, deltaVsDaysAgo, effectiveLoad, effectiveReps, isBodyweightEquivalent } from './strength-index.js';
     import { mondayOf, relativeDayLabel, daysAgo } from './date-utils.js';
@@ -527,11 +527,12 @@
     function fetchDashboardData() {
       return Promise.all([
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
-        supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
-        supabase.from('sessions').select('id, category, start_time')
+        fetchAllRows(() => supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at').order('id')),
+        fetchAllRows(() => supabase.from('sessions').select('id, category, start_time')
           .is('deleted_at', null)
           .not('end_time', 'is', null)
-          .order('start_time', { ascending: false }),
+          .order('start_time', { ascending: false })
+          .order('id')),
         // A workout left open, so the button can say "Resume" instead of
         // making you tap through to find out.
         supabase.from('sessions').select('id, start_time')
@@ -645,10 +646,11 @@
     let latestWeightKg = null;
 
     async function loadWeight() {
-      const { data, error } = await supabase
+      const { data, error } = await fetchAllRows(() => supabase
         .from('body_weights')
         .select('weight_kg, measured_at, time_known')
-        .order('measured_at', { ascending: true });
+        .order('measured_at', { ascending: true })
+        .order('id'));
 
       // Weight is a separate feature bolted onto the bottom of this page —
       // if its table isn't there yet, the rest of the dashboard carries on.

@@ -181,7 +181,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { showToast } from './toast.js';
     import { tagChip, positionHint } from './chip-tag.js';
     import { DEFAULT_TREND_METHOD } from './weight-utils.js';
@@ -592,11 +592,12 @@
       iwBatchListEl.hidden = true;
       iwEmpty.hidden = true;
 
-      const { data, error } = await supabase
+      const { data, error } = await fetchAllRows(() => supabase
         .from('body_weights')
         .select('weight_kg, measured_at, created_at, import_batch_id')
         .not('import_batch_id', 'is', null)
-        .order('measured_at', { ascending: true });
+        .order('measured_at', { ascending: true })
+        .order('id'));
 
       iwLoading.hidden = true;
       importBatchesLoaded = true;
@@ -909,42 +910,49 @@
     const exportBtn = document.getElementById('export-btn');
     const exportStatus = document.getElementById('export-status');
 
+    // Every table in schema.sql, and the column each one is ordered by.
+    // Keep this in step with schema.sql — a table missing here is silently
+    // missing from every backup (injuries, injury_checkins and
+    // user_settings all were, until this list existed).
+    const EXPORT_TABLES = [
+      ['sessions', 'start_time'],
+      ['movement_patterns', 'name'],
+      ['session_types', 'created_at'],
+      ['exercises', 'name'],
+      ['session_exercises', 'created_at'],
+      ['sets', 'created_at'],
+      ['body_weights', 'measured_at'],
+      ['injuries', 'started_at'],
+      ['injury_checkins', 'created_at'],
+      ['user_settings', 'created_at'],
+    ];
+
+    // Paged via fetchAllRows() (supabase-client.js) — a plain select('*')
+    // would quietly stop at Supabase's 1000-row cap. user_settings has no
+    // id column (its key is user_id), so it tiebreaks on that instead.
+    function fetchEntireTable(table, orderCol) {
+      const tiebreak = table === 'user_settings' ? 'user_id' : 'id';
+      return fetchAllRows(() => supabase.from(table).select('*').order(orderCol).order(tiebreak));
+    }
+
     exportBtn.addEventListener('click', async () => {
       hide(exportStatus);
       exportBtn.disabled = true;
       exportBtn.textContent = 'Preparing…';
 
-      const [sessions, patterns, sessionTypesRes, exercisesRes, sessionExercises, sets, weights] = await Promise.all([
-        supabase.from('sessions').select('*').order('start_time'),
-        supabase.from('movement_patterns').select('*').order('name'),
-        supabase.from('session_types').select('*').order('created_at'),
-        supabase.from('exercises').select('*').order('name'),
-        supabase.from('session_exercises').select('*').order('created_at'),
-        supabase.from('sets').select('*').order('created_at'),
-        supabase.from('body_weights').select('*').order('measured_at'),
-      ]);
+      const results = await Promise.all(EXPORT_TABLES.map(([table, col]) => fetchEntireTable(table, col)));
 
       exportBtn.disabled = false;
       exportBtn.textContent = 'Export all data (JSON)';
 
-      const results = [sessions, patterns, sessionTypesRes, exercisesRes, sessionExercises, sets, weights];
-      const failed = results.find((r) => r.error);
-      if (failed) {
-        show(exportStatus, 'error', `Export failed: ${failed.error.message}`);
+      const failedIndex = results.findIndex((r) => r.error);
+      if (failedIndex !== -1) {
+        show(exportStatus, 'error', `Export failed (${EXPORT_TABLES[failedIndex][0]}): ${results[failedIndex].error.message}`);
         return;
       }
 
-      const payload = {
-        exported_at: new Date().toISOString(),
-        app: 'volume',
-        sessions: sessions.data,
-        movement_patterns: patterns.data,
-        session_types: sessionTypesRes.data,
-        exercises: exercisesRes.data,
-        session_exercises: sessionExercises.data,
-        sets: sets.data,
-        body_weights: weights.data,
-      };
+      const payload = { exported_at: new Date().toISOString(), app: 'volume' };
+      EXPORT_TABLES.forEach(([table], i) => { payload[table] = results[i].data; });
 
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -956,7 +964,8 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      show(exportStatus, 'ok', `Exported ${sets.data.length} sets across ${sessions.data.length} sessions.`);
+      const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+      show(exportStatus, 'ok', `Exported ${n(payload.sets.length, 'set')} across ${n(payload.sessions.length, 'session')}, ${n(payload.body_weights.length, 'weigh-in')} and ${n(payload.injuries.length, 'injury case')}.`);
     });
 
     // CSV rather than JSON here — a single flat table of weigh-ins is more
@@ -969,7 +978,7 @@
       exportWeightBtn.disabled = true;
       exportWeightBtn.textContent = 'Preparing…';
 
-      const { data, error } = await supabase.from('body_weights').select('*').order('measured_at');
+      const { data, error } = await fetchAllRows(() => supabase.from('body_weights').select('*').order('measured_at').order('id'));
 
       exportWeightBtn.disabled = false;
       exportWeightBtn.textContent = 'Export weight data (CSV)';

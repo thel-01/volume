@@ -95,7 +95,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderBarChart, renderDonutChart, renderGaugeChart, renderIntensityBarChart } from './chart.js';
     import { mondayOf } from './date-utils.js';
     import { colorForIndex, OTHER_COLOR, EXTRA_COLOR } from './session-type-colors.js';
@@ -505,15 +505,16 @@
     // ------------------------------------------------------------------
     function fetchVolumeData() {
       return Promise.all([
-        supabase.from('sets')
+        fetchAllRows(() => supabase.from('sets')
           .select('*, sessions(id, start_time, end_time, category, deleted_at)')
-          .order('created_at'),
+          .order('created_at')
+          .order('id')),
         supabase.from('exercises').select('id, name'),
         // Sets flagged "extra" (not that day's focus) show as their own
         // slice in the split donut below, rather than counting toward
         // whatever category the session itself was — a bonus pull-up on a
         // push day shouldn't blend into Push (or Pull) volume either way.
-        supabase.from('session_exercises').select('id').eq('is_extra', true),
+        fetchAllRows(() => supabase.from('session_exercises').select('id').eq('is_extra', true).order('id')),
         // Feeds each real session type's persistent donut color below.
         supabase.from('session_types').select('id, name, color_index'),
       ]);

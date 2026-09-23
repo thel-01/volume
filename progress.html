@@ -84,7 +84,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import {
       epley, compositeIndexBreakdown, deltaVsDaysAgo,
@@ -484,7 +484,7 @@
     function fetchProgressData() {
       return Promise.all([
         supabase.from('exercises').select('*').is('deleted_at', null).order('name'),
-        supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at'),
+        fetchAllRows(() => supabase.from('sets').select('*, sessions(id, start_time, deleted_at)').order('created_at').order('id')),
         supabase.from('movement_patterns').select('id, name').is('deleted_at', null),
       ]);
     }

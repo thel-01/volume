@@ -76,7 +76,7 @@
   </main>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
@@ -308,12 +308,13 @@
     // ------------------------------------------------------------------
     function fetchHistoryData() {
       return Promise.all([
-        supabase.from('sessions').select('*')
+        fetchAllRows(() => supabase.from('sessions').select('*')
           .is('deleted_at', null)
           .not('end_time', 'is', null)
-          .order('start_time', { ascending: false }),
-        supabase.from('session_exercises').select('*, exercises(*)').order('created_at'),
-        supabase.from('sets').select('*').order('created_at'),
+          .order('start_time', { ascending: false })
+          .order('id')),
+        fetchAllRows(() => supabase.from('session_exercises').select('*, exercises(*)').order('created_at').order('id')),
+        fetchAllRows(() => supabase.from('sets').select('*').order('created_at').order('id')),
       ]);
     }
 

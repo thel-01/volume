@@ -29,6 +29,39 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 /**
+ * Every row a query matches, not just the first 1000.
+ *
+ * Supabase caps a single response at 1000 rows by default and says nothing
+ * when it cuts a result short — no error, no flag, just a shorter array. For
+ * a table that grows with every workout or weigh-in (sets, sessions,
+ * session_exercises, body_weights), a plain select('*') would one day start
+ * silently dropping rows: and since most of these are ordered oldest-first,
+ * it'd be the NEWEST ones that went missing.
+ *
+ * Pass a function that builds a fresh query each time (a Supabase query can
+ * only be run once), ending in a stable order — always add a final
+ * .order('id') tiebreak, or two rows sharing a timestamp could land on
+ * either side of a page boundary and get duplicated or skipped. Returns the
+ * same { data, error } shape a plain query does, so it drops straight into
+ * an existing Promise.all.
+ *
+ * PAGE_SIZE matches Supabase's own default cap: a page coming back shorter
+ * than that means there's nothing left. If the project's max-rows setting
+ * is ever lowered below 1000, lower this to match — otherwise every capped
+ * page would look like the last one.
+ */
+const PAGE_SIZE = 1000;
+export async function fetchAllRows(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: null, error };
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) return { data: rows, error: null };
+  }
+}
+
+/**
  * Guard for pages that require a login.
  * If there's no session, bounce to the login page and stop.
  * Returns the logged-in user, or null if we redirected.
