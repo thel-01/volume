@@ -88,7 +88,7 @@
     import { renderLineChart } from './chart.js';
     import {
       epley, compositeIndexBreakdown, deltaVsDaysAgo,
-      effectiveLoad, effectiveReps, isBodyweightEquivalent, prCandidates,
+      effectiveLoad, effectiveReps, isBodyweightEquivalent, prCandidates, bodyweightNoiseMargin,
     } from './strength-index.js';
     import { fetchLevels, levelPositions, describeLevelSet } from './levels.js';
     import { daysAgo } from './date-utils.js';
@@ -246,6 +246,20 @@
         if (beats) { best = s; bestScore = score; }
       }
       if (!best) return null;
+
+      // Bodyweight: anything within normal day-to-day bodyweight noise of
+      // the top score is a tie, not a loss (see bodyweightNoiseMargin) —
+      // matching your best reps a kilo lighter is still a PR. Ties fall to
+      // the usual order: tag quality, then the most recent.
+      if (type === 'bodyweight') {
+        const floor = bestScore[0] - bodyweightNoiseMargin(best, type);
+        for (const s of sets) {
+          const score = prScore(s, type);
+          if (score === null || score[0] < floor) continue;
+          const q = tagQuality(s.quick_tag) - tagQuality(best.quick_tag);
+          if (q > 0 || (q === 0 && new Date(s.sessions.start_time) > new Date(best.sessions.start_time))) best = s;
+        }
+      }
       return { description: describeSet(best, type), date: best.sessions.start_time };
     }
     /** Mirrors exercise-trend.html's own per-session grouping — "tappable here" always matches "has a real chart there." */

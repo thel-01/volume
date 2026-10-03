@@ -77,6 +77,33 @@ export function effectiveLoad(set, type) {
   return Number(set.bodyweight_kg) + delta;
 }
 
+/**
+ * How far a bodyweight reading normally drifts day to day for reasons that
+ * aren't strength — water, food, time of day. Measured against real logged
+ * weigh-ins, which swing by 0.5–1.5kg between consecutive days.
+ */
+export const BODYWEIGHT_NOISE_KG = 1.5;
+
+/**
+ * How much estimated 1RM a BODYWEIGHT_NOISE_KG swing in bodyweight alone
+ * accounts for, for a set whose load includes a bodyweight snapshot. Two
+ * such sets closer together than this are a tie, not a win/loss: "6 reps
+ * at 80.8kg" vs "6 reps at 79.8kg" is the same performance on a different
+ * scale reading, not a regression. A real change (10kg lost) still counts,
+ * since it's far outside the band. The estimate is weight × (1 + reps/30),
+ * so the margin is just NOISE_KG × that same (1 + reps/30) factor.
+ *
+ * Only ever narrows a "who's best" ranking (PRs, the log screen's session
+ * to beat) — the strength index's regression already averages this noise
+ * out across many sessions and doesn't use it.
+ */
+export function bodyweightNoiseMargin(set, type) {
+  const load = effectiveLoad(set, type);
+  const e1rm = epley(load, effectiveReps(set.reps, set.quick_tag));
+  if (e1rm === null || !(load > 0)) return 0;
+  return BODYWEIGHT_NOISE_KG * (e1rm / load);
+}
+
 /** Only weight × reps sets carry a load/rep pair, so only they can be scored. */
 export function isScorable(set, type) {
   if (type !== 'weight_reps' && !isBodyweightEquivalent(set, type)) return false;

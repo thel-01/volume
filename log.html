@@ -148,7 +148,7 @@
 
   <script type="module">
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
-    import { effectiveLoad, effectiveReps, isBodyweightEquivalent, REP_CLAMP } from './strength-index.js';
+    import { epley, effectiveLoad, effectiveReps, isBodyweightEquivalent, REP_CLAMP, bodyweightNoiseMargin } from './strength-index.js';
     import { showToast } from './toast.js';
     import { tagChip, positionHint } from './chip-tag.js';
     import { fetchLevels, levelsFor, levelName, describeLevelSet, createLevel, LEVEL_NAME_MAX } from './levels.js';
@@ -440,9 +440,17 @@
         if (type === 'time_based') {
           return Math.max(...sets.map((s) => s.duration_seconds ?? -Infinity));
         }
+        // Bodyweight: the best set's estimated 1RM, not the raw heaviest
+        // load. The load here is mostly your bodyweight that day, so ranking
+        // on it alone let a heavier weigh-in beat any number of extra reps
+        // (a 4-rep day at 80.9kg outranked a 6-rep day at 79.8kg). The
+        // estimate still counts bodyweight — losing 10kg shows — but trades
+        // it against reps. See the noise band below for near-ties.
         if (type === 'bodyweight') {
-          const loads = sets.map((s) => effectiveLoad(s, type)).filter((w) => w !== null);
-          return loads.length === 0 ? null : Math.max(...loads);
+          const scores = sets
+            .map((s) => epley(effectiveLoad(s, type), effectiveReps(s.reps, s.quick_tag)))
+            .filter((v) => v !== null);
+          return scores.length === 0 ? null : Math.max(...scores);
         }
         const weights = sets.map((s) => (s.weight === null ? null : Number(s.weight)))
                             .filter((w) => w !== null);
@@ -483,6 +491,26 @@
         const advantage = repsTiebreak(group.sets, best.sets);
         if (advantage > 0 || (advantage === 0 && newer)) {
           best = { ...group, score };
+        }
+      }
+
+      // Bodyweight: a session within normal day-to-day bodyweight noise of
+      // the top score is a tie, not a loss (bodyweightNoiseMargin in
+      // strength-index.js) — the same 6 reps a kilo lighter isn't a worse
+      // day. Among those, more reps set by set wins, then the most recent.
+      // The margin is taken from the top session's own best set, so the
+      // band is one fixed floor, not a chain of "close to the last one".
+      if (best && type === 'bodyweight') {
+        const scoreOfSet = (s) => epley(effectiveLoad(s, type), effectiveReps(s.reps, s.quick_tag)) ?? -Infinity;
+        const topSet = best.sets.reduce((a, b) => (scoreOfSet(b) > scoreOfSet(a) ? b : a));
+        const floor = best.score - bodyweightNoiseMargin(topSet, type);
+        for (const group of bySession.values()) {
+          if (group.sessionId === best.sessionId) continue;
+          const score = scoreOf(group.sets);
+          if (score === null || score < floor) continue;
+          const advantage = repsTiebreak(group.sets, best.sets);
+          const newer = group.startTime && best.startTime && new Date(group.startTime) > new Date(best.startTime);
+          if (advantage > 0 || (advantage === 0 && newer)) best = { ...group, score };
         }
       }
 
