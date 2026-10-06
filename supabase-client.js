@@ -107,11 +107,10 @@ export async function requireSession(loginPage = './index.html') {
 export const DEMO_LIFETIME_MS = 2 * 60 * 60 * 1000;
 
 /**
- * What a demo visitor sees when "Try the demo" fails. Unlike
- * describeAuthError() (the owner's own login, where pointing at a Supabase
- * setting is the useful answer), this is read by strangers: plain words,
- * never a dashboard setting or a file name. The real error goes to the
- * console for whoever's debugging.
+ * What a demo visitor sees when "Try the demo" fails — same rule as
+ * describeAuthError() below: plain words for strangers, never a dashboard
+ * setting or a file name. The real error goes to the console for whoever's
+ * debugging.
  */
 export function describeDemoError(error) {
   console.error('Demo setup failed:', error);
@@ -192,32 +191,35 @@ export function isAuthError(error) {
 }
 
 /**
- * Human-readable version of a Supabase auth error.
- * Supabase's raw messages are terse; this adds the likely cause.
+ * Human-readable version of a Supabase auth error, for the login form.
+ * The login page is public, so the on-screen text is written for whoever
+ * typed into it: plain words, never a dashboard setting or a file name.
+ * The likely cause for the owner goes to the console instead.
  */
 export function describeAuthError(error) {
-  if (!error) return 'Something went wrong.';
+  if (!error) return 'Something went wrong. Please try again.';
 
   const code = error.code || error.error_code;
 
   if (code === 'invalid_credentials') {
     return 'Wrong email or password.';
   }
-  if (code === 'email_not_confirmed') {
-    return 'That user exists but its email was never confirmed. In the Supabase dashboard, delete the user and re-create it with "Auto Confirm User" ticked.';
-  }
-  if (code === 'signup_disabled' || code === 'email_provider_disabled') {
-    return 'Email logins are turned off for this Supabase project (Authentication → Sign In / Providers → Email).';
-  }
   if (code === 'over_request_rate_limit' || error.status === 429) {
     return 'Too many attempts in a row. Wait a minute and try again.';
   }
   if (error.message === 'Failed to fetch' || error.name === 'AuthRetryableFetchError') {
-    return 'Could not reach Supabase. Check your internet connection, and check the project URL in supabase-client.js.';
-  }
-  if (error.status === 401 || code === 'invalid_api_key') {
-    return 'Supabase rejected the API key. Check the anon/publishable key in supabase-client.js.';
+    console.error('Could not reach Supabase. If the connection is fine, check the project URL in supabase-client.js.', error);
+    return 'Could not connect. Check your internet connection and try again.';
   }
 
-  return error.message || 'Something went wrong.';
+  if (code === 'email_not_confirmed') {
+    console.error('User exists but its email was never confirmed. In the Supabase dashboard, delete the user and re-create it with "Auto Confirm User" ticked.', error);
+  } else if (code === 'signup_disabled' || code === 'email_provider_disabled') {
+    console.error('Email logins are turned off for this Supabase project (Authentication → Sign In / Providers → Email).', error);
+  } else if (error.status === 401 || code === 'invalid_api_key') {
+    console.error('Supabase rejected the API key. Check the anon/publishable key in supabase-client.js.', error);
+  } else {
+    console.error('Login failed:', error);
+  }
+  return 'Logging in isn\'t working right now. Please try again later.';
 }

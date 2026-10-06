@@ -181,7 +181,8 @@
         }
 
         if (!data.session) {
-          show('error', 'Supabase accepted the login but returned no session. Check that the user is confirmed in the Supabase dashboard.');
+          console.error('Supabase accepted the login but returned no session. Check that the user is confirmed in the Supabase dashboard.', data);
+          show('error', 'Logging in isn\'t working right now. Please try again later.');
           setBusy(false, 'Log in');
           return;
         }
