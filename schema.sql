@@ -1303,3 +1303,441 @@ create policy user_settings_update_own on public.user_settings
 --   and table_name in ('sessions', 'movement_patterns', 'exercises', 'session_exercises', 'sets', 'body_weights', 'session_types', 'injuries', 'injury_checkins', 'user_settings', 'exercise_levels')
 -- group by table_name
 -- order by table_name;
+
+
+-- ===========================================================================
+-- 9. Demo accounts — a throwaway sandbox for visitors without an account
+-- ===========================================================================
+-- "Try the demo" on the login page signs in with Supabase's anonymous
+-- sign-in (Authentication → Sign In / Providers → "Allow anonymous
+-- sign-ins" must be on). That creates a real, nameless auth user, so every
+-- RLS policy above applies unchanged: a demo visitor only ever sees the rows
+-- they own — never yours, never another visitor's. The page then calls
+-- seed_demo_data() once to fill the account with sample training history.
+--
+-- A demo account lives for 2 hours at most (DEMO_LIFETIME_MS in
+-- supabase-client.js mirrors this): "Exit demo" deletes it on the spot via
+-- delete_demo_account(), and a pg_cron job sweeps up any left behind.
+--
+-- Both deletions remove the account's sessions FIRST, then the auth user.
+-- Not optional: sets.exercise_id and sets_level_fk are ON DELETE RESTRICT,
+-- so letting a single cascade from auth.users race to remove exercises
+-- before their sets could abort the whole delete.
+
+
+-- --- seed_demo_data ---------------------------------------------------------
+-- ~12 weeks of Push/Pull/Legs history for an intermediate lifter, dated
+-- relative to now() so the demo always looks current (last workout a few
+-- hours ago, Pull the longest-untrained split). Chosen to light up every
+-- screen, not just fill it:
+--   * steady progression with a deload in week 9 (strength index, PRs)
+--   * Pull-ups moving assisted → bodyweight → +weight (one continuous load)
+--   * Box Step-ups on named levels, at 15 reps on the hardest used level so
+--     the Log screen's "Ready?" nudge shows
+--   * Calf raises dropped after 5 weeks, so their pattern drags the index
+--   * daily weigh-ins drifting down with realistic day-to-day noise
+--   * one active and one resolved injury, an "Extra" block, a few comments
+--
+-- SECURITY INVOKER on purpose: it runs as the demo visitor, so every insert
+-- passes through the same RLS policies as the app's own writes. Refuses to
+-- run for a real (non-anonymous) account, and does nothing if the account
+-- already has sessions, so a double tap can't seed twice. One transaction:
+-- any failure leaves the account empty, never half-filled.
+
+create or replace function public.seed_demo_data()
+returns void
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  uid        uuid := auth.uid();
+  span       constant integer := 84;              -- days of history
+  gaps       constant integer[] := array[2, 1, 2, 2];
+  -- Walking BACKWARD from today: Push, Legs, Pull, Push, … so the most
+  -- recent Pull is the oldest of the three ("longest since" on the chips).
+  backward   constant text[] := array['Push', 'Legs', 'Pull'];
+
+  specs constant jsonb := '{
+    "Push":  [{"k": "Bench Press", "n": 4}, {"k": "Overhead Press", "n": 3},
+              {"k": "Incline Dumbbell Press", "n": 3}, {"k": "Dips", "n": 3}],
+    "Pull":  [{"k": "Pull-up", "n": 4}, {"k": "Barbell Row", "n": 3},
+              {"k": "Seated Cable Row", "n": 3}, {"k": "Barbell Curl", "n": 3}],
+    "Legs":  [{"k": "Back Squat", "n": 4}, {"k": "Romanian Deadlift", "n": 3},
+              {"k": "Box Step-up", "n": 3}, {"k": "Standing Calf Raise", "n": 3},
+              {"k": "Plank", "n": 2}],
+    "Other": [{"k": "Dead Hang", "n": 3}]
+  }';
+  -- Plain weight × reps exercises: starting weight, kg added per week, reps.
+  wr constant jsonb := '{
+    "Bench Press":            {"base": 60,   "inc": 1.25, "reps": 8},
+    "Overhead Press":         {"base": 40,   "inc": 0.6,  "reps": 8},
+    "Incline Dumbbell Press": {"base": 20,   "inc": 0.5,  "reps": 10},
+    "Barbell Row":            {"base": 55,   "inc": 1.25, "reps": 8},
+    "Seated Cable Row":       {"base": 50,   "inc": 1,    "reps": 10},
+    "Barbell Curl":           {"base": 27.5, "inc": 0.5,  "reps": 10},
+    "Back Squat":             {"base": 80,   "inc": 2,    "reps": 6},
+    "Romanian Deadlift":      {"base": 70,   "inc": 1.5,  "reps": 8},
+    "Standing Calf Raise":    {"base": 60,   "inc": 2,    "reps": 12}
+  }';
+  session_notes constant text[] := array[
+    'Slept badly, still got everything in.',
+    'Gym was packed, supersetted the last two.',
+    'Felt strong today.',
+    'Short on time, kept rests tight.'
+  ];
+
+  bw         numeric[] := '{}';                  -- bw[d + 1] = reading d days ago
+  days       integer[] := '{}';
+  cats       text[]    := '{}';
+  pat        jsonb := '{}';
+  ex         jsonb := '{}';
+  lvl        jsonb := '{}';
+
+  rec        record;
+  blk        jsonb;
+  d          integer;
+  i          integer;
+  s          integer;
+  n          integer;
+  wk         integer;
+  deload     boolean;
+  ename      text;
+  new_id     uuid;
+  sid        uuid;
+  seid       uuid;
+  t          timestamptz;
+  p          jsonb;
+  -- one set's columns
+  w          numeric;
+  rp         integer;
+  dur        integer;
+  dir        text;
+  snap       numeric;
+  lv         uuid;
+  tag        text;
+  roll       double precision;
+begin
+  if uid is null or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) is not true then
+    raise exception 'Demo data can only be added to a demo account.';
+  end if;
+  if exists (select 1 from public.sessions where user_id = uid) then
+    return;
+  end if;
+
+  -- --- bodyweight: ~82 kg drifting down to ~79.5, ±0.6 kg daily noise ------
+  for d in 0..span loop
+    bw[d + 1] := round((79.4 + 2.6 * d::numeric / span + (random() - 0.5) * 1.2)::numeric, 1);
+  end loop;
+
+  -- --- which days get a workout --------------------------------------------
+  d := 0; i := 0;
+  while d < span loop
+    days := days || d;
+    cats := cats || backward[(i % 3) + 1];
+    d := d + gaps[(i % array_length(gaps, 1)) + 1];
+    i := i + 1;
+  end loop;
+  -- A dead-hang "Other" session on some rest days.
+  for d in 1..span - 1 loop
+    if d % 9 = 1 and not (d = any(days)) then
+      days := days || d;
+      cats := cats || 'Other'::text;
+    end if;
+  end loop;
+
+  -- --- session types, patterns, exercises, levels ---------------------------
+  insert into public.session_types (user_id, name, color_index) values
+    (uid, 'Push', 0), (uid, 'Pull', 1), (uid, 'Legs', 2);
+
+  for rec in select * from (values
+    ('Horizontal Press', 'Push'), ('Vertical Press', 'Push'), ('Triceps', 'Push'),
+    ('Vertical Pull', 'Pull'), ('Horizontal Pull', 'Pull'), ('Biceps', 'Pull'),
+    ('Squat', 'Legs'), ('Hinge', 'Legs'), ('Single Leg', 'Legs'),
+    ('Calves', 'Legs'), ('Core', 'Legs'), ('Grip', 'Other')
+  ) v (pname, pcat) loop
+    insert into public.movement_patterns (user_id, name, category)
+      values (uid, rec.pname, rec.pcat) returning id into new_id;
+    pat := pat || jsonb_build_object(rec.pname, new_id);
+  end loop;
+
+  for rec in select * from (values
+    ('Bench Press',            'weight_reps', 'Horizontal Press', 'Grip just outside the rings.'),
+    ('Incline Dumbbell Press', 'weight_reps', 'Horizontal Press', 'Weight is per dumbbell.'),
+    ('Overhead Press',         'weight_reps', 'Vertical Press',   null),
+    ('Dips',                   'bodyweight',  'Triceps',          null),
+    ('Pull-up',                'bodyweight',  'Vertical Pull',    'Full hang at the bottom.'),
+    ('Barbell Row',            'weight_reps', 'Horizontal Pull',  null),
+    ('Seated Cable Row',       'weight_reps', 'Horizontal Pull',  'Seat height 4.'),
+    ('Barbell Curl',           'weight_reps', 'Biceps',           null),
+    ('Back Squat',             'weight_reps', 'Squat',            null),
+    ('Romanian Deadlift',      'weight_reps', 'Hinge',            null),
+    ('Box Step-up',            'bodyweight',  'Single Leg',       null),
+    ('Standing Calf Raise',    'weight_reps', 'Calves',           null),
+    ('Plank',                  'time_based',  'Core',             null),
+    ('Dead Hang',              'time_based',  'Grip',             null)
+  ) v (ename, etype, epattern, enotes) loop
+    insert into public.exercises (user_id, name, type, movement_pattern_id, persistent_notes)
+      values (uid, rec.ename, rec.etype, (pat ->> rec.epattern)::uuid, rec.enotes)
+      returning id into new_id;
+    ex := ex || jsonb_build_object(rec.ename, new_id);
+  end loop;
+
+  for rec in select * from (values ('Small box', 0), ('Medium box', 1), ('Big box', 2)) v (lname, lpos) loop
+    insert into public.exercise_levels (exercise_id, name, position)
+      values ((ex ->> 'Box Step-up')::uuid, rec.lname, rec.lpos) returning id into new_id;
+    lvl := lvl || jsonb_build_object(rec.lname, new_id);
+  end loop;
+
+  -- --- sessions, oldest first -----------------------------------------------
+  for rec in select u.d as sd, u.cat as scat
+             from unnest(days, cats) as u (d, cat)
+             order by u.d desc loop
+    wk := least(11, (span - 1 - rec.sd) / 7);
+    deload := (wk = 8);
+    t := now() - make_interval(days => rec.sd) - interval '3 hours'
+         + make_interval(mins => (random() * 40)::integer - 20);
+
+    insert into public.sessions (user_id, category, start_time, comment)
+      values (
+        uid, rec.scat, t,
+        case
+          when deload and rec.scat = 'Push' then 'Deload week — everything light, felt fresh.'
+          when not deload and rec.scat <> 'Other' and random() < 0.12
+            then session_notes[1 + floor(random() * array_length(session_notes, 1))::integer]
+        end
+      )
+      returning id into sid;
+    t := t + interval '4 minutes';
+
+    for blk in select value from jsonb_array_elements(
+      (specs -> rec.scat)
+      -- A couple of dead hangs tacked onto today's Push day, flagged Extra
+      -- so the volume donut shows its own slice this week. Timed, so they
+      -- stay out of the strength index (bonus pull-ups here would become
+      -- the latest pull-up session and drag Vertical Pull down).
+      || case when rec.sd = 0 and rec.scat = 'Push'
+           then '[{"k": "Dead Hang", "n": 2, "extra": true}]'::jsonb else '[]'::jsonb end
+    ) loop
+      ename := blk ->> 'k';
+      n := (blk ->> 'n')::integer;
+      continue when ename = 'Standing Calf Raise' and wk >= 5;
+
+      insert into public.session_exercises (session_id, exercise_id, is_extra, comment, created_at)
+        values (
+          sid, (ex ->> ename)::uuid, coalesce((blk ->> 'extra')::boolean, false),
+          case when ename = 'Back Squat' and wk = 6 then 'Left knee a bit cranky, kept depth honest.' end,
+          t - interval '30 seconds'
+        )
+        returning id into seid;
+
+      for s in 1..n loop
+        w := null; rp := null; dur := null; dir := null; snap := null; lv := null; tag := null;
+
+        if wr ? ename then
+          p := wr -> ename;
+          w := round(((p ->> 'base')::numeric + (p ->> 'inc')::numeric * wk
+                      + (random()::numeric - 0.5) * (p ->> 'inc')::numeric * 1.5) / 2.5) * 2.5;
+          if deload then w := round(w * 0.85 / 2.5) * 2.5; end if;
+          rp := greatest(1, (p ->> 'reps')::integer + floor(random() * 3)::integer - 1
+                            - case when s = n then 1 else 0 end);
+
+        elsif ename = 'Pull-up' then
+          snap := bw[rec.sd + 1];
+          if wk <= 3 then
+            dir := 'assist'; w := (array[20, 17.5, 12.5, 10])[wk + 1];
+            rp := 6 + floor(random() * 2)::integer;
+          elsif wk <= 8 then
+            w := 0; rp := (array[5, 6, 7, 8, 6])[wk - 3];
+          else
+            dir := 'add'; w := (array[2.5, 5, 5])[wk - 8];
+            rp := 6 + floor(random() * 2)::integer;
+          end if;
+          rp := greatest(1, rp - case when s = n then 1 else 0 end);
+
+        elsif ename = 'Dips' then
+          snap := bw[rec.sd + 1];
+          if wk <= 5 or deload then
+            w := 0; rp := least(13, 8 + wk);
+          else
+            dir := 'add'; w := least(10, 2.5 * (wk - 5));
+            rp := 8 + floor(random() * 2)::integer;
+          end if;
+          rp := greatest(1, rp - (s - 1));
+
+        elsif ename = 'Box Step-up' then
+          snap := bw[rec.sd + 1];
+          w := 0;
+          if wk <= 5 then
+            lv := (lvl ->> 'Small box')::uuid;
+            rp := least(15, 8 + round(wk * 1.4)::integer);
+          else
+            lv := (lvl ->> 'Medium box')::uuid;
+            rp := least(15, 9 + round((wk - 6) * 1.25)::integer);
+          end if;
+          rp := greatest(1, rp - (s - 1));
+
+        elsif ename = 'Plank' then
+          dur := 40 + 5 * wk + (random() * 10)::integer;
+
+        elsif ename = 'Dead Hang' then
+          dur := 25 + 3 * wk + (random() * 8)::integer;
+        end if;
+
+        -- Tag the last set of the strength work now and then.
+        if s = n and rp is not null then
+          roll := random();
+          if deload then tag := 'easy';
+          elsif roll < 0.18 then tag := 'failure';
+          elsif roll < 0.42 then tag := 'hard';
+          elsif roll < 0.50 then tag := 'easy';
+          end if;
+        end if;
+
+        insert into public.sets (
+          session_id, exercise_id, session_exercise_id, weight, reps, duration_seconds,
+          weight_direction, bodyweight_kg, quick_tag, level_id, created_at
+        ) values (
+          sid, (ex ->> ename)::uuid, seid, w, rp, dur, dir, snap, tag, lv, t
+        );
+        t := t + make_interval(secs => 150 + (random() * 90)::integer);
+      end loop;
+      t := t + interval '90 seconds';
+    end loop;
+
+    update public.sessions set end_time = t where id = sid;
+  end loop;
+
+  -- --- weigh-ins: most mornings, always on a workout day ---------------------
+  for d in 0..span - 1 loop
+    if d = any(days) or random() < 0.8 then
+      insert into public.body_weights (user_id, weight_kg, measured_at)
+        values (uid, bw[d + 1],
+                now() - make_interval(days => d) - interval '11 hours'
+                + make_interval(mins => (random() * 60)::integer));
+    end if;
+  end loop;
+
+  -- --- injuries ----------------------------------------------------------------
+  insert into public.injuries (user_id, name, status, started_at, created_at)
+    values (uid, 'Left shoulder', 'active', now() - interval '20 days', now() - interval '20 days')
+    returning id into new_id;
+  insert into public.injury_checkins (injury_id, pain, note, created_at) values
+    (new_id, 5, 'Twinge at the bottom of bench.',          now() - interval '20 days'),
+    (new_id, 4, null,                                      now() - interval '14 days'),
+    (new_id, 4, 'Fine on overhead, still there on dips.',  now() - interval '9 days'),
+    (new_id, 3, null,                                      now() - interval '4 days');
+
+  insert into public.injuries (user_id, name, status, started_at, resolved_at, created_at)
+    values (uid, 'Right knee', 'resolved', now() - interval '75 days', now() - interval '50 days',
+            now() - interval '75 days')
+    returning id into new_id;
+  insert into public.injury_checkins (injury_id, pain, note, created_at) values
+    (new_id, 6, 'Sore after squats.', now() - interval '75 days'),
+    (new_id, 4, null,                 now() - interval '68 days'),
+    (new_id, 2, null,                 now() - interval '60 days'),
+    (new_id, 0, 'All good.',          now() - interval '50 days');
+end;
+$$;
+
+revoke all on function public.seed_demo_data() from public, anon;
+grant execute on function public.seed_demo_data() to authenticated;
+
+
+-- --- delete_demo_account ------------------------------------------------------
+-- "Exit demo": removes the caller's own demo account and everything in it,
+-- immediately. SECURITY DEFINER because only the database owner can delete
+-- from auth.users — which is exactly why it double-checks the caller is an
+-- anonymous user first: a real account can never delete itself through this.
+
+create or replace function public.delete_demo_account()
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  uid uuid := auth.uid();
+begin
+  if uid is null or not exists (
+    select 1 from auth.users where id = uid and is_anonymous
+  ) then
+    raise exception 'Only a demo account can be deleted this way.';
+  end if;
+  delete from public.sessions where user_id = uid;
+  delete from auth.users where id = uid;
+end;
+$$;
+
+revoke all on function public.delete_demo_account() from public, anon;
+grant execute on function public.delete_demo_account() to authenticated;
+
+
+-- --- purge_expired_demo_accounts ------------------------------------------------
+-- The safety net for every demo nobody exited: deletes anonymous accounts
+-- older than 2 hours. Run every 10 minutes by pg_cron (Database →
+-- Extensions → pg_cron must be enabled), so no demo outlives ~2h10m. Not
+-- callable from the app at all — only the scheduler runs it.
+
+create or replace function public.purge_expired_demo_accounts()
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  delete from public.sessions
+    where user_id in (
+      select id from auth.users
+      where is_anonymous and created_at < now() - interval '2 hours'
+    );
+  delete from auth.users
+    where is_anonymous and created_at < now() - interval '2 hours';
+end;
+$$;
+
+revoke all on function public.purge_expired_demo_accounts() from public, anon, authenticated;
+
+create extension if not exists pg_cron with schema pg_catalog;
+
+-- Scheduling under an existing job name replaces that job, so re-running
+-- this file updates the schedule rather than piling up duplicates.
+select cron.schedule(
+  'purge-expired-demo-accounts',
+  '*/10 * * * *',
+  'select public.purge_expired_demo_accounts()'
+);
+
+
+-- --- hook_only_anonymous_signups ------------------------------------------------
+-- Supabase only allows anonymous sign-ins while "Allow new users to sign up"
+-- is on (Authentication → Sign In / Providers) — and that same switch would
+-- also let anyone with the public key create a real email/password account.
+-- This hook closes that gap: wired up as the "Before User Created" auth hook
+-- (Authentication → Hooks → Before User Created → Postgres →
+-- public.hook_only_anonymous_signups), it lets demo accounts through and
+-- refuses every other sign-up. Turn the hook on BEFORE enabling sign-ups.
+-- (If it ever blocks adding a user by hand in the dashboard, switch the hook
+-- off for that moment and back on afterwards.)
+
+create or replace function public.hook_only_anonymous_signups(event jsonb)
+returns jsonb
+language plpgsql
+stable
+as $$
+begin
+  if coalesce((event -> 'user' ->> 'is_anonymous')::boolean, false) then
+    return '{}'::jsonb;
+  end if;
+  return jsonb_build_object(
+    'error', jsonb_build_object(
+      'message', 'Sign-ups are closed. Try the demo instead.',
+      'http_code', 403
+    )
+  );
+end;
+$$;
+
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.hook_only_anonymous_signups(jsonb) to supabase_auth_admin;
+revoke execute on function public.hook_only_anonymous_signups(jsonb) from authenticated, anon, public;

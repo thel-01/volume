@@ -45,6 +45,11 @@
       <button id="submit" type="submit" class="uppercase">Log in</button>
     </form>
 
+    <!-- For anyone without an account: a throwaway account filled with
+         sample data, deleted after 2 hours. See seed_demo_data() in
+         schema.sql. -->
+    <button id="demo" type="button" class="link-button nav-link demo-link">Try the demo</button>
+
     <!-- Every outcome lands here: loading, success, or a readable error. -->
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
 
@@ -54,12 +59,13 @@
   </main>
 
   <script type="module">
-    import { supabase, describeAuthError } from './supabase-client.js';
+    import { supabase, describeAuthError, describeDemoError, endDemo } from './supabase-client.js';
 
     const form = document.getElementById('login-form');
     const emailInput = document.getElementById('email');
     const passwordInput = document.getElementById('password');
     const submit = document.getElementById('submit');
+    const demoBtn = document.getElementById('demo');
     const status = document.getElementById('status');
 
     const HOME = './dashboard.html';
@@ -86,9 +92,22 @@
 
     function setBusy(busy, label) {
       submit.disabled = busy;
+      demoBtn.disabled = busy;
       emailInput.disabled = busy;
       passwordInput.disabled = busy;
       submit.textContent = label;
+    }
+
+    // Arriving back here after a demo ended — say what happened to it.
+    const DEMO_MESSAGES = {
+      ended: ['ok', 'Demo ended. Its data has been deleted.'],
+      'ended-pending': ['info', 'Demo ended. Its data will be deleted automatically within 2 hours.'],
+      expired: ['info', 'That demo ran out after 2 hours and its data was deleted. Start a fresh one any time.'],
+    };
+    const demoParam = new URLSearchParams(window.location.search).get('demo');
+    if (DEMO_MESSAGES[demoParam]) {
+      show(...DEMO_MESSAGES[demoParam]);
+      history.replaceState(null, '', window.location.pathname);
     }
 
     // Already logged in from a previous visit? Skip straight through.
@@ -103,6 +122,40 @@
         window.location.replace(HOME);
       }
     })();
+
+    demoBtn.addEventListener('click', async () => {
+      clearStatus();
+      setBusy(true, 'Log in');
+      demoBtn.textContent = 'Setting up demo…';
+
+      const fail = (message) => {
+        show('error', message);
+        setBusy(false, 'Log in');
+        demoBtn.textContent = 'Try the demo';
+      };
+
+      try {
+        const { error: signInError } = await supabase.auth.signInAnonymously();
+        if (signInError) {
+          fail(describeDemoError(signInError));
+          return;
+        }
+
+        const { error: seedError } = await supabase.rpc('seed_demo_data');
+        if (seedError) {
+          // Don't leave an empty demo account behind — the next tap should
+          // start clean.
+          await endDemo();
+          fail(describeDemoError(seedError));
+          return;
+        }
+
+        show('ok', 'Demo ready. Loading…');
+        window.location.replace(HOME);
+      } catch (err) {
+        fail(describeDemoError(err));
+      }
+    });
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();

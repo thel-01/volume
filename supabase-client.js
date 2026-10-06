@@ -80,7 +80,99 @@ export async function requireSession(loginPage = './index.html') {
     return null;
   }
 
-  return data.session.user;
+  const user = data.session.user;
+
+  if (user.is_anonymous) {
+    // A demo past its lifetime: the cleanup job deletes these server-side,
+    // but this catches it the moment the page opens instead of letting
+    // every query fail against an account that's gone (or about to be).
+    if (Date.now() - new Date(user.created_at).getTime() > DEMO_LIFETIME_MS) {
+      await endDemo();
+      window.location.replace(`${loginPage}?demo=expired`);
+      return null;
+    }
+    showDemoBanner(loginPage);
+  }
+
+  return user;
+}
+
+// ---------------------------------------------------------------------------
+// Demo accounts. "Try the demo" on the login page signs in anonymously and
+// fills the account with sample data (seed_demo_data() in schema.sql). Every
+// RLS policy applies unchanged, so a demo only ever sees its own rows.
+// Mirrors the 2-hour cutoff in schema.sql's purge_expired_demo_accounts().
+// ---------------------------------------------------------------------------
+
+export const DEMO_LIFETIME_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * What a demo visitor sees when "Try the demo" fails. Unlike
+ * describeAuthError() (the owner's own login, where pointing at a Supabase
+ * setting is the useful answer), this is read by strangers: plain words,
+ * never a dashboard setting or a file name. The real error goes to the
+ * console for whoever's debugging.
+ */
+export function describeDemoError(error) {
+  console.error('Demo setup failed:', error);
+  const code = error?.code || error?.error_code;
+  if (code === 'over_request_rate_limit' || error?.status === 429) {
+    return 'Too many demos started from this network. Try again in a little while.';
+  }
+  if (error?.message === 'Failed to fetch' || error?.name === 'AuthRetryableFetchError') {
+    return 'Could not connect. Check your internet connection and try again.';
+  }
+  // Switched off on the Supabase side, or anything unexpected: the visitor
+  // can't fix either, so don't pretend otherwise.
+  return 'The demo isn\'t available right now. Please try again later.';
+}
+
+/**
+ * Deletes the current demo account and everything in it, then signs out
+ * locally. Returns true if the server-side delete went through; false means
+ * the data is left for the cleanup job (gone within ~2 hours either way),
+ * so the caller can say which — never pretend it was deleted when it wasn't.
+ */
+export async function endDemo() {
+  let deleted = false;
+  try {
+    const { error } = await supabase.rpc('delete_demo_account');
+    if (error) console.error('Could not delete the demo account:', error);
+    else deleted = true;
+  } catch (err) {
+    console.error('Could not delete the demo account:', err);
+  }
+  // Local only: the account may already be deleted, so there's no server
+  // session left to revoke — this just clears the saved login.
+  await supabase.auth.signOut({ scope: 'local' });
+  return deleted;
+}
+
+function showDemoBanner(loginPage) {
+  if (document.querySelector('.demo-banner')) return;
+
+  // The same in-page info notice as weight.html's "No reading in N days"
+  // (.status.info) — a standing condition of the page, not a transient
+  // action result, so not a toast.
+  const banner = document.createElement('div');
+  banner.className = 'status info demo-banner';
+
+  const text = document.createElement('span');
+  text.textContent = 'Demo · fake data, deleted after 2h';
+
+  const exit = document.createElement('button');
+  exit.type = 'button';
+  exit.className = 'link-button nav-link';
+  exit.textContent = 'Exit demo';
+  exit.addEventListener('click', async () => {
+    exit.disabled = true;
+    exit.textContent = 'Exiting…';
+    const deleted = await endDemo();
+    window.location.replace(`${loginPage}?demo=${deleted ? 'ended' : 'ended-pending'}`);
+  });
+
+  banner.append(text, exit);
+  (document.querySelector('main.screen') || document.body).prepend(banner);
 }
 
 /**

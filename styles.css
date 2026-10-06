@@ -268,6 +268,24 @@ button.secondary {
   border: 1px solid var(--line);
 }
 
+/* Demo-account notice — a .status.info (defined below) injected at the top
+   of every logged-in page's .screen by supabase-client.js's
+   requireSession(). Only the placement differs: it leads the page instead
+   of following a control, and carries its "Exit demo" link on the right. */
+.status.demo-banner {
+  margin: 0 0 var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  /* 14px like the Exit link beside it — at .status's own 15px the text
+     wraps onto a second line at phone width. */
+  font-size: 14px;
+}
+.demo-banner .link-button { flex-shrink: 0; }
+
+/* Login page's "Try the demo" — a low-key text link under the login form,
+   not a second big button competing with Log in. */
+.demo-link { align-self: flex-start; margin-top: var(--space-3); }
+
 /* Status messages — every action ends in one of these, never in silence.
    Flex so an ok/error icon can sit beside the text; harmless for a plain
    text-only message (info, or before a page wires an icon in). */

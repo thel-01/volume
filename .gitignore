@@ -8,3 +8,7 @@ design-artifacts.log
 tokens.css
 design-tokens-mapping.md
 reskin-decisions.md
+
+# Living design stylebook — the source of truth for tokens/components,
+# kept locally, not shipped with the app.
+stylebook.html

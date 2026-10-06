@@ -181,7 +181,7 @@
   </div>
 
   <script type="module">
-    import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
+    import { supabase, requireSession, isAuthError, fetchAllRows, endDemo } from './supabase-client.js';
     import { showToast } from './toast.js';
     import { tagChip, positionHint } from './chip-tag.js';
     import { DEFAULT_TREND_METHOD } from './weight-utils.js';
@@ -894,6 +894,14 @@
     logoutBtn.addEventListener('click', async () => {
       logoutBtn.disabled = true;
       logoutBtn.textContent = 'Logging out…';
+      // A demo account can never be logged back into, so logging out of
+      // one is the same as exiting the demo: delete it now, don't leave it
+      // for the cleanup job.
+      if (user?.is_anonymous) {
+        const deleted = await endDemo();
+        window.location.replace(`./index.html?demo=${deleted ? 'ended' : 'ended-pending'}`);
+        return;
+      }
       const { error } = await supabase.auth.signOut();
       if (error) {
         flash(`Could not log out: ${error.message}`, 'error');
