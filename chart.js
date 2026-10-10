@@ -136,6 +136,22 @@ function computeYAxis(values, minRange = 0, fixedRange = null, paddingPct = 0.08
   return { min: lo, max: hi, ticks, decimals: stepDecimals(usedStep) };
 }
 
+/** Below this typical on-screen spacing, a line's dots count as crowded. */
+const CROWDED_DOT_GAP_PX = 20;
+
+/** Median on-screen distance between consecutive dots of one series. */
+function medianDotGapPx(points, xScale, yScale, pxPerUnit) {
+  if (points.length < 2) return Infinity;
+  const gaps = [];
+  for (let i = 1; i < points.length; i++) {
+    const dx = xScale(new Date(points[i].date).getTime()) - xScale(new Date(points[i - 1].date).getTime());
+    const dy = yScale(points[i].value) - yScale(points[i - 1].value);
+    gaps.push(Math.hypot(dx, dy) * pxPerUnit);
+  }
+  gaps.sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)];
+}
+
 function text(x, y, anchor, size, fill, content) {
   const el = document.createElementNS(NS, 'text');
   el.setAttribute('x', x);
@@ -283,11 +299,22 @@ export function renderLineChart(svg, opts) {
 
   let activeKey = null;
 
+  // Rendered px per viewBox unit — the card is close to VIEW_W wide on a
+  // phone, so fall back to 1:1 if the svg isn't laid out yet.
+  const pxPerUnit = (svg.getBoundingClientRect().width || VIEW_W) / VIEW_W;
+
   for (const s of drawn) {
     if (!s.dots) continue;
+    // A long history packs a line's dots into an overlapping smear. Once the
+    // typical gap between neighbouring dots drops under CROWDED_DOT_GAP_PX
+    // on screen, only the latest value keeps its dot; every point stays
+    // tappable. A scatter (`line: false`) is exempt: there the dots ARE the
+    // data, and their pile-up is meant to read as density.
+    const onlyLastDot = s.line !== false && medianDotGapPx(s.points, xScale, yScale, pxPerUnit) < CROWDED_DOT_GAP_PX;
     s.points.forEach((p, i) => {
       const cx = xScale(new Date(p.date).getTime());
       const cy = yScale(p.value);
+      const showDot = !onlyLastDot || i === s.points.length - 1;
 
       const dot = document.createElementNS(NS, 'circle');
       dot.setAttribute('cx', cx);
@@ -306,7 +333,7 @@ export function renderLineChart(svg, opts) {
       // behind the line that matters without fighting it for attention, and
       // overlapping readings pile up into something visibly denser.
       if (s.opacity) dot.setAttribute('opacity', s.opacity);
-      svg.appendChild(dot);
+      if (showDot) svg.appendChild(dot);
 
       if (!s.tappable) return;
 
