@@ -1081,6 +1081,11 @@ button.danger.secondary {
    Needed once volume.html started hiding a whole reference-line row
    (rather than just blanking its value) for an empty section. */
 .reference-line[hidden] { display: none; }
+/* Same reason: .list-item and .chips set display:flex, which would beat `hidden`
+   (dashboard's empty Bodyweight card, weight.html's chart-window picker). */
+.list-item[hidden],
+.chips[hidden],
+.stepper-row[hidden] { display: none; }
 .reference-label {
   flex: 0 0 auto;
   color: var(--muted);

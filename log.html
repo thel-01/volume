@@ -31,8 +31,9 @@
 
       <p class="section-label">Session type</p>
       <div id="category-chips" class="chips" style="margin-bottom:var(--space-3);"></div>
+      <div id="category-types-error" class="status" role="status" aria-live="polite" hidden style="margin:calc(-1 * var(--space-1)) 0 var(--space-4);"></div>
       <p id="no-category-types" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-4);" hidden>
-        No session types yet. Add some in Settings, or pick Other for now.
+        No session types yet. Add some in <a href="./settings.html" class="nav-link">Settings</a>, or pick Other for now.
       </p>
 
       <button id="start-btn" type="submit" class="uppercase" disabled>Start workout</button>
@@ -178,6 +179,7 @@
 
     const categoryChips = document.getElementById('category-chips');
     const noCategoryTypes = document.getElementById('no-category-types');
+    const categoryTypesError = document.getElementById('category-types-error');
     const startBtn = document.getElementById('start-btn');
     const startStatus = document.getElementById('start-status');
 
@@ -219,9 +221,11 @@
     let user = null;
     let session = null;          // the active sessions row, or null
     let allExercises = [];       // live exercises, for the picker
+    let exercisesLoadFailed = false; // so the picker says so instead of "no exercises yet"
     let allPatterns = [];        // live movement patterns, for inline create
     let patternsById = new Map();
     let sessionTypeNames = [];   // your Settings-managed session_types, by name
+    let sessionTypesFailed = false; // that query failed — say so instead of "none yet"
     let lastCategoryExercises = []; // what you usually do on this session type, in your usual order
     let recentUsage = new Map();    // exercise id -> sessions in the last 90 days that included it
 
@@ -701,7 +705,9 @@
 
     function renderCategoryChips() {
       categoryChips.innerHTML = '';
-      noCategoryTypes.hidden = sessionTypeNames.length > 0;
+      noCategoryTypes.hidden = sessionTypesFailed || sessionTypeNames.length > 0;
+      if (sessionTypesFailed) show(categoryTypesError, 'error', 'Couldn\u2019t load your session types. Check your connection and reopen the page.');
+      else hide(categoryTypesError);
       const options = [...sessionTypeNames, OTHER_CATEGORY];
       for (const cat of options) {
         const chip = document.createElement('button');
@@ -1909,6 +1915,17 @@
       const query = pickerSearch.value.trim().toLowerCase();
 
       pickerList.innerHTML = '';
+      if (exercisesLoadFailed) {
+        // Not "no exercises" — and offering to create one could duplicate a
+        // name that exists but didn't load.
+        const err = document.createElement('div');
+        show(err, 'error', 'Couldn\u2019t load your exercises. Check your connection and reopen the page.');
+        pickerList.appendChild(err);
+        pickerCreate.hidden = true;
+        pickerNoMatchText.hidden = true;
+        pickerCreateToggle.hidden = true;
+        return;
+      }
       if (query) {
         renderPickerSearchResults(query);
       } else {
@@ -2046,7 +2063,7 @@
       if (pickerList.children.length === 0) {
         const p = document.createElement('p');
         p.className = 'empty-state';
-        p.textContent = "You haven't added any exercises yet.";
+        p.textContent = 'No exercises yet. Type a name above to create your first one.';
         pickerList.appendChild(p);
       }
     }
@@ -2488,6 +2505,7 @@
         .order('created_at');
       // A load failure here shouldn't block starting a workout — Other still
       // works. It just means the chip row is short until the next reload.
+      sessionTypesFailed = Boolean(error);
       sessionTypeNames = error ? [] : data.map((row) => row.name);
     }
 
@@ -2656,6 +2674,7 @@
       allLevels = levelsRes.levels;
       levelsById = levelsRes.byId;
       allExercises = exercisesRes.data || [];
+      exercisesLoadFailed = Boolean(exercisesRes.error);
       allPatterns = patternsRes.data || [];
       patternsById = new Map(allPatterns.map((p) => [p.id, p]));
 

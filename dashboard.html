@@ -97,7 +97,7 @@
 
     <!-- The two things you actually open the app to do. -->
     <div class="btn-row" style="margin-bottom:var(--space-5);">
-      <button type="button" id="workout-btn" class="uppercase grow-2" style="min-height:84px;">Start workout</button>
+      <button type="button" id="workout-btn" class="uppercase grow-2" style="min-height:84px;" disabled>Start workout</button>
       <a href="./history.html" style="text-decoration:none;display:flex;flex:1;">
         <button class="secondary" type="button" style="width:100%;min-height:84px;">History</button>
       </a>
@@ -121,7 +121,7 @@
           </div>
           <span class="index-delta" id="index-delta"></span>
         </div>
-        <p id="index-note" class="muted" hidden>Log more workouts and progress your lifts to see this number increase.</p>
+        <p id="index-note" class="muted" hidden>Your index appears once you&rsquo;ve logged a couple of workouts.</p>
         <div class="chart-card" id="index-chart-card" style="margin-bottom:var(--space-3);">
           <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
         </div>
@@ -155,7 +155,7 @@
 
       <p class="section-label">Last Sessions</p>
       <ul id="category-list" class="list" hidden></ul>
-      <p id="empty-categories" class="empty-state" hidden>No sessions logged yet.</p>
+      <p id="empty-categories" class="empty-state" hidden>No sessions logged yet. Tap Start workout to log your first one.</p>
 
       <p class="section-label">Injury Journal</p>
       <div id="injury-slot"></div>
@@ -175,7 +175,7 @@
         <!-- Leads alone — this is the number worth looking at; the latest
              single reading lives in the log card below, the full trend
              chart on weight.html, one chevron away. -->
-        <span class="stat-value lg live" id="weight-average">—</span>
+        <span class="stat-value lg" id="weight-average">—</span>
         <div class="label-row">
           <span class="stat-label" id="weight-average-label">Exponential moving average</span>
           <button type="button" class="info-btn" id="weight-trend-info-trigger" aria-label="How is this calculated?">?</button>
@@ -184,6 +184,7 @@
       </div>
 
       <p id="weight-empty" class="empty-state" hidden>No weight logged yet.</p>
+      <div id="weight-error" class="status" role="status" aria-live="polite" hidden></div>
 
       <div class="list-item" id="weight-log-card" role="button" tabindex="0" hidden style="margin-top:var(--space-3);">
         <div class="list-item-body">
@@ -300,7 +301,8 @@
         <h2>Log weight</h2>
         <button type="button" class="modal-close" id="weight-quicklog-close" aria-label="Close">&times;</button>
       </div>
-      <div class="stepper-row">
+      <input id="weight-quicklog-input" type="text" inputmode="decimal" autocomplete="off" placeholder="Your weight in kg" hidden>
+      <div class="stepper-row" id="weight-quicklog-stepper">
         <button type="button" class="stepper-btn" id="weight-quicklog-minus" aria-label="Decrease by 0.1 kg">&minus;</button>
         <div class="stepper-value"><span class="value" id="weight-quicklog-value">0.0<span class="unit">kg</span></span></div>
         <button type="button" class="stepper-btn" id="weight-quicklog-plus" aria-label="Increase by 0.1 kg">+</button>
@@ -324,8 +326,9 @@
       </div>
       <p class="section-label" style="margin-top:0;">Session type</p>
       <div id="start-workout-chips" class="chips tagged-chips" style="margin-bottom:var(--space-4);"></div>
+      <div id="start-workout-types-error" class="status" role="status" aria-live="polite" hidden style="margin:calc(-1 * var(--space-2)) 0 var(--space-4);"></div>
       <p id="start-workout-no-types" class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-4);" hidden>
-        No session types yet. Add some in Settings, or pick Other for now.
+        No session types yet. Add some in <a href="./settings.html" class="nav-link">Settings</a>, or pick Other for now.
       </p>
       <div id="start-workout-status" class="status" role="status" aria-live="polite" hidden style="margin-top:var(--space-4);"></div>
       <button type="button" class="uppercase" id="start-workout-save" style="margin-top:var(--space-5);" disabled>Start workout</button>
@@ -400,6 +403,7 @@
     const weightTrendInfoTitle = document.getElementById('weight-trend-info-title');
     const weightTrendInfoBody = document.getElementById('weight-trend-info-body');
     const weightEmpty = document.getElementById('weight-empty');
+    const weightError = document.getElementById('weight-error');
     const weightLogCard = document.getElementById('weight-log-card');
     const weightLogValue = document.getElementById('weight-log-value');
     const weightLogMeta = document.getElementById('weight-log-meta');
@@ -407,6 +411,8 @@
     const weightQuicklogOpen = document.getElementById('weight-quicklog-open');
     const weightQuicklogModal = document.getElementById('weight-quicklog-modal');
     const weightQuicklogValue = document.getElementById('weight-quicklog-value');
+    const weightQuicklogInput = document.getElementById('weight-quicklog-input');
+    const weightQuicklogStepper = document.getElementById('weight-quicklog-stepper');
     const weightQuicklogMinus = document.getElementById('weight-quicklog-minus');
     const weightQuicklogPlus = document.getElementById('weight-quicklog-plus');
     const weightQuicklogStatus = document.getElementById('weight-quicklog-status');
@@ -415,6 +421,7 @@
     const startWorkoutModal = document.getElementById('start-workout-modal');
     const startWorkoutChips = document.getElementById('start-workout-chips');
     const startWorkoutNoTypes = document.getElementById('start-workout-no-types');
+    const startWorkoutTypesError = document.getElementById('start-workout-types-error');
     const startWorkoutStatus = document.getElementById('start-workout-status');
     const startWorkoutSave = document.getElementById('start-workout-save');
 
@@ -574,7 +581,8 @@
 
       // A load failure here shouldn't block starting a workout — Other still
       // works. It just means the chip row is short until the next reload.
-      sessionTypeNames = sessionTypesRes.error ? [] : sessionTypesRes.data.map((row) => row.name);
+      sessionTypesFailed = Boolean(sessionTypesRes.error);
+      sessionTypeNames = sessionTypesFailed ? [] : sessionTypesRes.data.map((row) => row.name);
       if (!levelsRes.error) {
         levelsById = levelsRes.byId;
         levelPositionById = levelPositions(levelsRes.levels);
@@ -586,6 +594,9 @@
       // lookup fails the button just stays on its default wording.
       const openSession = openRes.error ? null : (openRes.data && openRes.data[0]);
       renderWorkoutButton(openSession);
+      // Enabled only now, once the open-session check has answered — before
+      // that "Start" could be tapped while a workout is actually in progress.
+      workoutBtn.disabled = false;
       if (openSession) closeIfStale(openSession);
 
       const err = exercisesRes.error || setsRes.error || sessionsRes.error;
@@ -625,6 +636,9 @@
     // opens — your Settings-managed list, by name (mirrors log.html's own
     // module-scope variable of the same name).
     let sessionTypeNames = [];
+    // True when that query failed — the popup then says so instead of
+    // claiming you have no session types.
+    let sessionTypesFailed = false;
     const OTHER_CATEGORY = 'Other';
     // Set/cleared by renderWorkoutButton() — the single place the button's
     // Start/Resume state changes — so the click handler always sees the
@@ -668,13 +682,18 @@
       // if its table isn't there yet, the rest of the dashboard carries on.
       if (error || !data || data.length === 0) {
         weightAverage.textContent = '—';
+        weightAverage.classList.remove('live');
         weightChange.textContent = '';
         weightLogCard.hidden = true;
         weightQuicklogOpen.classList.remove('live');
-        weightEmpty.hidden = false;
+        // A failed load isn't "no weight logged" — say which it is.
+        weightEmpty.hidden = Boolean(error);
+        if (error) show(weightError, 'error', 'Couldn\u2019t load your weight. Check your connection and reopen the page.');
+        else hide(weightError);
         return;
       }
       weightEmpty.hidden = true;
+      hide(weightError);
 
       const latest = data[data.length - 1];
       latestWeightKg = Number(latest.weight_kg);
@@ -698,7 +717,9 @@
       weightTrendInfoBody.textContent = HERO_TREND_EXPLANATION[trendMethod];
       // The change sits under the trend because that's what it measures —
       // comparing single readings would mostly measure yesterday's dinner.
-      weightAverage.innerHTML = (!enoughHistoryForTrend || trendNow === null) ? '—' : `${trendNow.toFixed(1)}<span class="unit">kg</span>`;
+      const showTrend = enoughHistoryForTrend && trendNow !== null;
+      weightAverage.innerHTML = showTrend ? `${trendNow.toFixed(1)}<span class="unit">kg</span>` : '—';
+      weightAverage.classList.toggle('live', showTrend);
       if (!enoughHistoryForTrend || trendNow === null || trendThen === null) {
         weightChange.textContent = '';
       } else {
@@ -724,11 +745,31 @@
     function paintWeightQuicklog() {
       weightQuicklogValue.firstChild.textContent = weightQuicklogValueKg.toFixed(1);
     }
+    // First-ever weigh-in: no reading to step from, so a made-up starting
+    // value would be saved as real data — type it instead. Same range check
+    // as weight.html's own add form (parseWeight()).
+    function parseTypedWeight(raw) {
+      const value = Number(String(raw).replace(',', '.').trim());
+      if (String(raw).trim() === '' || !isFinite(value)) return null;
+      if (value <= 20 || value >= 500) return null;
+      return Math.round(value * 10) / 10;
+    }
+    let weightQuicklogTyped = false;
+    weightQuicklogInput.addEventListener('input', () => {
+      weightQuicklogSave.disabled = parseTypedWeight(weightQuicklogInput.value) === null;
+    });
     weightQuicklogOpen.addEventListener('click', () => {
-      weightQuicklogValueKg = latestWeightKg !== null ? latestWeightKg : 70;
-      paintWeightQuicklog();
+      weightQuicklogTyped = latestWeightKg === null;
+      weightQuicklogStepper.hidden = weightQuicklogTyped;
+      weightQuicklogInput.hidden = !weightQuicklogTyped;
+      if (weightQuicklogTyped) {
+        weightQuicklogInput.value = '';
+      } else {
+        weightQuicklogValueKg = latestWeightKg;
+        paintWeightQuicklog();
+      }
       hide(weightQuicklogStatus);
-      weightQuicklogSave.disabled = false;
+      weightQuicklogSave.disabled = weightQuicklogTyped;
       weightQuicklogSave.textContent = 'Save';
       openModal(weightQuicklogModal);
     });
@@ -743,6 +784,11 @@
     });
     weightQuicklogSave.addEventListener('click', async () => {
       hide(weightQuicklogStatus);
+      if (weightQuicklogTyped) {
+        const typed = parseTypedWeight(weightQuicklogInput.value);
+        if (typed === null) { show(weightQuicklogStatus, 'error', 'Enter a weight in kg, e.g. 80.5'); return; }
+        weightQuicklogValueKg = typed;
+      }
       weightQuicklogSave.disabled = true;
       weightQuicklogSave.textContent = 'Saving…';
 
@@ -773,7 +819,9 @@
     // into log.html's session view, same as resuming one already open.
     function renderStartWorkoutChips() {
       startWorkoutChips.innerHTML = '';
-      startWorkoutNoTypes.hidden = sessionTypeNames.length > 0;
+      startWorkoutNoTypes.hidden = sessionTypesFailed || sessionTypeNames.length > 0;
+      if (sessionTypesFailed) show(startWorkoutTypesError, 'error', 'Couldn\u2019t load your session types. Check your connection and reopen the page.');
+      else hide(startWorkoutTypesError);
       const options = [...sessionTypeNames, OTHER_CATEGORY];
       let suggestedChip = null;
       for (const cat of options) {
@@ -946,11 +994,10 @@
       indexSection.hidden = false;
 
       // Under two points there's nothing to chain yet — every pattern is
-      // still sitting at its starting level. Show that starting point rather
-      // than hiding the section entirely; the number is meaningless on its
-      // own, but it's worth establishing as a baseline to grow from.
+      // still sitting at its starting level. A "100" here would read as a
+      // real measurement, so show "—" and say when the number will appear.
       if (series.length < 2) {
-        indexValue.textContent = '100';
+        indexValue.textContent = '—';
         indexDelta.textContent = '';
         indexDelta.className = 'index-delta';
         indexNote.hidden = false;
@@ -1362,8 +1409,10 @@
     // One bordered card per case — row plus, outside quiet hours, its own
     // Same/Update stacked inside the same border (not a sibling block).
     // Same shape injuries.html's index list builds, duplicated per-page.
+    // `latest` is null for a case with no check-ins (its first one failed to
+    // save) — it still lists, muted, with just an Update to add one.
     function buildInjuryCard(injury, latest, withActions) {
-      const color = painSeverityColor(latest.pain);
+      const color = latest ? painSeverityColor(latest.pain) : 'var(--muted)';
       const card = document.createElement('div');
       card.className = 'injury-card';
       card.tabIndex = 0;
@@ -1378,7 +1427,7 @@
 
       const dot = document.createElement('div');
       dot.className = 'injury-dot';
-      dot.textContent = String(latest.pain);
+      dot.textContent = latest ? String(latest.pain) : '–';
       row.appendChild(dot);
 
       const body = document.createElement('div');
@@ -1390,7 +1439,9 @@
       body.appendChild(name);
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      meta.textContent = `Day ${dayCount(injury.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`;
+      meta.textContent = latest
+        ? `Day ${dayCount(injury.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`
+        : `Day ${dayCount(injury.started_at)} · No check-ins yet`;
       body.appendChild(meta);
       row.appendChild(body);
 
@@ -1403,12 +1454,15 @@
       if (withActions) {
         const actions = document.createElement('div');
         actions.className = 'injury-actions';
-        const sameBtn = document.createElement('button');
-        sameBtn.type = 'button';
-        sameBtn.className = 'secondary';
-        sameBtn.textContent = 'Same';
-        sameBtn.addEventListener('click', (e) => { e.stopPropagation(); logSameCheckin(injury); });
-        actions.appendChild(sameBtn);
+        // "Same" repeats the last pain score — nothing to repeat yet.
+        if (latest) {
+          const sameBtn = document.createElement('button');
+          sameBtn.type = 'button';
+          sameBtn.className = 'secondary';
+          sameBtn.textContent = 'Same';
+          sameBtn.addEventListener('click', (e) => { e.stopPropagation(); logSameCheckin(injury); });
+          actions.appendChild(sameBtn);
+        }
         const updateBtn = document.createElement('button');
         updateBtn.type = 'button';
         updateBtn.className = 'secondary';
@@ -1427,11 +1481,11 @@
     function renderInjurySlot() {
       const active = liveInjuries.filter((i) => i.status === 'active');
 
-      // Stalest check-in first — the one most needing attention leads.
+      // Stalest check-in first — the one most needing attention leads. A
+      // case with no check-ins at all is the stalest of all.
       const withLatest = active
         .map((i) => ({ injury: i, latest: latestCheckin(i) }))
-        .filter((x) => x.latest)
-        .sort((a, b) => new Date(a.latest.created_at) - new Date(b.latest.created_at));
+        .sort((a, b) => (a.latest ? new Date(a.latest.created_at) : 0) - (b.latest ? new Date(b.latest.created_at) : 0));
 
       injuryCount.textContent = String(withLatest.length);
       injurySlot.innerHTML = '';
@@ -1439,7 +1493,7 @@
       if (withLatest.length === 0) return;
 
       const { injury, latest } = withLatest[0];
-      const withActions = hoursSince(latest.created_at) >= QUIET_HOURS;
+      const withActions = !latest || hoursSince(latest.created_at) >= QUIET_HOURS;
       injurySlot.appendChild(buildInjuryCard(injury, latest, withActions));
     }
 

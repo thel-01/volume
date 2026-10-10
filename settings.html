@@ -134,15 +134,17 @@
       </div>
 
       <div id="lists" hidden>
-        <p class="section-label">Movement patterns</p>
+        <p id="empty-deleted-all" class="muted" hidden>Nothing deleted.</p>
+
+        <p id="label-deleted-patterns" class="section-label">Movement patterns</p>
         <ul id="deleted-pattern-list" class="list" hidden></ul>
         <p id="empty-deleted-patterns" class="muted" hidden>None.</p>
 
-        <p class="section-label">Exercises</p>
+        <p id="label-deleted-exercises" class="section-label">Exercises</p>
         <ul id="deleted-exercise-list" class="list" hidden></ul>
         <p id="empty-deleted-exercises" class="muted" hidden>None.</p>
 
-        <p class="section-label">Sessions</p>
+        <p id="label-deleted-sessions" class="section-label">Sessions</p>
         <ul id="deleted-session-list" class="list" hidden></ul>
         <p id="empty-deleted-sessions" class="muted" hidden>None.</p>
       </div>
@@ -164,6 +166,7 @@
         </svg>
       </div>
 
+      <div id="iw-status" class="status" role="status" aria-live="polite" hidden></div>
       <ul id="iw-batch-list" class="list" hidden></ul>
       <p id="iw-empty" class="empty-state" hidden>No imports yet.</p>
     </section>
@@ -217,6 +220,10 @@
     const emptyDeletedExercises = document.getElementById('empty-deleted-exercises');
     const deletedSessionListEl = document.getElementById('deleted-session-list');
     const emptyDeletedSessions = document.getElementById('empty-deleted-sessions');
+    const emptyDeletedAll = document.getElementById('empty-deleted-all');
+    const labelDeletedPatterns = document.getElementById('label-deleted-patterns');
+    const labelDeletedExercises = document.getElementById('label-deleted-exercises');
+    const labelDeletedSessions = document.getElementById('label-deleted-sessions');
 
     const importedWeightView = document.getElementById('imported-weight-view');
     const importedWeightLink = document.getElementById('imported-weight-link');
@@ -224,6 +231,7 @@
     const iwLoading = document.getElementById('iw-loading');
     const iwBatchListEl = document.getElementById('iw-batch-list');
     const iwEmpty = document.getElementById('iw-empty');
+    const iwStatus = document.getElementById('iw-status');
 
     // ------------------------------------------------------------------
     // State
@@ -365,6 +373,14 @@
       renderPatterns();
       renderExercises();
       renderSessions();
+
+      // Nothing deleted anywhere: one line instead of three empty sections.
+      const nothingDeleted = deletedPatterns.length === 0 && deletedExercises.length === 0 && deletedSessions.length === 0;
+      emptyDeletedAll.hidden = !nothingDeleted;
+      for (const el of [labelDeletedPatterns, labelDeletedExercises, labelDeletedSessions]) el.hidden = nothingDeleted;
+      if (nothingDeleted) {
+        for (const el of [emptyDeletedPatterns, emptyDeletedExercises, emptyDeletedSessions]) el.hidden = true;
+      }
     }
 
     // ------------------------------------------------------------------
@@ -591,6 +607,7 @@
       iwLoading.hidden = false;
       iwBatchListEl.hidden = true;
       iwEmpty.hidden = true;
+      hide(iwStatus);
 
       const { data, error } = await fetchAllRows(() => supabase
         .from('body_weights')
@@ -600,12 +617,14 @@
         .order('id'));
 
       iwLoading.hidden = true;
-      importBatchesLoaded = true;
 
+      // Only a successful load counts as loaded — a failure retries the
+      // next time the view opens.
       if (error) {
-        flash(`Could not load imported weight data: ${error.message}`, 'error');
+        show(iwStatus, 'error', `Could not load imported weight data: ${error.message}`);
         return;
       }
+      importBatchesLoaded = true;
 
       const byBatch = new Map();
       for (const row of data || []) {
@@ -873,7 +892,7 @@
     // Account
     // ------------------------------------------------------------------
     function renderAccount(signedInUser) {
-      document.getElementById('account-email').textContent = signedInUser?.email || 'Unknown';
+      document.getElementById('account-email').textContent = signedInUser?.is_anonymous ? 'Demo account' : (signedInUser?.email || 'Unknown');
       // Quickest way to tell why a change hasn't shown up yet: an installed
       // copy serves from its own cache until the service worker updates.
       const standalone = window.matchMedia('(display-mode: standalone)').matches
@@ -974,6 +993,11 @@
       URL.revokeObjectURL(url);
 
       const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+      const totalRows = EXPORT_TABLES.reduce((sum, [table]) => sum + payload[table].length, 0);
+      if (totalRows === 0) {
+        show(exportStatus, 'info', 'Nothing logged yet, so the backup is empty.');
+        return;
+      }
       show(exportStatus, 'ok', `Exported ${n(payload.sets.length, 'set')} across ${n(payload.sessions.length, 'session')}, ${n(payload.body_weights.length, 'weigh-in')} and ${n(payload.injuries.length, 'injury case')}.`);
     });
 
@@ -997,7 +1021,7 @@
         return;
       }
       if (data.length === 0) {
-        show(exportStatus, 'error', 'Nothing to export yet. Log a weigh-in first.');
+        show(exportStatus, 'info', 'Nothing to export yet. Log a weigh-in first.');
         return;
       }
 

@@ -41,7 +41,7 @@
       </div>
 
       <p id="empty-patterns" class="muted" hidden style="margin-bottom:var(--space-3);">
-        No movement patterns yet. Tap + to create one.
+        Tap Uncategorized below to add your first exercise. Movement patterns are optional groups. Tap + to make one.
       </p>
       <ul id="pattern-list" class="list" hidden></ul>
     </section>
@@ -81,6 +81,7 @@
         <p class="section-label">Session type</p>
         <div id="pattern-category-chips" class="chips" style="margin-bottom:var(--space-3);"></div>
         <p id="pattern-category-orphan" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-2);" hidden></p>
+        <div id="pattern-category-types-error" class="status" role="status" aria-live="polite" hidden style="margin:calc(-1 * var(--space-1)) 0 var(--space-2);"></div>
         <p id="pattern-no-category-types" class="muted" style="margin:calc(-1 * var(--space-1)) 0 var(--space-2);" hidden>
           No session types yet. Add some in Settings, or pick Other for now.
         </p>
@@ -240,6 +241,7 @@
     const patternCategoryChips = document.getElementById('pattern-category-chips');
     const patternCategoryOrphan = document.getElementById('pattern-category-orphan');
     const patternNoCategoryTypes = document.getElementById('pattern-no-category-types');
+    const patternCategoryTypesError = document.getElementById('pattern-category-types-error');
     const patternSaveBtn = document.getElementById('pattern-save-btn');
     const patternFormStatus = document.getElementById('pattern-form-status');
     const patternDeleteZone = document.getElementById('pattern-delete-zone');
@@ -285,6 +287,7 @@
     let livePatterns = [];
     let liveExercises = [];
     let sessionTypeNames = [];     // your Settings-managed session_types, by name
+    let sessionTypesFailed = false; // that query failed — say so instead of "none yet"
     let selectedPatternCategory = null;
 
     // undefined = patterns-view is active; null = viewing "Uncategorized";
@@ -380,6 +383,7 @@
         .from('session_types')
         .select('name')
         .order('created_at');
+      sessionTypesFailed = Boolean(error);
       sessionTypeNames = error ? [] : data.map((row) => row.name);
     }
 
@@ -537,7 +541,9 @@
     // is untouched either way.
     function renderPatternCategoryChips(orphanCategory) {
       patternCategoryChips.innerHTML = '';
-      patternNoCategoryTypes.hidden = sessionTypeNames.length > 0;
+      patternNoCategoryTypes.hidden = sessionTypesFailed || sessionTypeNames.length > 0;
+      if (sessionTypesFailed) show(patternCategoryTypesError, 'error', 'Couldn\u2019t load your session types. Check your connection and reopen the page.');
+      else hide(patternCategoryTypesError);
 
       const options = [...sessionTypeNames, OTHER_CATEGORY];
       for (const cat of options) {
@@ -595,7 +601,7 @@
       selectedPatternCategory = matchesChip
         ? knownOptions.find((c) => c.toLowerCase() === existing.toLowerCase())
         : null;
-      renderPatternCategoryChips(!matchesChip ? existing : null);
+      renderPatternCategoryChips(!matchesChip && !sessionTypesFailed ? existing : null);
       updatePatternSaveEnabled();
       hide(patternFormStatus);
       patternDeleteConfirm.hidden = true;

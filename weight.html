@@ -72,6 +72,8 @@
        should line up with the text's center, whether the text holds to one
        line or (rarely) wraps to two. */
     .noise-row { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
+    /* display:flex above would otherwise beat `hidden` (same as .reference-line). */
+    .noise-row[hidden] { display: none; }
     /* flex:1 + min-width:0 so this actually wraps under the fixed-width "?"
        when it's too long, instead of the default flex-item behavior of
        refusing to shrink below its own unwrapped content width and
@@ -189,7 +191,7 @@
         <div class="stat">
           <!-- Coloured to match its line on the chart, so the number and the
                curve are obviously the same thing. -->
-          <span class="stat-value live" id="average-weight">—</span>
+          <span class="stat-value" id="average-weight">—</span>
           <div class="label-row">
             <span class="stat-label" id="average-weight-label">trend</span>
             <button type="button" class="info-btn" id="weight-trend-info-trigger" aria-label="How is this calculated?">?</button>
@@ -205,7 +207,7 @@
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
         <div id="legend" class="legend" hidden></div>
       </div>
-      <p id="chart-empty" class="empty-state" hidden>Not enough weigh-ins logged yet. Come back later.</p>
+      <p id="chart-empty" class="empty-state" hidden></p>
 
       <div id="noise-row" class="noise-row" hidden>
         <p class="noise-line" id="noise-text"></p>
@@ -385,7 +387,7 @@
     import {
       dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
       personalizedNoiseBand, genericNoiseBand,
-      DEFAULT_TREND_METHOD,
+      DEFAULT_TREND_METHOD, TREND_WARMUP_DAYS,
     } from './weight-utils.js';
     import { tagChip, positionHint } from './chip-tag.js';
     import {
@@ -462,6 +464,7 @@
     const chart = document.getElementById('chart');
     const chartCard = document.getElementById('chart-card');
     const chartEmpty = document.getElementById('chart-empty');
+    chartEmpty.textContent = `Your trend line appears after ${TREND_WARMUP_DAYS} days of weigh-ins.`;
     const chartWindowRow = document.getElementById('chart-window-row');
     const windowChangeEl = document.getElementById('window-change');
     const legend = document.getElementById('legend');
@@ -738,10 +741,13 @@
         currentWeight.textContent = '—';
         currentWhen.textContent = '';
         averageWeight.textContent = '—';
+        averageWeight.classList.remove('live');
         trendChange.textContent = '';
         windowChangeEl.textContent = '';
         chart.innerHTML = '';
         chartWindowRow.hidden = true;
+        chartCard.hidden = true;
+        chartEmpty.hidden = true;
         legend.hidden = true;
         noiseRow.hidden = true;
         staleNotice.hidden = true;
@@ -779,7 +785,10 @@
       const enoughHistoryForTrend = hasEnoughHistory(daily, now);
       renderDailyNoise(daily, trendNow, enoughHistoryForTrend, now);
 
-      averageWeight.innerHTML = (!enoughHistoryForTrend || trendNow === null) ? '—' : `${fmtKg(trendNow)}<span class="unit">kg</span>`;
+      const showTrend = enoughHistoryForTrend && trendNow !== null;
+      averageWeight.innerHTML = showTrend ? `${fmtKg(trendNow)}<span class="unit">kg</span>` : '—';
+      // Amber only for a real trend value — an empty dash stays neutral.
+      averageWeight.classList.toggle('live', showTrend);
 
       if (!enoughHistoryForTrend || trendNow === null || trendThen === null) {
         trendChange.textContent = '';

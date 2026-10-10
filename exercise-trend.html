@@ -46,13 +46,13 @@
         <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Strength index over time"></svg>
         <div id="legend" class="legend" hidden></div>
       </div>
-      <p id="index-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
+      <p id="index-empty" class="empty-state" hidden>Log this exercise in one more workout to see a trend.</p>
 
       <p class="section-label" id="top-set-label">Top set weight</p>
       <div class="chart-card" id="top-set-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Top set weight over time"></svg>
       </div>
-      <p id="top-set-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
+      <p id="top-set-empty" class="empty-state" hidden>Log this exercise in one more workout to see a trend.</p>
 
       <!-- Sets logged at a named level (Small box, Red band…): no kg to
            chart, so reps instead — one step line per level. -->
@@ -62,7 +62,7 @@
           <svg id="levels-chart" viewBox="0 0 340 180" role="img" aria-label="Top set reps per level over time"></svg>
           <div id="levels-legend" class="legend"></div>
         </div>
-        <p id="levels-empty" class="empty-state" hidden>Not enough workouts logged yet. Come back later.</p>
+        <p id="levels-empty" class="empty-state" hidden>Log this exercise in one more workout to see a trend.</p>
       </div>
     </div>
 
@@ -433,11 +433,13 @@
       const err = exerciseRes.error || setsRes.error || levelsRes.error;
       if (err) {
         loading.hidden = true;
+        heading.textContent = 'Exercise';
         show(topStatus, 'error', `Could not load this exercise: ${err.message}`);
         return;
       }
       if (!exerciseRes.data) {
         loading.hidden = true;
+        heading.textContent = 'Exercise';
         show(topStatus, 'error', 'Could not find that exercise. It may have been deleted.');
         return;
       }
@@ -459,7 +461,7 @@
       loading.hidden = true;
 
       if (topSetPoints.length === 0 && levelSets.length === 0) {
-        emptyState.textContent = `No sets logged for ${exercise.name} yet.`;
+        emptyState.textContent = 'No sets logged for this exercise yet.';
         emptyState.hidden = false;
         return;
       }
@@ -522,6 +524,7 @@
     if (user) {
       if (!exerciseId) {
         loading.hidden = true;
+        heading.textContent = 'Exercise';
         show(topStatus, 'error', 'No exercise specified.');
       } else {
         await loadAll(exerciseId);

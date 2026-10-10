@@ -63,7 +63,7 @@
       </div>
 
       <ul class="list" id="active-list"></ul>
-      <p id="empty-active" class="empty-state" hidden>No active cases.</p>
+      <p id="empty-active" class="empty-state" hidden>Nothing tracked yet. Tap + to start tracking an injury.</p>
 
       <button type="button" class="detail-toggle" id="reveal-toggle" style="margin-top:var(--space-3);"></button>
       <ul class="list resolved-list" id="resolved-list" hidden style="margin-top:var(--space-3);"></ul>
@@ -682,8 +682,10 @@
     // One bordered card per case — row plus, outside quiet hours, its own
     // Same/Update stacked inside the same border. Same shape dashboard.html
     // builds for its own stalest-case slot.
+    // `latest` is null for a case with no check-ins (its first one failed to
+    // save) — it still lists, muted, with just an Update to add one.
     function buildInjuryCard(injuryObj, latest, withActions) {
-      const color = painSeverityColor(latest.pain);
+      const color = latest ? painSeverityColor(latest.pain) : 'var(--muted)';
       const card = document.createElement('div');
       card.className = 'injury-card';
       card.tabIndex = 0;
@@ -698,7 +700,7 @@
 
       const dot = document.createElement('div');
       dot.className = 'injury-dot';
-      dot.textContent = String(latest.pain);
+      dot.textContent = latest ? String(latest.pain) : '–';
       row.appendChild(dot);
 
       const body = document.createElement('div');
@@ -710,7 +712,9 @@
       body.appendChild(name);
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      meta.textContent = `Day ${dayCount(injuryObj.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`;
+      meta.textContent = latest
+        ? `Day ${dayCount(injuryObj.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`
+        : `Day ${dayCount(injuryObj.started_at)} · No check-ins yet`;
       body.appendChild(meta);
       row.appendChild(body);
 
@@ -723,17 +727,20 @@
       if (withActions) {
         const actions = document.createElement('div');
         actions.className = 'injury-actions';
-        const sameBtnEl = document.createElement('button');
-        sameBtnEl.type = 'button';
-        sameBtnEl.className = 'secondary';
-        sameBtnEl.textContent = 'Same';
-        sameBtnEl.addEventListener('click', (e) => { e.stopPropagation(); logSameCheckin(injuryObj, latest.pain); });
-        actions.appendChild(sameBtnEl);
+        // "Same" repeats the last pain score — nothing to repeat yet.
+        if (latest) {
+          const sameBtnEl = document.createElement('button');
+          sameBtnEl.type = 'button';
+          sameBtnEl.className = 'secondary';
+          sameBtnEl.textContent = 'Same';
+          sameBtnEl.addEventListener('click', (e) => { e.stopPropagation(); logSameCheckin(injuryObj, latest.pain); });
+          actions.appendChild(sameBtnEl);
+        }
         const updateBtnEl = document.createElement('button');
         updateBtnEl.type = 'button';
         updateBtnEl.className = 'secondary';
         updateBtnEl.textContent = 'Update';
-        updateBtnEl.addEventListener('click', (e) => { e.stopPropagation(); openUpdateModal(injuryObj, latest.pain); });
+        updateBtnEl.addEventListener('click', (e) => { e.stopPropagation(); openUpdateModal(injuryObj, latest ? latest.pain : 0); });
         actions.appendChild(updateBtnEl);
         card.appendChild(actions);
       }
@@ -795,11 +802,11 @@
 
     function renderIndex() {
       // Stalest check-in first — the one most needing attention leads,
-      // same ordering rule as dashboard.html's own slot.
+      // same ordering rule as dashboard.html's own slot. A case with no
+      // check-ins at all is the stalest of all.
       const withLatest = activeInjuries
         .map((i) => ({ injuryObj: i, latest: latestOf(i) }))
-        .filter((x) => x.latest)
-        .sort((a, b) => new Date(a.latest.created_at) - new Date(b.latest.created_at));
+        .sort((a, b) => (a.latest ? new Date(a.latest.created_at) : 0) - (b.latest ? new Date(b.latest.created_at) : 0));
 
       idxCount.textContent = String(withLatest.length);
       activeListEl.innerHTML = '';
@@ -812,7 +819,7 @@
       emptyActive.hidden = true;
       activeListEl.hidden = false;
       for (const { injuryObj, latest } of withLatest) {
-        const withActions = hoursSince(latest.created_at) >= QUIET_HOURS;
+        const withActions = !latest || hoursSince(latest.created_at) >= QUIET_HOURS;
         const li = document.createElement('li');
         li.appendChild(buildInjuryCard(injuryObj, latest, withActions));
         activeListEl.appendChild(li);
@@ -823,6 +830,9 @@
       revealToggle.textContent = revealOpen
         ? '− Hide resolved cases'
         : `+ Show resolved cases (${resolvedInjuries.length})`;
+      // Nothing to reveal until a case is resolved — the toggle waits for one.
+      revealToggle.hidden = resolvedInjuries.length === 0;
+      if (resolvedInjuries.length === 0) revealOpen = false;
       const showList = revealOpen && resolvedInjuries.length > 0;
       resolvedListEl.hidden = !showList;
       emptyResolved.hidden = !revealOpen || resolvedInjuries.length > 0;

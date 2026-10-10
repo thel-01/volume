@@ -28,7 +28,7 @@
         <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
       </div>
 
-      <p class="section-label">Filter</p>
+      <p id="filter-label" class="section-label">Filter</p>
       <div id="category-chips" class="chips" style="margin-bottom:var(--space-4);"></div>
 
       <div id="loading" class="loading-state">
@@ -96,6 +96,7 @@
 
     const topStatus = document.getElementById('top-status');
 
+    const filterLabel = document.getElementById('filter-label');
     const categoryChips = document.getElementById('category-chips');
     const loading = document.getElementById('loading');
     const sessionListEl = document.getElementById('session-list');
@@ -410,6 +411,7 @@
 
       categoryChips.innerHTML = '';
       categoryChips.hidden = seen.length === 0;
+      filterLabel.hidden = seen.length === 0;
       for (const cat of seen) {
         const chip = document.createElement('button');
         chip.type = 'button';
@@ -435,6 +437,9 @@
 
       if (sessions.length === 0) {
         sessionListEl.hidden = true;
+        emptySessions.textContent = allSessions.length === 0 && !selectedCategory
+          ? 'No workouts logged yet. Start one from the dashboard.'
+          : 'No sessions match these filters.';
         emptySessions.hidden = false;
         return;
       }

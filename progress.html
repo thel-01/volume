@@ -60,7 +60,7 @@
         <span class="index-value" id="index-value"></span>
         <span class="index-delta" id="index-delta"></span>
       </div>
-      <p id="index-note" class="muted" hidden>Log more workouts and progress your lifts to see this number increase.</p>
+      <p id="index-note" class="muted" hidden>Your index appears once you&rsquo;ve logged a couple of workouts.</p>
 
       <div class="chart-card" id="index-chart-card" hidden>
         <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
@@ -283,7 +283,7 @@
     // ------------------------------------------------------------------
     function renderIndex(series) {
       if (series.length < 2) {
-        indexValue.textContent = '100';
+        indexValue.textContent = '—';
         indexDelta.textContent = '';
         indexDelta.className = 'index-delta';
         indexNote.hidden = false;
@@ -537,7 +537,7 @@
       loading.hidden = true;
 
       if (liveSets.length === 0) {
-        emptyState.textContent = 'No sets logged yet.';
+        emptyState.textContent = 'Log your first workout to start tracking progress.';
         emptyState.hidden = false;
         return;
       }
