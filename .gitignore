@@ -14,3 +14,5 @@ reskin-decisions.md
 stylebook.html
 # Archive of content pruned from the stylebook — local, for review only.
 stylebook-delete.html
+# Interactive drafts served by the LAN preview server — local only.
+drafts/

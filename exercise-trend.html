@@ -41,14 +41,14 @@
     </div>
 
     <div id="content" hidden>
-      <p class="section-label" id="index-label">Strength index</p>
+      <p class="section-label has-readout" id="index-label"><span>Strength index</span><span class="scrub-readout" id="index-readout" hidden></span></p>
       <div class="chart-card" id="index-card">
         <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Strength index over time"></svg>
         <div id="legend" class="legend" hidden></div>
       </div>
       <p id="index-empty" class="empty-state" hidden>Log this exercise in one more workout to see a trend.</p>
 
-      <p class="section-label" id="top-set-label">Top set weight</p>
+      <p class="section-label has-readout" id="top-set-label"><span>Top set weight</span><span class="scrub-readout" id="top-set-readout" hidden></span></p>
       <div class="chart-card" id="top-set-card">
         <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Top set weight over time"></svg>
       </div>
@@ -57,7 +57,7 @@
       <!-- Sets logged at a named level (Small box, Red band…): no kg to
            chart, so reps instead — one step line per level. -->
       <div id="levels-section" hidden>
-        <p class="section-label">Top set, per level</p>
+        <p class="section-label has-readout"><span>Top set, per level</span><span class="scrub-readout" id="levels-readout" hidden></span></p>
         <div class="chart-card" id="levels-card">
           <svg id="levels-chart" viewBox="0 0 340 180" role="img" aria-label="Top set reps per level over time"></svg>
           <div id="levels-legend" class="legend"></div>
@@ -72,7 +72,7 @@
 
   <script type="module">
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
-    import { renderLineChart } from './chart.js';
+    import { renderLineChart, createRowReadout } from './chart.js';
     import { sessionCapacities, displayDepths, effectiveLoad, effectiveReps, isBodyweightEquivalent, compositeIndexBreakdown } from './strength-index.js';
     import { levelsFor, describeLevelSet } from './levels.js';
 
@@ -108,6 +108,11 @@
     const levelsChart = document.getElementById('levels-chart');
     const levelsLegend = document.getElementById('levels-legend');
     const levelsEmpty = document.getElementById('levels-empty');
+    // None of these charts has a hero stat, so a scrub reads out in its
+    // section-label row.
+    const indexReadout = createRowReadout(document.getElementById('index-readout'));
+    const topSetReadout = createRowReadout(document.getElementById('top-set-readout'));
+    const levelsReadout = createRowReadout(document.getElementById('levels-readout'));
 
     // This exercise's levels, archived included (old sets still show theirs).
     let levels = [];
@@ -252,6 +257,12 @@
     // ------------------------------------------------------------------
     // Drawing
     // ------------------------------------------------------------------
+    /** Scrub readout for either index chart: the whole-number index and the date. */
+    function scrubIndex(info) {
+      if (!info) { indexReadout.hide(); return; }
+      indexReadout.show({ value: String(Math.round(info.point.value)), date: formatFullDate(info.point.date) });
+    }
+
     /**
      * One line per set: your top set, then what you held for two sets, three,
      * and so on — all indexed so the first session's top set is 100.
@@ -276,7 +287,7 @@
           .map((p) => ({ date: p.date, value: (p.caps[k - 1] / base) * 100, session: p, depth: k }));
         if (pts.length === 0) continue;
         const style = DEPTH_STYLE[Math.min(k, DEPTH_STYLE.length) - 1];
-        series.push({ key: `c${k}`, points: pts, dots: true, tappable: true, ...style });
+        series.push({ key: `c${k}`, points: pts, dots: true, scrub: true, ...style });
       }
 
       renderLineChart(indexChart, {
@@ -287,11 +298,8 @@
         // floor a couple of quiet sessions' 1-2 point drift would fill the
         // whole chart like a real move.
         minRange: 8,
-        tooltipLines: (p) => [
-          `Set ${p.depth}: ${describeSet(p.session.sets[p.depth - 1], type)}`,
-          `${p.value.toFixed(0)} · ${formatFullDate(p.date)}`,
-        ],
-        ariaLabel: (p) => `Set ${p.depth}, index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
+        // Reads out the top line (set 1, the topmost series); every depth's dot lights up.
+        scrub: { onChange: scrubIndex },
       });
 
       legend.innerHTML = '';
@@ -317,12 +325,11 @@
      */
     function drawLevelAwareIndex(series) {
       renderLineChart(indexChart, {
-        series: [{ points: series, dots: true, tappable: true }],
+        series: [{ points: series, dots: true, scrub: true }],
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
         minRange: 8,
-        tooltipLines: (p) => [p.value.toFixed(0), formatFullDate(p.date)],
-        ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
+        scrub: { onChange: scrubIndex },
       });
       legend.hidden = true;
     }
@@ -350,7 +357,7 @@
         const points = [...bySession.values()]
           .map((s) => ({ date: s.sessions.start_time, value: s.reps, set: s }))
           .sort((a, b) => new Date(a.date) - new Date(b.date));
-        series.push({ key: lvl.id, points, dots: true, tappable: true, step: true, color, width: '2' });
+        series.push({ key: lvl.id, points, dots: true, scrub: true, step: true, color, width: '2' });
         legendItems.push({ color, name: lvl.name });
       });
 
@@ -360,8 +367,12 @@
         formatDate: formatCompactDate,
         minRange: 4,
         paddingPct: 0.18,
-        tooltipLines: (p) => [describeSet(p.set, exercise.type), formatFullDate(p.date)],
-        ariaLabel: (p) => `${describeSet(p.set, exercise.type)} on ${formatFullDate(p.date)}`,
+        scrub: {
+          onChange: (info) => {
+            if (!info) { levelsReadout.hide(); return; }
+            levelsReadout.show({ value: describeSet(info.point.set, exercise.type), date: formatFullDate(info.point.date) });
+          },
+        },
       });
 
       levelsLegend.innerHTML = '';
@@ -397,13 +408,17 @@
         // paddingPct is raised to match: a step's flat segment right before
         // a jump reads as touching the chart edge at the usual 8%, in a way
         // a single dot passing through doesn't.
-        series: [{ points, dots: true, tappable: true, step: true }],
+        series: [{ points, dots: true, scrub: true, step: true }],
         formatValue: (v, decimals) => formatAxisValue(v, type, useMinutes, decimals),
         formatDate: formatCompactDate,
         minRange,
         paddingPct: 0.18,
-        tooltipLines: (p) => [describeSet(p.set, type), formatFullDate(p.date)],
-        ariaLabel: (p) => `${describeSet(p.set, type)} on ${formatFullDate(p.date)}`,
+        scrub: {
+          onChange: (info) => {
+            if (!info) { topSetReadout.hide(); return; }
+            topSetReadout.show({ value: describeSet(info.point.set, type), date: formatFullDate(info.point.date) });
+          },
+        },
       });
     }
 

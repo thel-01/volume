@@ -65,14 +65,14 @@
         <button type="button" class="info-btn" id="rest-info-trigger" aria-label="How is this calculated?">?</button>
       </div>
 
-      <p class="section-label">Volume per week</p>
+      <p class="section-label has-readout"><span>Volume per week</span><span class="scrub-readout" id="weekly-readout" hidden></span></p>
       <div class="chart-card">
         <svg id="weekly-chart" viewBox="0 0 340 180" role="img" aria-label="Sets logged per week"></svg>
       </div>
       <p id="weekly-empty" class="empty-state" hidden></p>
       <p id="averages-copy" class="averages-copy" hidden></p>
 
-      <p class="section-label">Intensity per week</p>
+      <p class="section-label has-readout"><span>Intensity per week</span><span class="scrub-readout" id="intensity-weekly-readout" hidden></span></p>
       <div class="chart-card">
         <svg id="intensity-weekly-chart" viewBox="0 0 340 180" role="img" aria-label="Average intensity per week"></svg>
       </div>
@@ -96,7 +96,7 @@
 
   <script type="module">
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
-    import { renderBarChart, renderDonutChart, renderGaugeChart, renderIntensityBarChart } from './chart.js';
+    import { renderBarChart, renderDonutChart, renderGaugeChart, renderIntensityBarChart, createRowReadout } from './chart.js';
     import { mondayOf } from './date-utils.js';
     import { colorForIndex, OTHER_COLOR, EXTRA_COLOR } from './session-type-colors.js';
 
@@ -151,6 +151,9 @@
     const restLine = document.getElementById('rest-line');
 
     const intensityWeeklyChart = document.getElementById('intensity-weekly-chart');
+    // Neither bar chart has a hero stat, so a scrub reads out in its section-label row.
+    const weeklyReadout = createRowReadout(document.getElementById('weekly-readout'));
+    const intensityWeeklyReadout = createRowReadout(document.getElementById('intensity-weekly-readout'));
     const intensityWeeklyEmpty = document.getElementById('intensity-weekly-empty');
 
     const restInfoTrigger = document.getElementById('rest-info-trigger');
@@ -185,6 +188,18 @@
     }
     function formatFullDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    /** A bar's date for the scrub readout: "Mar 10", with the year only when it isn't this year. */
+    function formatWeekStart(iso) {
+      const d = new Date(iso);
+      const sameYear = d.getFullYear() === new Date().getFullYear();
+      return d.toLocaleDateString('en-US', sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    /** Low / Medium / High, split where the gauge's own quartile bands are. */
+    function intensityWord(value, short) {
+      if (value < 0.25) return 'Low';
+      if (value >= 0.75) return 'High';
+      return short ? 'Mid' : 'Medium';
     }
     /** "45s" / "1m 20s" — the same escalation the rest of the app uses for durations. */
     function formatDuration(totalSeconds) {
@@ -246,8 +261,17 @@
       renderBarChart(weeklyChart, {
         weeks: points,
         formatDate: formatCompactDate,
-        tooltipLines: (p) => [setsLabel(p.value), `week of ${formatFullDate(p.date)}`],
-        ariaLabel: (p) => `${setsLabel(p.value)} in the week of ${formatFullDate(p.date)}`,
+        scrub: {
+          onChange: (info) => {
+            if (!info) { weeklyReadout.hide(); return; }
+            const date = formatWeekStart(info.point.date);
+            // Tried in order; the first that fits the row on one line is used.
+            weeklyReadout.show([
+              { value: setsLabel(info.point.value), date: `Week of ${date}` },
+              { value: setsLabel(info.point.value), date },
+            ]);
+          },
+        },
       });
     }
 
@@ -290,7 +314,23 @@
 
       intensityWeeklyChart.closest('.chart-card').hidden = false;
       intensityWeeklyEmpty.hidden = true;
-      renderIntensityBarChart(intensityWeeklyChart, { weeks: points, formatDate: formatCompactDate });
+      renderIntensityBarChart(intensityWeeklyChart, {
+        weeks: points,
+        formatDate: formatCompactDate,
+        scrub: {
+          onChange: (info) => {
+            if (!info) { intensityWeeklyReadout.hide(); return; }
+            const date = formatWeekStart(info.point.date);
+            const value = info.point.value;
+            // Shorten the wording step by step: drop "Week of", then "Medium" -> "Mid".
+            intensityWeeklyReadout.show([
+              { value: intensityWord(value), date: `Week of ${date}` },
+              { value: intensityWord(value), date },
+              { value: intensityWord(value, true), date },
+            ]);
+          },
+        },
+      });
     }
 
     /**

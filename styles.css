@@ -895,6 +895,39 @@ button.danger.secondary {
 }
 .section-label:first-of-type { margin-top: 0; }
 
+/* Chart scrubbing (chart.js). No iOS text-selection / callout when a finger
+   rests on a chart, and no tap flash. */
+.scrub-surface {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* A chart with no hero stat shows its scrub readout right-aligned in its own
+   section-label row (createRowReadout). The label text goes in a span so it
+   never shrinks; the readout truncates before it wraps. */
+.section-label.has-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.section-label.has-readout[hidden] { display: none; }
+.section-label.has-readout > span:first-child { flex: 0 0 auto; }
+.scrub-readout {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.scrub-readout[hidden] { display: none; }
+.scrub-readout .v { color: var(--text); font-weight: 600; }
+
 /* ---------------------------------------------------------------------
    Log screen (log.html) — live workout logging.
    Built for one thumb at a gym: big targets, nothing precise required.

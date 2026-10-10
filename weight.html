@@ -41,6 +41,9 @@
       margin-left: 3px;
     }
     .stat-label { font-size: 13px; color: var(--muted); }
+    /* While scrubbing, this line holds a reading's date and time: keep it on one
+       line so the card never changes height under the finger. */
+    #current-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .label-row { display: flex; align-items: center; gap: var(--space-2); }
     /* Deliberately uncoloured: gaining weight isn't inherently bad, so
        painting one direction green and the other red would editorialise. */
@@ -51,7 +54,7 @@
     }
     /* Its own row above the <svg>, not an overlay on top of it — the chart's
        own top-right corner is live plot area (the trend line can end
-       anywhere, tappable dots and their tooltips sit right up against it),
+       anywhere, and the scrub's highlight dot sits right up against it),
        so this reserves real space instead of risking a collision. Same
        move .legend already makes below the chart. Adds height to the card;
        the chart itself, sized purely off width, doesn't shrink at all. */
@@ -183,7 +186,7 @@
       <div class="stat-row">
         <div class="stat">
           <span class="stat-value" id="current-weight">—</span>
-          <span class="stat-label">latest reading</span>
+          <span class="stat-label" id="current-label">latest reading</span>
           <!-- Balances the change line opposite, and earns its place: it says
                whether that number is from this morning or from last week. -->
           <span class="stat-change" id="current-when"></span>
@@ -452,6 +455,7 @@
     const loading = document.getElementById('loading');
     const content = document.getElementById('content');
     const currentWeight = document.getElementById('current-weight');
+    const currentLabel = document.getElementById('current-label');
     const currentWhen = document.getElementById('current-when');
     const averageWeight = document.getElementById('average-weight');
     const averageWeightLabel = document.getElementById('average-weight-label');
@@ -736,7 +740,42 @@
       fitNoiseLine();
     }
 
+    // Scrubbing the chart swaps the latest-reading stat for that reading (its
+    // label line becomes the date and time) and the trend stat for the trend
+    // that day; the two "vs / ago" lines hide (visibility, not display, so the
+    // card keeps its height). Letting go puts back whatever was there.
+    let weightHeroSaved = null;
+    function scrubWeightHero(info) {
+      if (!info) {
+        if (!weightHeroSaved) return;
+        currentWeight.innerHTML = weightHeroSaved.current;
+        currentLabel.textContent = weightHeroSaved.label;
+        averageWeight.innerHTML = weightHeroSaved.average;
+        averageWeight.classList.toggle('live', weightHeroSaved.live);
+        currentWhen.style.visibility = '';
+        trendChange.style.visibility = '';
+        weightHeroSaved = null;
+        return;
+      }
+      if (!weightHeroSaved) {
+        weightHeroSaved = {
+          current: currentWeight.innerHTML,
+          label: currentLabel.textContent,
+          average: averageWeight.innerHTML,
+          live: averageWeight.classList.contains('live'),
+        };
+      }
+      const trendPoint = info.values.trend;
+      currentWeight.innerHTML = `${fmtKg(info.point.value)}<span class="unit">kg</span>`;
+      currentLabel.textContent = formatEntryWhen(info.point.entry);
+      averageWeight.innerHTML = trendPoint ? `${fmtKg(trendPoint.value)}<span class="unit">kg</span>` : '—';
+      averageWeight.classList.toggle('live', !!trendPoint);
+      currentWhen.style.visibility = 'hidden';
+      trendChange.style.visibility = 'hidden';
+    }
+
     function render() {
+      scrubWeightHero(null); // a fresh render overwrites the stats below
       if (entries.length === 0) {
         currentWeight.textContent = '—';
         currentWhen.textContent = '';
@@ -850,11 +889,11 @@
 
       renderLineChart(chart, {
         series: [
-          { key: 'trend', points: trend, color: 'var(--live)', width: '2.2' },
+          { key: 'trend', points: trend, color: 'var(--live)', width: '2.2', scrubFollow: true },
           // Scatter, not a line: joining the raw readings drew a jagged shape
           // that isn't real and pulled the eye away from the trend, which is
           // the honest interpolation between them.
-          { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, tappable: true },
+          { key: 'raw', points: readings, color: 'var(--muted)', line: false, opacity: '0.45', dots: true, scrub: true },
         ],
         // Every tick on this axis shares the same decimal precision, so
         // "80" next to a real "80.5" reads as "80.0" — never implying more
@@ -865,8 +904,7 @@
         // under this — without a floor, a 0.3kg wobble would stretch to
         // fill the whole chart and read as a real trend.
         minRange: 2,
-        tooltipLines: (p) => [`${fmtKg(p.value)} kg`, formatEntryWhen(p.entry)],
-        ariaLabel: (p) => `${fmtKg(p.value)} kg on ${formatEntryWhen(p.entry)}`,
+        scrub: { onChange: scrubWeightHero },
       });
 
       const trendLabel = LEGEND_LABEL[trendMethod];

@@ -281,7 +281,28 @@
     // own headline used to render in full; the chart and the "why" behind
     // it live here now instead.
     // ------------------------------------------------------------------
+    // Scrubbing the chart swaps the value and the line under it for the point's
+    // value and date; letting go puts back whatever was there.
+    let indexHeroSaved = null;
+    function scrubIndexHero(info) {
+      if (!info) {
+        if (!indexHeroSaved) return;
+        indexValue.textContent = indexHeroSaved.value;
+        indexDelta.textContent = indexHeroSaved.delta;
+        indexDelta.className = indexHeroSaved.className;
+        indexHeroSaved = null;
+        return;
+      }
+      if (!indexHeroSaved) {
+        indexHeroSaved = { value: indexValue.textContent, delta: indexDelta.textContent, className: indexDelta.className };
+      }
+      indexValue.textContent = Math.round(info.point.value);
+      indexDelta.textContent = formatFullDate(info.point.date);
+      indexDelta.className = 'index-delta';
+    }
+
     function renderIndex(series) {
+      scrubIndexHero(null); // a fresh render overwrites the hero below
       if (series.length < 2) {
         indexValue.textContent = '—';
         indexDelta.textContent = '';
@@ -309,15 +330,14 @@
       }
 
       renderLineChart(indexChart, {
-        series: [{ points: series, dots: true, tappable: true }],
+        series: [{ points: series, dots: true, scrub: true }],
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
         // The index is a regression fit with its own margin of error, not a
         // precise instrument — without a floor a quiet month's 1-2 point
         // drift would fill the whole chart like a real swing.
         minRange: 8,
-        tooltipLines: (p) => [p.value.toFixed(1), formatFullDate(p.date)],
-        ariaLabel: (p) => `Index ${p.value.toFixed(0)} on ${formatFullDate(p.date)}`,
+        scrub: { onChange: scrubIndexHero },
       });
     }
 

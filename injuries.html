@@ -80,6 +80,7 @@
 
       <p id="started-line" class="muted" style="margin:0 0 var(--space-4);"><span id="started-text"></span><span id="status-badge" class="badge"></span></p>
 
+      <p class="section-label has-readout" id="pain-label" style="margin-top:0;"><span>Pain</span><span class="scrub-readout" id="pain-readout" hidden></span></p>
       <div class="chart-card">
         <svg id="pain-chart" viewBox="0 0 340 180" role="img" aria-label="Pain over time"></svg>
       </div>
@@ -249,7 +250,7 @@
 
   <script type="module">
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
-    import { renderLineChart } from './chart.js';
+    import { renderLineChart, createRowReadout } from './chart.js';
     import { showToast } from './toast.js';
 
     // ------------------------------------------------------------------
@@ -263,6 +264,8 @@
     const statusBadge = document.getElementById('status-badge');
     const startedText = document.getElementById('started-text');
     const painChart = document.getElementById('pain-chart');
+    const painLabel = document.getElementById('pain-label');
+    const painReadout = createRowReadout(document.getElementById('pain-readout'));
     const chartEmpty = document.getElementById('chart-empty');
     const activeActions = document.getElementById('active-actions');
     const sameBtn = document.getElementById('same-btn');
@@ -510,16 +513,18 @@
       // A single point isn't a trend — same threshold weight.html uses for
       // its own chart before there's a second reading to draw a line to.
       if (checkins.length < 2) {
+        painLabel.hidden = true;
         painChart.closest('.chart-card').hidden = true;
         chartEmpty.hidden = false;
         return;
       }
+      painLabel.hidden = false;
       painChart.closest('.chart-card').hidden = false;
       chartEmpty.hidden = true;
 
       const points = checkins.map((c) => ({ date: c.created_at, value: c.pain, checkin: c }));
       renderLineChart(painChart, {
-        series: [{ points, color: 'var(--live)', width: '2.2', dots: true, tappable: true }],
+        series: [{ points, color: 'var(--live)', width: '2.2', dots: true, scrub: true }],
         // Fixed 0-10, always — the scale itself is already the meaningful
         // bound, so auto-fitting to whatever's been logged so far would be
         // the one thing that could actually mislead here.
@@ -529,8 +534,13 @@
         minTimeSpan: 24 * 60 * 60 * 1000,
         formatValue: (v) => String(Math.round(v)),
         formatDate: formatCompactDate,
-        tooltipLines: (p) => [`${p.value} / 10`, formatFullDate(p.date)],
-        ariaLabel: (p) => `Pain ${p.value} on ${formatFullDate(p.date)}`,
+        // Pain has no hero stat, so the reading goes in the label row above.
+        scrub: {
+          onChange: (info) => {
+            if (!info) { painReadout.hide(); return; }
+            painReadout.show({ value: `${info.point.value} / 10`, date: formatFullDate(info.point.date) });
+          },
+        },
       });
     }
 

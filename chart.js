@@ -4,7 +4,7 @@
 // Deliberately sparse: at least 3 y-labels (never forced to the range's own
 // min/max, wherever round numbers land), only the first and last date on the
 // x-axis, no grid lines at all. This is a trend visualiser — the shape
-// matters, precise readings do not. Tap a point for the exact numbers.
+// matters, precise readings do not. Press and hold, then drag, for the exact numbers.
 //
 // Extracted from exercise-trend.html so the dashboard can draw the same chart
 // without a second copy of it, the same way every page shares supabase-client.js.
@@ -163,13 +163,325 @@ function text(x, y, anchor, size, fill, content) {
   return el;
 }
 
+// ---------------------------------------------------------------------------
+// Scrubbing — press and hold on a line or bar chart, then drag to read exact
+// values. Shared by renderLineChart, renderBarChart and renderIntensityBarChart,
+// each of which hands over its own scales' results (x/y per data point), so
+// nothing here ever reads positions back out of the drawn DOM.
+//
+// The chart itself never redraws: a vertical line plus highlight dot(s) (or,
+// on bars, the other bars dimmed) move over it, and the page's `onChange`
+// shows the value wherever it likes (usually in the stat above the chart).
+// ---------------------------------------------------------------------------
+
+const SCRUB_HOLD_MS = 100;        // how long a finger must rest before it counts as a scrub
+const SCRUB_SLOP_PX = 8;          // drift allowed during that hold; past it the touch is a page scroll
+const SCRUB_TAP_MS = 400;         // a touch shorter than this, barely moved, is a tap
+const SCRUB_BAR_GAP_PX = 4;       // the line on a bar chart stops this far above the active bar
+const SCRUB_BAR_MIN_LINE_PX = 6;  // …and is skipped when the bar leaves less room than this
+
+const scrubControllers = new Map(); // svg -> controller, so a re-render can retire the old one
+let lastTouchAt = 0;                // browsers fire fake mouse events after a touch; ignore those
+let scrubDocumentBound = false;
+
+function releaseScrub(svg) {
+  const existing = scrubControllers.get(svg);
+  if (existing) existing.destroy();
+}
+
+function hideOtherScrubs(except) {
+  for (const c of scrubControllers.values()) if (c !== except) c.hide();
+}
+
+/** A tap that lands anywhere outside a pinned chart dismisses it. */
+function dismissPinnedScrubs(target) {
+  for (const c of [...scrubControllers.values()]) {
+    if (!c.svg.isConnected) { c.destroy(); continue; }
+    if (c.pinned && !c.svg.contains(target)) c.hide();
+  }
+}
+
+function bindScrubDocument() {
+  if (scrubDocumentBound) return;
+  scrubDocumentBound = true;
+  let tap = null;
+  // Passive: these only watch, they never block scrolling.
+  document.addEventListener('touchstart', (e) => {
+    lastTouchAt = Date.now();
+    const t = e.touches[0];
+    tap = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, at: performance.now(), target: e.target } : null;
+  }, { capture: true, passive: true });
+  document.addEventListener('touchmove', (e) => {
+    lastTouchAt = Date.now();
+    if (tap && Math.hypot(e.touches[0].clientX - tap.x, e.touches[0].clientY - tap.y) > SCRUB_SLOP_PX) tap = null;
+  }, { capture: true, passive: true });
+  document.addEventListener('touchend', () => {
+    lastTouchAt = Date.now();
+    const t = tap;
+    tap = null;
+    if (t && performance.now() - t.at < SCRUB_TAP_MS) dismissPinnedScrubs(t.target);
+  }, { capture: true, passive: true });
+  document.addEventListener('mousedown', (e) => {
+    if (Date.now() - lastTouchAt < 700) return;
+    dismissPinnedScrubs(e.target);
+  }, true);
+}
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS(NS, name);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  return el;
+}
+
+/**
+ * Wire scrubbing onto an <svg> that a renderer has just drawn.
+ *
+ * @param {SVGElement} svg
+ * @param {object} cfg
+ * @param {Array}    cfg.items     one per snap target, ascending by x:
+ *                                 { x, entries: [{ x, y, color, follow }], info }
+ *                                 (bar charts: { x, barTop, info } instead of entries)
+ * @param {number}   cfg.viewW     viewBox width the x values live in
+ * @param {number}   cfg.top       y the vertical line starts from
+ * @param {number}   cfg.bottom    y it ends at (line charts)
+ * @param {Array}    [cfg.bars]    the bar <rect>s, in item order — present means bar chart
+ * @param {Function} cfg.onChange  (info | null) — null when scrubbing ends
+ */
+function attachScrub(svg, cfg) {
+  const { items, viewW, top, bottom, bars, onChange } = cfg;
+  if (!items.length) return;
+
+  const ac = new AbortController();
+  const { signal } = ac;
+  const ctl = { svg, pinned: false, idx: -1 };
+
+  svg.classList.add('scrub-surface');
+
+  const overlay = svgEl('g', { 'pointer-events': 'none' });
+  overlay.style.display = 'none';
+  const line = svgEl('line', { stroke: 'var(--muted)', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke' });
+  overlay.appendChild(line);
+  const dots = []; // pooled: a multi-series chart can need several at once
+  svg.appendChild(overlay);
+
+  function dotAt(n) {
+    while (dots.length <= n) {
+      const d = svgEl('circle', { stroke: 'var(--surface)', 'stroke-width': 2 });
+      overlay.appendChild(d);
+      dots.push(d);
+    }
+    return dots[n];
+  }
+
+  ctl.show = (i) => {
+    if (i === ctl.idx) return; // same snap target: nothing to redraw
+    const it = items[i];
+    line.style.display = '';
+    line.setAttribute('x1', it.x);
+    line.setAttribute('x2', it.x);
+    line.setAttribute('y1', top);
+
+    if (bars) {
+      // The line stops a few screen px above the bar so it never runs
+      // through it. Too little room above (a near-full bar): no line at
+      // all, the dimmed neighbours already mark the bar.
+      const pxPerUnit = (svg.getBoundingClientRect().width || viewW) / viewW;
+      if ((it.barTop - top) * pxPerUnit < SCRUB_BAR_MIN_LINE_PX) line.style.display = 'none';
+      else line.setAttribute('y2', it.barTop - SCRUB_BAR_GAP_PX / pxPerUnit);
+      bars.forEach((b, j) => b.setAttribute('opacity', j === i ? 1 : 0.35));
+    } else {
+      line.setAttribute('y2', bottom);
+      dots.forEach((d) => { d.style.display = 'none'; });
+      it.entries.forEach((en, n) => {
+        const d = dotAt(n);
+        d.setAttribute('cx', en.x);
+        d.setAttribute('cy', en.y);
+        d.setAttribute('r', en.follow ? 4.5 : 5);
+        d.setAttribute('fill', en.color);
+        d.style.display = '';
+      });
+    }
+
+    overlay.style.display = '';
+    ctl.idx = i;
+    onChange(it.info);
+  };
+
+  ctl.hide = () => {
+    ctl.pinned = false;
+    if (ctl.idx === -1) return;
+    ctl.idx = -1;
+    overlay.style.display = 'none';
+    if (bars) bars.forEach((b) => b.removeAttribute('opacity'));
+    onChange(null);
+  };
+
+  /** Nearest data point by x — never a position between two points. */
+  function nearest(vx) {
+    let lo = 0, hi = items.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (items[mid].x < vx) lo = mid + 1; else hi = mid;
+    }
+    if (lo > 0 && Math.abs(items[lo - 1].x - vx) <= Math.abs(items[lo].x - vx)) return lo - 1;
+    return lo;
+  }
+
+  // The gesture in progress: 'pending' (finger down, waiting out the hold),
+  // 'active' (scrubbing) or 'scroll' (moved too soon — the page's, not ours).
+  let g = null;
+  const toViewX = (clientX, gg) => (clientX - gg.left) * (viewW / gg.width);
+
+  function begin(x, y, src) {
+    abort();
+    const r = svg.getBoundingClientRect();
+    g = { left: r.left, width: r.width, sx: x, sy: y, x, src, state: 'pending', timer: null };
+    g.timer = setTimeout(activate, SCRUB_HOLD_MS);
+  }
+
+  function activate() {
+    if (!g || g.state !== 'pending') return;
+    g.state = 'active';
+    g.timer = null;
+    ctl.pinned = false;
+    hideOtherScrubs(ctl);
+    ctl.show(nearest(toViewX(g.x, g)));
+  }
+
+  function move(x, y, e) {
+    if (!g) return;
+    g.x = x;
+    if (g.state === 'pending') {
+      // Moving before the hold fires means the user is scrolling the page.
+      if (Math.hypot(x - g.sx, y - g.sy) > SCRUB_SLOP_PX) {
+        clearTimeout(g.timer);
+        g.timer = null;
+        g.state = 'scroll';
+      }
+      return;
+    }
+    if (g.state !== 'active') return;
+    // Only now take the gesture from the page, so a plain swipe still scrolls.
+    if (e && e.cancelable) e.preventDefault();
+    ctl.show(nearest(toViewX(x, g)));
+  }
+
+  function end() {
+    if (!g) return;
+    clearTimeout(g.timer);
+    const gg = g;
+    g = null;
+    if (gg.state === 'scroll') return;
+    if (gg.state === 'pending') { quickTap(toViewX(gg.x, gg)); return; }
+    ctl.hide(); // letting go always hides
+  }
+
+  function abort() {
+    if (!g) return;
+    clearTimeout(g.timer);
+    const wasActive = g.state === 'active';
+    g = null;
+    if (wasActive) ctl.hide();
+  }
+
+  /** A tap with no hold pins the nearest point; tapping that same point again unpins it. */
+  function quickTap(vx) {
+    const i = nearest(vx);
+    if (ctl.pinned && ctl.idx === i) { ctl.hide(); return; }
+    hideOtherScrubs(ctl);
+    ctl.show(i);
+    ctl.pinned = true;
+  }
+
+  // passive:false on the touch listeners is what lets touchmove call
+  // preventDefault() once a scrub is active (a passive listener can't).
+  svg.addEventListener('touchstart', (e) => {
+    lastTouchAt = Date.now();
+    if (e.touches.length > 1) { abort(); return; }
+    const t = e.touches[0];
+    begin(t.clientX, t.clientY, 'touch');
+  }, { passive: false, signal });
+  svg.addEventListener('touchmove', (e) => {
+    lastTouchAt = Date.now();
+    if (!g || g.src !== 'touch') return;
+    const t = e.touches[0];
+    move(t.clientX, t.clientY, e);
+  }, { passive: false, signal });
+  svg.addEventListener('touchend', (e) => {
+    lastTouchAt = Date.now();
+    if (g && g.state === 'active' && e.cancelable) e.preventDefault(); // no ghost click after a scrub
+    end();
+  }, { passive: false, signal });
+  svg.addEventListener('touchcancel', () => { lastTouchAt = Date.now(); abort(); }, { passive: false, signal });
+
+  // Mouse: press, hold, drag — same behaviour, for desktop.
+  svg.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || Date.now() - lastTouchAt < 700) return;
+    begin(e.clientX, e.clientY, 'mouse');
+  }, { signal });
+  window.addEventListener('mousemove', (e) => { if (g && g.src === 'mouse') move(e.clientX, e.clientY, e); }, { signal });
+  window.addEventListener('mouseup', () => { if (g && g.src === 'mouse') end(); }, { signal });
+
+  // A long-press would otherwise open the OS callout / text-selection menu.
+  svg.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
+  svg.addEventListener('selectstart', (e) => e.preventDefault(), { signal });
+
+  ctl.destroy = () => {
+    ac.abort();
+    if (g) clearTimeout(g.timer);
+    g = null;
+    if (scrubControllers.get(svg) === ctl) scrubControllers.delete(svg);
+    const wasShown = ctl.idx !== -1;
+    ctl.idx = -1;
+    ctl.pinned = false;
+    if (wasShown) onChange(null);
+  };
+
+  scrubControllers.set(svg, ctl);
+  bindScrubDocument();
+}
+
+/**
+ * Show a scrub readout in a chart's section-label row (the chart has no
+ * hero stat of its own). The row reads right-aligned, `value · date`.
+ *
+ * `show` takes one `{ value, date }` or a list of progressively shorter
+ * variants; the first that fits the row on one line wins, and if none does
+ * the last is left to truncate with an ellipsis. Measured, not guessed
+ * from screen width.
+ *
+ * @param {HTMLElement} el  the `.scrub-readout` span inside the label
+ */
+export function createRowReadout(el) {
+  return {
+    show(variants) {
+      const list = Array.isArray(variants) ? variants : [variants];
+      el.hidden = false;
+      for (const v of list) {
+        el.textContent = '';
+        const value = document.createElement('span');
+        value.className = 'v';
+        value.textContent = v.value;
+        el.append(value, document.createTextNode(` · ${v.date}`));
+        if (el.scrollWidth <= el.clientWidth) return;
+      }
+    },
+    hide() {
+      el.hidden = true;
+      el.textContent = '';
+    },
+  };
+}
+
 /**
  * Draw one or more line series into an <svg>.
  *
  * @param {SVGElement} svg
  * @param {object}   opts
- * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, tappable, line, step }]
- *                                      Axes span every series; only `tappable` ones get tooltips.
+ * @param {Array}    opts.series        [{ points: [{date, value, ...}], color, width, dashed, dots, scrub, scrubFollow, line, step }]
+ *                                      Axes span every series; only `scrub` ones are snap targets for scrubbing.
+ *                                      `scrubFollow: true` marks a series that gets a highlight dot at the snapped
+ *                                      point's own calendar day instead (the weight trend under its raw readings).
  *                                      `line: false` draws the points alone, with no segments joining them.
  *                                      `step: true` connects points with a step-after path (flat at a point's
  *                                      own value until the next point, then a sharp-cornered vertical jump)
@@ -181,8 +493,10 @@ function text(x, y, anchor, size, fill, content) {
  *                                      to a real "80.5" can render as "80.0" instead of implying more
  *                                      precision than the other labels on the same axis
  * @param {Function} opts.formatDate    (iso, showYear) => x-axis label
- * @param {Function} opts.tooltipLines  (point) => [primary, secondary]
- * @param {Function} [opts.ariaLabel]   (point) => string
+ * @param {{onChange: Function}} [opts.scrub] press-and-hold-then-drag readout. onChange gets
+ *                                      `{ point, series, values, index }` for the snapped point — `point` is the
+ *                                      data point itself, `series` its series' key, `values` every series' point
+ *                                      at that date keyed by series key — and `null` when scrubbing ends.
  * @param {number}   [opts.minRange]    floor on the y-axis span, in the series' own unit — keeps a
  *                                      trivial real-world move from visually filling the whole chart
  * @param {{min: number, max: number}} [opts.fixedRange] locks the y-axis to an exact range regardless
@@ -198,8 +512,9 @@ function text(x, y, anchor, size, fill, content) {
  *                                      smooth line's does, so exercise-trend.html's top-set chart raises this.
  */
 export function renderLineChart(svg, opts) {
-  const { series, formatValue, formatDate, tooltipLines, ariaLabel, minRange, fixedRange, minTimeSpan, paddingPct } = opts;
+  const { series, formatValue, formatDate, scrub, minRange, fixedRange, minTimeSpan, paddingPct } = opts;
 
+  releaseScrub(svg);
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${VIEW_W} ${VIEW_H}`);
 
@@ -223,16 +538,6 @@ export function renderLineChart(svg, opts) {
     ? MARGIN.left + plotW / 2
     : MARGIN.left + ((t - minT) / (maxT - minT)) * plotW);
   const yScale = (v) => MARGIN.top + plotH - ((v - axis.min) / (axis.max - axis.min)) * plotH;
-
-  // Invisible backdrop: tapping empty chart space dismisses any open tooltip.
-  const backdrop = document.createElementNS(NS, 'rect');
-  backdrop.setAttribute('x', 0);
-  backdrop.setAttribute('y', 0);
-  backdrop.setAttribute('width', VIEW_W);
-  backdrop.setAttribute('height', VIEW_H);
-  backdrop.setAttribute('fill', 'transparent');
-  backdrop.addEventListener('click', () => clearTooltip());
-  svg.appendChild(backdrop);
 
   // Y-axis labels only — no tick marks, no grid lines.
   for (const tickValue of axis.ticks) {
@@ -260,7 +565,7 @@ export function renderLineChart(svg, opts) {
     ));
   }
 
-  // Lines first, so dots and tooltips always sit on top.
+  // Lines first, so dots always sit on top.
   for (const s of drawn) {
     // `line: false` plots the points as a scatter. Joining up noisy readings
     // draws a shape that isn't really there — the connecting segments are an
@@ -297,8 +602,6 @@ export function renderLineChart(svg, opts) {
     svg.appendChild(path);
   }
 
-  let activeKey = null;
-
   // Rendered px per viewBox unit — the card is close to VIEW_W wide on a
   // phone, so fall back to 1:1 if the svg isn't laid out yet.
   const pxPerUnit = (svg.getBoundingClientRect().width || VIEW_W) / VIEW_W;
@@ -308,7 +611,7 @@ export function renderLineChart(svg, opts) {
     // A long history packs a line's dots into an overlapping smear. Once the
     // typical gap between neighbouring dots drops under CROWDED_DOT_GAP_PX
     // on screen, only the latest value keeps its dot; every point stays
-    // tappable. A scatter (`line: false`) is exempt: there the dots ARE the
+    // scrubbable. A scatter (`line: false`) is exempt: there the dots ARE the
     // data, and their pile-up is meant to read as density.
     const onlyLastDot = s.line !== false && medianDotGapPx(s.points, xScale, yScale, pxPerUnit) < CROWDED_DOT_GAP_PX;
     s.points.forEach((p, i) => {
@@ -334,86 +637,59 @@ export function renderLineChart(svg, opts) {
       // overlapping readings pile up into something visibly denser.
       if (s.opacity) dot.setAttribute('opacity', s.opacity);
       if (showDot) svg.appendChild(dot);
-
-      if (!s.tappable) return;
-
-      const key = `${s.key || 'main'}:${i}`;
-      const hit = document.createElementNS(NS, 'circle');
-      hit.setAttribute('cx', cx);
-      hit.setAttribute('cy', cy);
-      hit.setAttribute('r', 12);
-      hit.setAttribute('fill', 'transparent');
-      hit.setAttribute('pointer-events', 'all');
-      hit.style.cursor = 'pointer';
-      hit.setAttribute('tabindex', '0');
-      hit.setAttribute('role', 'button');
-      if (ariaLabel) hit.setAttribute('aria-label', ariaLabel(p));
-      const toggle = (e) => {
-        e.stopPropagation();
-        if (activeKey === key) { clearTooltip(); return; }
-        activeKey = key;
-        showTooltip(cx, cy, tooltipLines(p));
-      };
-      hit.addEventListener('click', toggle);
-      hit.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
-      });
-      svg.appendChild(hit);
     });
   }
 
-  function clearTooltip() {
-    activeKey = null;
-    const existing = svg.querySelector('.chart-tip');
-    if (existing) existing.remove();
+  if (scrub) attachLineScrub(svg, drawn, xScale, yScale, scrub.onChange);
+}
+
+/** Local calendar day, so a day's trend value can sit under any of that day's readings. */
+function localDayKey(t) {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * Snap targets for a line chart: one per distinct timestamp across the
+ * `scrub` series (a multi-series fan shares its dates, so one target holds
+ * every series' point), plus a `scrubFollow` series' point from the same day.
+ */
+function attachLineScrub(svg, drawn, xScale, yScale, onChange) {
+  const byTime = new Map();
+  for (const s of drawn) {
+    if (!s.scrub) continue;
+    const key = s.key || 'main';
+    const color = s.color || 'var(--accent)';
+    for (const p of s.points) {
+      const t = new Date(p.date).getTime();
+      let it = byTime.get(t);
+      if (!it) {
+        it = { t, x: xScale(t), entries: [], info: { point: p, series: key, values: {}, index: 0 } };
+        byTime.set(t, it);
+      }
+      it.entries.push({ x: it.x, y: yScale(p.value), color });
+      it.info.values[key] = p;
+      // Series are drawn in order, so the last one at a date is the topmost.
+      it.info.point = p;
+      it.info.series = key;
+    }
   }
+  const items = [...byTime.values()].sort((a, b) => a.t - b.t);
 
-  function showTooltip(cx, cy, lines) {
-    clearTooltip();
-    const g = document.createElementNS(NS, 'g');
-    g.setAttribute('class', 'chart-tip');
-    g.setAttribute('pointer-events', 'none');
-
-    const rect = document.createElementNS(NS, 'rect');
-    rect.setAttribute('fill', 'var(--surface-2)');
-    rect.setAttribute('stroke', 'var(--line)');
-    g.appendChild(rect);
-
-    const label = document.createElementNS(NS, 'text');
-    label.setAttribute('font-size', '11');
-    label.setAttribute('fill', 'var(--text)');
-    lines.forEach((line, i) => {
-      const tspan = document.createElementNS(NS, 'tspan');
-      tspan.setAttribute('x', 0);
-      tspan.setAttribute('dy', i === 0 ? 0 : 13);
-      if (i > 0) tspan.setAttribute('fill', 'var(--muted)');
-      tspan.textContent = line;
-      label.appendChild(tspan);
-    });
-    g.appendChild(label);
-    svg.appendChild(g);
-
-    const bbox = label.getBBox();
-    const padX = 8, padY = 6;
-    const boxW = bbox.width + padX * 2;
-    const boxH = bbox.height + padY * 2;
-
-    let boxX = cx - boxW / 2;
-    boxX = Math.max(2, Math.min(VIEW_W - 2 - boxW, boxX));
-    let boxY = cy - boxH - 12;
-    if (boxY < 2) boxY = cy + 12;
-
-    rect.setAttribute('x', boxX);
-    rect.setAttribute('y', boxY);
-    rect.setAttribute('width', boxW);
-    rect.setAttribute('height', boxH);
-
-    const textX = boxX + padX;
-    const textY = boxY + padY + 9;
-    label.setAttribute('x', textX);
-    label.setAttribute('y', textY);
-    for (const tspan of label.querySelectorAll('tspan')) tspan.setAttribute('x', textX);
+  for (const s of drawn) {
+    if (!s.scrubFollow) continue;
+    const key = s.key || 'main';
+    const byDay = new Map(s.points.map((p) => [localDayKey(p.date), p]));
+    for (const it of items) {
+      const p = byDay.get(localDayKey(it.t));
+      if (!p) continue;
+      it.entries.push({ x: it.x, y: yScale(p.value), color: s.color || 'var(--accent)', follow: true });
+      it.info.values[key] = p;
+    }
   }
+  items.forEach((it, i) => { it.info.index = i; });
+
+  attachScrub(svg, { items, viewW: VIEW_W, top: MARGIN.top, bottom: VIEW_H - MARGIN.bottom, onChange });
 }
 
 // ---------------------------------------------------------------------------
@@ -581,12 +857,13 @@ function drawWeekAxisLabels(svg, weeks, xOfIndex, formatDate, M, currentColor) {
  * @param {Array}    opts.weeks        [{ date, value }], oldest first — the last entry is
  *                                      always treated as the current, in-progress week
  * @param {Function} opts.formatDate   (iso, showYear) => x-axis label for a week
- * @param {Function} opts.tooltipLines (week) => [primary, secondary]
- * @param {Function} [opts.ariaLabel]  (week) => string
+ * @param {{onChange: Function}} [opts.scrub] press-and-hold-then-drag readout; onChange gets
+ *                                      `{ point: week, index }` for the snapped bar, `null` when scrubbing ends
  */
 export function renderBarChart(svg, opts) {
-  const { weeks, formatDate, tooltipLines, ariaLabel } = opts;
+  const { weeks, formatDate, scrub } = opts;
 
+  releaseScrub(svg);
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${BAR_VIEW_W} ${BAR_VIEW_H}`);
   if (!weeks || weeks.length === 0) return;
@@ -600,16 +877,6 @@ export function renderBarChart(svg, opts) {
   const { max: axisMax, ticks } = computeBarYAxis(weeks.map((w) => w.value));
   const yScale = (v) => baseline - (v / axisMax) * plotH;
 
-  // Invisible backdrop: tapping empty chart space dismisses any open tooltip.
-  const backdrop = document.createElementNS(NS, 'rect');
-  backdrop.setAttribute('x', 0);
-  backdrop.setAttribute('y', 0);
-  backdrop.setAttribute('width', BAR_VIEW_W);
-  backdrop.setAttribute('height', BAR_VIEW_H);
-  backdrop.setAttribute('fill', 'transparent');
-  backdrop.addEventListener('click', () => clearTooltip());
-  svg.appendChild(backdrop);
-
   // Y-axis labels only — no tick marks, no grid lines, same as the line chart.
   for (const tv of ticks) {
     svg.appendChild(text(M.left - 8, yScale(tv) + 3.5, 'end', '11', 'var(--muted)', String(Math.round(tv))));
@@ -620,8 +887,8 @@ export function renderBarChart(svg, opts) {
   const xOfIndex = (i) => M.left + bandW * i + bandW / 2;
   const currentFill = addCurrentWeekStripe(svg, stripeSizeForBarWidth(barW), 'var(--live)');
 
-  let activeKey = null;
-
+  const barEls = [];
+  const scrubItems = [];
   weeks.forEach((wk, i) => {
     const cx = xOfIndex(i);
     const h = Math.max(3, (wk.value / axisMax) * plotH); // 3px floor keeps a 0-set week visible
@@ -636,85 +903,14 @@ export function renderBarChart(svg, opts) {
     bar.setAttribute('fill', isCurrent ? currentFill : 'var(--accent)');
     svg.appendChild(bar);
 
-    // Hit target is the full band, not just the bar — a thin bar at 26
-    // weeks is still a full band-width tappable column.
-    const hit = document.createElementNS(NS, 'rect');
-    hit.setAttribute('x', M.left + bandW * i);
-    hit.setAttribute('y', M.top);
-    hit.setAttribute('width', bandW);
-    hit.setAttribute('height', plotH);
-    hit.setAttribute('fill', 'transparent');
-    hit.setAttribute('pointer-events', 'all');
-    hit.style.cursor = 'pointer';
-    hit.setAttribute('tabindex', '0');
-    hit.setAttribute('role', 'button');
-    if (ariaLabel) hit.setAttribute('aria-label', ariaLabel(wk));
-    const toggle = (e) => {
-      e.stopPropagation();
-      if (activeKey === i) { clearTooltip(); return; }
-      activeKey = i;
-      showTooltip(cx, y, tooltipLines(wk));
-    };
-    hit.addEventListener('click', toggle);
-    hit.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
-    });
-    svg.appendChild(hit);
+    barEls.push(bar);
+    scrubItems.push({ x: cx, barTop: y, info: { point: wk, index: i } });
   });
 
   drawWeekAxisLabels(svg, weeks, xOfIndex, formatDate, M, 'var(--live)');
 
-  function clearTooltip() {
-    activeKey = null;
-    const existing = svg.querySelector('.chart-tip');
-    if (existing) existing.remove();
-  }
-
-  function showTooltip(cx, topY, lines) {
-    clearTooltip();
-    const g = document.createElementNS(NS, 'g');
-    g.setAttribute('class', 'chart-tip');
-    g.setAttribute('pointer-events', 'none');
-
-    const rectEl = document.createElementNS(NS, 'rect');
-    rectEl.setAttribute('fill', 'var(--surface-2)');
-    rectEl.setAttribute('stroke', 'var(--line)');
-    g.appendChild(rectEl);
-
-    const label = document.createElementNS(NS, 'text');
-    label.setAttribute('font-size', '11');
-    label.setAttribute('fill', 'var(--text)');
-    lines.forEach((line, i) => {
-      const tspan = document.createElementNS(NS, 'tspan');
-      tspan.setAttribute('x', 0);
-      tspan.setAttribute('dy', i === 0 ? 0 : 13);
-      if (i > 0) tspan.setAttribute('fill', 'var(--muted)');
-      tspan.textContent = line;
-      label.appendChild(tspan);
-    });
-    g.appendChild(label);
-    svg.appendChild(g);
-
-    const bbox = label.getBBox();
-    const padX = 8, padY = 6;
-    const boxW = bbox.width + padX * 2;
-    const boxH = bbox.height + padY * 2;
-
-    let boxX = cx - boxW / 2;
-    boxX = Math.max(2, Math.min(BAR_VIEW_W - 2 - boxW, boxX));
-    let boxY = topY - boxH - 12;
-    if (boxY < 2) boxY = topY + 12;
-
-    rectEl.setAttribute('x', boxX);
-    rectEl.setAttribute('y', boxY);
-    rectEl.setAttribute('width', boxW);
-    rectEl.setAttribute('height', boxH);
-
-    const textX = boxX + padX;
-    const textY = boxY + padY + 9;
-    label.setAttribute('x', textX);
-    label.setAttribute('y', textY);
-    for (const tspan of label.querySelectorAll('tspan')) tspan.setAttribute('x', textX);
+  if (scrub) {
+    attachScrub(svg, { items: scrubItems, viewW: BAR_VIEW_W, top: M.top, bars: barEls, onChange: scrub.onChange });
   }
 }
 
@@ -927,15 +1123,21 @@ function intensityColor(value) {
   return GAUGE_COLORS[idx];
 }
 
+/** Rendered svg width under which the intensity axis says "Mid" rather than "Medium". */
+const INTENSITY_NARROW_PX = 300;
+
 /**
  * @param {SVGElement} svg
  * @param {object}   opts
  * @param {Array}    opts.weeks      [{ date, value }], value 0..1, oldest first — last is the current week
  * @param {Function} opts.formatDate (iso, showYear) => x-axis label for a week
+ * @param {{onChange: Function}} [opts.scrub] press-and-hold-then-drag readout; onChange gets
+ *                                    `{ point: week, index }` for the snapped bar, `null` when scrubbing ends
  */
 export function renderIntensityBarChart(svg, opts) {
-  const { weeks, formatDate } = opts;
+  const { weeks, formatDate, scrub } = opts;
 
+  releaseScrub(svg);
   svg.innerHTML = '';
   svg.setAttribute('viewBox', `0 0 ${BAR_VIEW_W} ${BAR_VIEW_H}`);
   if (!weeks || weeks.length === 0) return;
@@ -943,12 +1145,14 @@ export function renderIntensityBarChart(svg, opts) {
   const n = weeks.length;
   const labelSize = 11;
 
-  // Low/Mid/High centered on the same quartile bands that color the bars
+  // Low/Medium/High centered on the same quartile bands that color the bars
   // (0.125 / 0.5 / 0.875 — the middle of the "good" band, the midpoint of
   // the middle two bands combined, and the middle of "critical"), not
   // evenly spaced, so the axis and the bar colors can never disagree about
-  // what counts as which.
-  const AXIS_LABELS = [{ v: 0.125, txt: 'Low' }, { v: 0.5, txt: 'Mid' }, { v: 0.875, txt: 'High' }];
+  // what counts as which. "Medium" widens the measured left margin below;
+  // on a very narrow chart that costs too much plot, so it falls back to "Mid".
+  const narrow = (svg.getBoundingClientRect().width || BAR_VIEW_W) < INTENSITY_NARROW_PX;
+  const AXIS_LABELS = [{ v: 0.125, txt: 'Low' }, { v: 0.5, txt: narrow ? 'Mid' : 'Medium' }, { v: 0.875, txt: 'High' }];
 
   // Measured, not guessed — same principle the x-axis labels already use,
   // just applied to the y-axis: whichever word is widest sets the left
@@ -982,6 +1186,8 @@ export function renderIntensityBarChart(svg, opts) {
   // set is logged — so the current week keeps its own real quartile color,
   // stripe and label both, instead of a fixed "not done yet" amber.
   let currentWeekColor = 'var(--text)';
+  const barEls = [];
+  const scrubItems = [];
   weeks.forEach((wk, i) => {
     const cx = xOfIndex(i);
     const h = Math.max(3, wk.value * plotH); // 3px floor keeps a 0-intensity week visible
@@ -998,7 +1204,14 @@ export function renderIntensityBarChart(svg, opts) {
     bar.setAttribute('height', h);
     bar.setAttribute('fill', fill);
     svg.appendChild(bar);
+
+    barEls.push(bar);
+    scrubItems.push({ x: cx, barTop: y, info: { point: wk, index: i } });
   });
 
   drawWeekAxisLabels(svg, weeks, xOfIndex, formatDate, M, currentWeekColor);
+
+  if (scrub) {
+    attachScrub(svg, { items: scrubItems, viewW: BAR_VIEW_W, top: M.top, bars: barEls, onChange: scrub.onChange });
+  }
 }
