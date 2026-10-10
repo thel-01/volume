@@ -886,15 +886,32 @@
       startRestGauge();
     }
 
+    /** created_at of the most recent set logged in this session, or null. */
+    function latestSessionSetMs() {
+      let latest = null;
+      for (const e of entries) {
+        for (const set of e.sets) {
+          const ms = new Date(set.created_at).getTime();
+          if (latest === null || ms > latest) latest = ms;
+        }
+      }
+      return latest;
+    }
+
     /** Ticks the expanded card's "time since last set" line, if it has one. */
     function startRestGauge() {
       if (restGaugeTimer) { clearInterval(restGaugeTimer); restGaugeTimer = null; }
       const gaugeEl = document.getElementById('rest-gauge');
       const expandedEntry = entries.find((e) => e.expanded);
-      if (!gaugeEl || !expandedEntry || expandedEntry.sets.length === 0) return;
+      if (!gaugeEl || !expandedEntry) return;
 
-      const lastSet = expandedEntry.sets[expandedEntry.sets.length - 1];
-      const lastSetMs = new Date(lastSet.created_at).getTime();
+      // An exercise with sets counts from its own last set; a freshly opened
+      // one counts from the last set anywhere in the session — the rest
+      // you're actually taking before it.
+      const lastSetMs = expandedEntry.sets.length > 0
+        ? new Date(expandedEntry.sets[expandedEntry.sets.length - 1].created_at).getTime()
+        : latestSessionSetMs();
+      if (lastSetMs === null) return;
       const tick = () => {
         const secs = Math.floor((Date.now() - lastSetMs) / 1000);
         gaugeEl.textContent = `${formatElapsed(secs)} since last set`;
@@ -1077,6 +1094,16 @@
         if (!commentField.hidden) comment.focus();
       });
 
+      // No sets here yet, but earlier exercises have some: still show the
+      // gauge (counting from the session's last set). Nothing to count from
+      // on the session's first exercise, so nothing shows there.
+      if (entry.sets.length === 0 && latestSessionSetMs() !== null) {
+        const gauge = document.createElement('p');
+        gauge.id = 'rest-gauge';
+        gauge.className = 'muted';
+        body.appendChild(gauge);
+      }
+
       // Sets logged so far this session.
       if (entry.sets.length > 0) {
         // Not a rest countdown — just how long it's been since the last set
@@ -1202,8 +1229,11 @@
 
       if (group) {
         const dateBadge = document.createElement('span');
-        dateBadge.className = 'badge';
-        dateBadge.textContent = group.startTime ? formatDate(group.startTime) : '';
+        // Today's own sets are the best on record: say so in --live amber
+        // rather than showing today's date like any other session.
+        const isToday = group.sessionId === session.id;
+        dateBadge.className = isToday ? 'badge badge-warning' : 'badge';
+        dateBadge.textContent = isToday ? 'Today' : (group.startTime ? formatDate(group.startTime) : '');
         header.appendChild(dateBadge);
       } else {
         const none = document.createElement('span');
