@@ -203,7 +203,7 @@ body {
 
 label {
   display: block;
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   font-size: 14px;
   color: var(--muted);
 }
@@ -265,7 +265,6 @@ button.live { background: var(--live); color: var(--accent-ink); }
 button.secondary {
   background: var(--surface-2);
   color: var(--text);
-  border: 1px solid var(--line);
 }
 
 /* Demo-account notice — a .status.info (defined below) injected at the top
@@ -294,7 +293,7 @@ button.secondary {
   align-items: flex-start;
   gap: var(--space-2);
   margin-top: var(--space-4);
-  padding: var(--space-3) 14px;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
   font-size: 15px;
   border: 1px solid transparent;
@@ -342,7 +341,7 @@ button.secondary {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  padding: var(--space-3) 14px;
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
   font-size: 15px;
   border: 1px solid transparent;
@@ -376,10 +375,12 @@ button.secondary {
 .toast-body { flex: 1; min-width: 0; }
 .toast-detail { font-size: var(--fs-xs); color: var(--muted); margin-top: 3px; line-height: 1.4; }
 .toast-actions { margin-top: var(--space-2); }
+/* Undo sits in the toast's text flow, so it gets .link-button's 36px
+   tap floor rather than a full 56px box. */
 .toast-action {
   width: auto;
   flex: 0 0 auto;
-  min-height: auto;
+  min-height: 36px;
   padding: 0;
   background: none;
   border: none;
@@ -399,6 +400,16 @@ button.secondary {
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+}
+/* The × stays a small corner glyph; an invisible 56x56 ::after carries
+   the tap target, same as .info-btn. */
+.toast-close { position: relative; }
+.toast-close::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: var(--tap); height: var(--tap);
+  transform: translate(-50%, -50%);
 }
 
 /* ---------------------------------------------------------------------
@@ -477,7 +488,6 @@ button.secondary {
   min-height: 0;
   padding: 0;
   background: var(--surface-2);
-  border: 1px solid var(--line);
   color: var(--text);
   font-size: 20px;
   line-height: 1;
@@ -488,7 +498,7 @@ button.secondary {
 .stepper-row { display: flex; align-items: center; gap: var(--space-3); }
 /* touch-action: manipulation stops the browser from treating quick repeated
    taps as a double-tap-to-zoom gesture, without disabling pinch-zoom app-wide */
-.stepper-btn { width: var(--tap); height: var(--tap); min-height: 0; padding: 0; flex: 0 0 auto; font-size: 22px; font-weight: 400; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); touch-action: manipulation; }
+.stepper-btn { width: var(--tap); height: var(--tap); min-height: 0; padding: 0; flex: 0 0 auto; font-size: 22px; font-weight: 400; background: var(--surface-2); color: var(--text); border-radius: var(--radius); touch-action: manipulation; }
 .stepper-value { flex: 1; text-align: center; }
 .stepper-value .value { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; }
 .stepper-value .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); margin-left: var(--space-1); }
@@ -521,7 +531,7 @@ button.secondary {
    this box changes, not anything after it. */
 .pain-readout .value .pain-num { display: inline-block; min-width: 2ch; text-align: right; }
 
-.pain-label-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 6px; }
+.pain-label-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
 .pain-label-row label { margin: 0; }
 /* Stays visually small next to the big number — 56px here would swamp
    the row. Tap target still reaches 56x56 via the invisible ::after,
@@ -533,7 +543,6 @@ button.secondary {
   padding: 0;
   border-radius: 50%;
   background: var(--surface-2);
-  border: 1px solid var(--line);
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -551,7 +560,7 @@ button.secondary {
   width: var(--tap); height: var(--tap);
   transform: translate(-50%, -50%);
 }
-.pain-info-row { display: flex; gap: var(--space-3); padding: 10px 0; border-top: 1px solid var(--line); }
+.pain-info-row { display: flex; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--line); }
 .pain-info-row:first-of-type { border-top: none; }
 .pain-info-num { flex: 0 0 auto; width: 44px; font-family: var(--font-mono); font-size: var(--fs-base); color: var(--muted); padding-top: 1px; }
 .pain-info-text { font-size: var(--fs-base); }
@@ -617,7 +626,7 @@ button.secondary {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: var(--space-3) var(--space-2) 6px;
+  padding: var(--space-3) var(--space-2) var(--space-2);
 }
 .chart-card svg { display: block; width: 100%; height: auto; }
 .donut-card svg { max-width: 200px; margin: 0 auto; }
@@ -629,11 +638,11 @@ button.secondary {
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-3);
-  margin-top: 10px;
+  margin-top: var(--space-3);
   color: var(--muted);
   font-size: 12px;
 }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: var(--space-2); }
 /* Same author-display-beats-[hidden] gap as .reference-line and
    .modal-backdrop: without this, exercise-trend.html's `legend.hidden = …`
    never actually hid anything (a lone "Set 1" legend kept showing). */
@@ -685,7 +694,7 @@ button.secondary {
 textarea,
 select {
   width: 100%;
-  padding: 14px var(--space-4);
+  padding: var(--space-4);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -724,7 +733,6 @@ button.danger { background: var(--danger); color: #fff; }
 button.danger.secondary {
   background: var(--surface-2);
   color: var(--danger);
-  border-color: var(--status-error-border);
 }
 
 .tabs {
@@ -810,12 +818,12 @@ button.danger.secondary {
   flex: 0 0 auto; width: 40px; height: 40px; min-width: 40px; min-height: 40px;
   padding: 0; margin: 0;
   display: flex; align-items: center; justify-content: center;
-  border-radius: var(--radius); border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface-2); color: var(--muted); cursor: pointer;
   -webkit-tap-highlight-color: transparent; transition: transform var(--motion-fast);
 }
 .row-toggle:active { transform: scale(0.94); }
-.row-toggle.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.row-toggle.active { background: var(--accent); color: var(--accent-ink); }
 .row-toggle svg { display: block; pointer-events: none; }
 
 /* Single-line ellipsis for a .list-item-body child whose text length isn't
@@ -830,7 +838,6 @@ button.danger.secondary {
   padding: 1px 5px;
   border-radius: var(--radius);
   background: var(--surface-2);
-  border: 1px solid var(--line);
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
@@ -845,7 +852,6 @@ button.danger.secondary {
 .badge-warning {
   background: var(--live);
   color: var(--accent-ink);
-  border-color: var(--live);
 }
 
 /* Same solid-fill treatment as .badge-warning, --danger instead of --live
@@ -855,7 +861,6 @@ button.danger.secondary {
 .badge-danger {
   background: var(--danger);
   color: #fff;
-  border-color: var(--danger);
 }
 
 .empty-state {
@@ -960,7 +965,7 @@ button.danger.secondary {
    .chips rule itself, since a tag pokes ~20px above its own chip and most
    chip rows never show one; adding this everywhere would push every plain
    chip row in the app down for no reason. */
-.chips.tagged-chips { margin-top: 18px; }
+.chips.tagged-chips { margin-top: var(--space-5); }
 
 /* Bodyweight mode row — Assist / BW / Weight / Level (log.html, and the
    add/edit-set forms in history.html). Four chips on one row only just fit
@@ -998,7 +1003,6 @@ button.danger.secondary {
   padding: 0;
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-2);
-  border: 1px solid var(--line);
   color: var(--text);
 }
 .level-move:disabled { opacity: 0.25; }
@@ -1093,7 +1097,7 @@ button.danger.secondary {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 10px 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
   font-size: 15px;
 }
@@ -1138,7 +1142,7 @@ button.danger.secondary {
 .arm-confirm-btn {
   width: auto;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border-radius: var(--radius);
   background: transparent;
   border: 1px solid var(--line);
@@ -1202,7 +1206,7 @@ button.danger.secondary {
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 10px 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
   font-size: 15px;
 }

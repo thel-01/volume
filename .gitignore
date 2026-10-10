@@ -12,3 +12,5 @@ reskin-decisions.md
 # Living design stylebook — the source of truth for tokens/components,
 # kept locally, not shipped with the app.
 stylebook.html
+# Archive of content pruned from the stylebook — local, for review only.
+stylebook-delete.html

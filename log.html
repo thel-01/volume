@@ -48,7 +48,7 @@
           <div id="session-clock" class="session-bar-clock">—</div>
         </div>
         <button id="end-session-btn" class="secondary uppercase" type="button"
-                style="width:auto;min-height:var(--tap);padding:0 16px;flex:0 0 auto;">End</button>
+                style="width:auto;min-height:var(--tap);padding:0 var(--space-4);flex:0 0 auto;">End</button>
       </div>
 
       <div id="session-exercises"></div>
@@ -1058,7 +1058,7 @@
       if (entry.isExtra) {
         const extraNote = document.createElement('p');
         extraNote.className = 'muted';
-        extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
+        extraNote.style.cssText = 'margin:var(--space-2) 0 0;font-size:13px;';
         extraNote.textContent = "Not today's focus. It's just shown as its own slice in the volume chart instead of this session's category.";
         commentField.appendChild(extraNote);
       }
@@ -1580,7 +1580,7 @@
         sideWrap.style.marginTop = 'var(--space-3)';
         const sideLabel = document.createElement('p');
         sideLabel.className = 'muted';
-        sideLabel.style.margin = '0 0 6px';
+        sideLabel.style.margin = '0 0 var(--space-2)';
         sideLabel.textContent = 'Limiting side';
         sideWrap.appendChild(sideLabel);
         sideChips = document.createElement('div');

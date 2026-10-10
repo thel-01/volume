@@ -265,7 +265,7 @@
     function buildBodyweightModeField(container, initialDirection, initialMagnitude, exerciseId, initialLevelId = null) {
       const modeChips = document.createElement('div');
       modeChips.className = 'chips bw-modes';
-      modeChips.style.margin = '10px 0';
+      modeChips.style.margin = 'var(--space-3) 0';
       container.appendChild(modeChips);
 
       // Level chips — offered only when this exercise has levels to pick
@@ -301,7 +301,7 @@
         if (direction !== 'level') return;
         const row = document.createElement('div');
         row.className = 'chips';
-        row.style.margin = '0 0 10px';
+        row.style.margin = '0 0 var(--space-3)';
         for (const lvl of levelOptions) {
           const chip = document.createElement('button');
           chip.type = 'button';
@@ -685,7 +685,7 @@
       // Editable here too, not just live: this is exactly where you'd
       // retroactively flag a set you only recognized as a bonus afterward.
       const commentRow = document.createElement('div');
-      commentRow.style.cssText = 'display:flex;gap:var(--space-3);align-items:flex-start;margin-top:4px;';
+      commentRow.style.cssText = 'display:flex;gap:var(--space-3);align-items:flex-start;margin-top:var(--space-1);';
       const textareaWrap = document.createElement('div');
       textareaWrap.style.cssText = 'flex:1;min-width:0;';
       const comment = document.createElement('textarea');
@@ -706,7 +706,7 @@
       // Only worth the explanation once it's actually on.
       const extraNote = document.createElement('p');
       extraNote.className = 'muted';
-      extraNote.style.cssText = 'margin:6px 0 0;font-size:13px;';
+      extraNote.style.cssText = 'margin:var(--space-2) 0 0;font-size:13px;';
       extraNote.textContent = "Not that day's focus. It's just shown as its own slice in the volume chart instead of that session's category.";
       extraNote.hidden = !se.is_extra;
       commentField.appendChild(extraNote);
@@ -928,7 +928,7 @@
       let activeTag = null;
       const chips = document.createElement('div');
       chips.className = 'chips';
-      chips.style.margin = '10px 0';
+      chips.style.margin = 'var(--space-3) 0';
       for (const tag of QUICK_TAGS) {
         const chip = document.createElement('button');
         chip.type = 'button';
@@ -1213,7 +1213,7 @@
       let activeTag = set.quick_tag || null;
       const chips = document.createElement('div');
       chips.className = 'chips';
-      chips.style.margin = '10px 0';
+      chips.style.margin = 'var(--space-3) 0';
       for (const tag of QUICK_TAGS) {
         const chip = document.createElement('button');
         chip.type = 'button';

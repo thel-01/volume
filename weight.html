@@ -71,7 +71,7 @@
     /* align-items:center, not flex-start — the "?" circle's own center
        should line up with the text's center, whether the text holds to one
        line or (rarely) wraps to two. */
-    .noise-row { display: flex; align-items: center; gap: 8px; margin-top: var(--space-3); }
+    .noise-row { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
     /* flex:1 + min-width:0 so this actually wraps under the fixed-width "?"
        when it's too long, instead of the default flex-item behavior of
        refusing to shrink below its own unwrapped content width and
@@ -1358,7 +1358,7 @@ Here's my data:
 
         const name = document.createElement('div');
         name.className = 'list-item-name';
-        name.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        name.style.cssText = 'display:flex;align-items:center;gap:var(--space-2);';
         name.innerHTML = `<span class="badge badge-danger" style="margin-left:0;">${REASON_LABEL[row.reasonCode] || 'skipped'}</span>`;
         name.appendChild(buildImportInfoBtn('Why was this skipped?', () => importReasonModalOpen('Why this row was skipped', row.reason)));
         body.appendChild(name);
@@ -1387,7 +1387,7 @@ Here's my data:
 
       const name = document.createElement('div');
       name.className = 'list-item-name';
-      name.style.cssText = 'display:flex;align-items:center;gap:6px;';
+      name.style.cssText = 'display:flex;align-items:center;gap:var(--space-2);';
       name.innerHTML = `<span>${row.weightKg.toFixed(1)} kg</span>`;
       if (badgeInfo) name.innerHTML += `<span class="badge ${badgeInfo.cls}" style="margin-left:0;">${badgeInfo.label}</span>`;
       if (badgeInfo) name.appendChild(buildImportInfoBtn('What does this mean?', () => importReasonModalOpen('Why this is flagged', badgeInfo.explain(row))));

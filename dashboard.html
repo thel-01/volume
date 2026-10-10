@@ -17,7 +17,7 @@
   <style>
     /* Value / label+info / change, each its own line — same stacked shape
        .weight-hero below uses; modeled directly off it. */
-    .index-hero { margin-bottom: 16px; display: flex; flex-direction: column; gap: 3px; }
+    .index-hero { margin-bottom: var(--space-4); display: flex; flex-direction: column; gap: 3px; }
     .index-hero .label-row { display: flex; align-items: center; gap: var(--space-2); }
     .index-value {
       font-family: var(--font-mono);
@@ -39,7 +39,7 @@
     .stat-row {
       display: flex;
       gap: 22px;
-      margin-bottom: 14px;
+      margin-bottom: var(--space-4);
       flex-wrap: wrap;
     }
     .stat { display: flex; flex-direction: column; gap: 3px; }
@@ -78,7 +78,7 @@
     }
     /* Value / label+info / change, each its own line — same stacked shape
        weight.html's own stat blocks already use. */
-    .weight-hero { margin-bottom: 16px; display: flex; flex-direction: column; gap: 3px; }
+    .weight-hero { margin-bottom: var(--space-4); display: flex; flex-direction: column; gap: 3px; }
     .weight-hero .label-row { display: flex; align-items: center; gap: var(--space-2); }
 
   </style>
@@ -125,7 +125,7 @@
         <div class="chart-card" id="index-chart-card" style="margin-bottom:var(--space-3);">
           <svg id="index-chart" viewBox="0 0 340 180" role="img" aria-label="Composite strength index over time"></svg>
         </div>
-        <a href="./progress.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
+        <a href="./progress.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding-right:var(--space-4);text-decoration:none;color:inherit;">
           <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
             <div class="stat">
               <div class="stat-visual"><span class="stat-value lg" id="pr-count">—</span></div>
@@ -136,8 +136,8 @@
         </a>
       </div>
 
-      <p class="section-label" style="margin-top:24px;">Volume &amp; Intensity</p>
-      <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
+      <p class="section-label" style="margin-top:var(--space-6);">Volume &amp; Intensity</p>
+      <a href="./volume.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding-right:var(--space-4);text-decoration:none;color:inherit;">
         <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
           <div class="stat">
             <div class="stat-visual"><span class="stat-value lg" id="volume-this-week">—</span></div>
@@ -159,7 +159,7 @@
 
       <p class="section-label">Injury Journal</p>
       <div id="injury-slot"></div>
-      <a href="./injuries.html" class="card" style="display:flex;align-items:center;gap:12px;padding-right:var(--space-4);text-decoration:none;color:inherit;">
+      <a href="./injuries.html" class="card" style="display:flex;align-items:center;gap:var(--space-3);padding-right:var(--space-4);text-decoration:none;color:inherit;">
         <div class="stat-row" style="flex:1;margin-bottom:0;gap:30px;">
           <div class="stat">
             <div class="stat-visual"><span class="stat-value lg" id="injury-count">—</span></div>
@@ -239,8 +239,8 @@
           <textarea id="update-note" placeholder="Add anything worth remembering"></textarea>
         </div>
       </div>
-      <div id="update-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
-      <div class="btn-row" style="margin-top:12px;">
+      <div id="update-status" class="status" role="status" aria-live="polite" hidden style="margin-top:var(--space-4);"></div>
+      <div class="btn-row" style="margin-top:var(--space-3);">
         <button type="button" class="secondary" style="color:var(--muted);" id="update-resolve">Resolve</button>
         <button type="button" class="uppercase" id="update-log">Log update</button>
       </div>
@@ -305,8 +305,8 @@
         <div class="stepper-value"><span class="value" id="weight-quicklog-value">0.0<span class="unit">kg</span></span></div>
         <button type="button" class="stepper-btn" id="weight-quicklog-plus" aria-label="Increase by 0.1 kg">+</button>
       </div>
-      <div id="weight-quicklog-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
-      <button type="button" class="uppercase" id="weight-quicklog-save" style="margin-top:20px;">Save</button>
+      <div id="weight-quicklog-status" class="status" role="status" aria-live="polite" hidden style="margin-top:var(--space-4);"></div>
+      <button type="button" class="uppercase" id="weight-quicklog-save" style="margin-top:var(--space-5);">Save</button>
     </div>
   </div>
 
@@ -327,8 +327,8 @@
       <p id="start-workout-no-types" class="muted" style="margin:calc(-1 * var(--space-2)) 0 var(--space-4);" hidden>
         No session types yet. Add some in Settings, or pick Other for now.
       </p>
-      <div id="start-workout-status" class="status" role="status" aria-live="polite" hidden style="margin-top:16px;"></div>
-      <button type="button" class="uppercase" id="start-workout-save" style="margin-top:20px;" disabled>Start workout</button>
+      <div id="start-workout-status" class="status" role="status" aria-live="polite" hidden style="margin-top:var(--space-4);"></div>
+      <button type="button" class="uppercase" id="start-workout-save" style="margin-top:var(--space-5);" disabled>Start workout</button>
     </div>
   </div>
 

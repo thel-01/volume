@@ -62,7 +62,7 @@
         </li>
       </ul>
 
-      <p class="section-label" style="margin-top:24px;">Bodyweight trend</p>
+      <p class="section-label" style="margin-top:var(--space-6);">Bodyweight trend</p>
       <div class="label-row">
         <p class="muted">Choose how your bodyweight trend line is calculated.</p>
         <button type="button" class="info-btn" id="trend-info-trigger" aria-label="How is this calculated?">?</button>
@@ -273,7 +273,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'secondary';
-      btn.style.cssText = 'width:auto;min-height:40px;padding:0 16px;flex:0 0 auto;';
+      btn.style.cssText = 'width:auto;min-height:40px;padding:0 var(--space-4);flex:0 0 auto;';
       btn.textContent = label;
       return btn;
     }
