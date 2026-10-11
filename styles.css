@@ -1,5 +1,10 @@
 /* Shared base styles. Mobile-first: sized for a phone held one-handed. */
 
+/* Any author `display` rule (.btn-row's flex, .chips' flex…) beats the
+   browser's own [hidden] rule, so a hidden element would stay visible.
+   This makes `hidden` always win, app-wide. */
+[hidden] { display: none !important; }
+
 /* ---------------------------------------------------------------------
    Fonts — self-hosted (not a Google Fonts CDN link), since this is an
    offline-capable PWA with a versioned service-worker cache and an

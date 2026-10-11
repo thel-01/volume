@@ -70,6 +70,10 @@ export function parseDateCell(raw) {
   if (!m) return null;
   const mm = Number(m[2]), dd = Number(m[3]);
   if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  // Reject dates the calendar doesn't have (Feb 30, Feb 29 off a leap
+  // year) — Date would silently roll them into the next month.
+  const d = new Date(Date.UTC(Number(m[1]), mm - 1, dd));
+  if (d.getUTCMonth() !== mm - 1 || d.getUTCDate() !== dd) return null;
   return raw.trim();
 }
 

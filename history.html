@@ -80,6 +80,7 @@
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { isBodyweightEquivalent } from './strength-index.js';
     import { showToast } from './toast.js';
+    import { parseCount, parseKg } from './number-input.js';
     import { fetchLevels, levelsFor, describeLevelSet } from './levels.js';
 
     const QUICK_TAGS = [
@@ -963,14 +964,14 @@
         const payload = { session_id: currentSessionId, exercise_id: entry.exercise.id, session_exercise_id: entry.sessionExercise.id };
 
         if (type === 'time_based') {
-          const secs = parseInt(durationInput.value.trim(), 10);
+          const secs = parseCount(durationInput.value);
           if (!Number.isFinite(secs) || secs <= 0) {
             show(addStatus, 'error', 'Enter a duration in seconds.');
             return;
           }
           payload.duration_seconds = secs;
         } else if (type === 'bodyweight') {
-          const reps = parseInt(repsInput.value.trim(), 10);
+          const reps = parseCount(repsInput.value);
           if (!Number.isFinite(reps) || reps <= 0) {
             show(addStatus, 'error', 'Enter how many reps.');
             return;
@@ -989,7 +990,7 @@
             payload.level_id = bwMode.getLevelId();
           } else if (direction !== 'none') {
             const raw = bwMode.magnitudeInput.value.trim().replace(',', '.');
-            magnitude = raw === '' ? 0 : parseFloat(raw);
+            magnitude = raw === '' ? 0 : parseKg(raw);
             if (!Number.isFinite(magnitude) || magnitude < 0) {
               show(addStatus, 'error', 'Enter a number, 0 or more.');
               return;
@@ -1001,13 +1002,13 @@
           payload.reps = reps;
         } else {
           const rawWeight = weightInput.value.trim().replace(',', '.');
-          const reps = parseInt(repsInput.value.trim(), 10);
+          const reps = parseCount(repsInput.value);
           if (!Number.isFinite(reps) || reps <= 0) {
             show(addStatus, 'error', 'Enter how many reps.');
             return;
           }
           if (rawWeight !== '') {
-            const w = parseFloat(rawWeight);
+            const w = parseKg(rawWeight);
             if (!Number.isFinite(w) || w < 0) {
               show(addStatus, 'error', 'Weight must be a number, 0 or more.');
               return;
@@ -1261,7 +1262,7 @@
         const payload = {};
 
         if (type === 'time_based') {
-          const secs = parseInt(durationInput.value.trim(), 10);
+          const secs = parseCount(durationInput.value);
           if (!Number.isFinite(secs) || secs <= 0) {
             show(editStatus, 'error', 'Enter a duration in seconds.');
             return;
@@ -1270,7 +1271,7 @@
           payload.weight = null;
           payload.reps = null;
         } else if (type === 'bodyweight') {
-          const reps = parseInt(repsInput.value.trim(), 10);
+          const reps = parseCount(repsInput.value);
           if (!Number.isFinite(reps) || reps <= 0) {
             show(editStatus, 'error', 'Enter how many reps you did.');
             return;
@@ -1284,7 +1285,7 @@
             }
           } else if (direction !== 'none') {
             const raw = bwMode.magnitudeInput.value.trim().replace(',', '.');
-            magnitude = raw === '' ? 0 : parseFloat(raw);
+            magnitude = raw === '' ? 0 : parseKg(raw);
             if (!Number.isFinite(magnitude) || magnitude < 0) {
               show(editStatus, 'error', 'Enter a number, 0 or more.');
               return;
@@ -1301,13 +1302,13 @@
           payload.duration_seconds = null;
         } else {
           const rawWeight = weightInput.value.trim().replace(',', '.');
-          const reps = parseInt(repsInput.value.trim(), 10);
+          const reps = parseCount(repsInput.value);
           if (!Number.isFinite(reps) || reps <= 0) {
             show(editStatus, 'error', 'Enter how many reps you did.');
             return;
           }
           if (rawWeight !== '') {
-            const w = parseFloat(rawWeight);
+            const w = parseKg(rawWeight);
             if (!Number.isFinite(w) || w < 0) {
               show(editStatus, 'error', 'Weight must be a number, 0 or more.');
               return;
@@ -1328,6 +1329,9 @@
         }
 
         payload.quick_tag = activeTag;
+        // A limiting side only means something next to Hard or Failure —
+        // retagging to Easy (or no tag) drops the old side with it.
+        if (activeTag !== 'hard' && activeTag !== 'failure') payload.limiting_side = null;
 
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving…';

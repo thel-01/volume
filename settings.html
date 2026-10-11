@@ -817,7 +817,11 @@
 
     async function addSessionType(rawName, triggerEl) {
       const name = rawName.trim();
-      if (!name) return;
+      if (!name) {
+        show(stStatus, 'error', 'Enter a name first.');
+        stCustomInput.focus();
+        return;
+      }
       if (sessionTypes.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
         show(stStatus, 'error', `"${name}" is already in your list.`);
         return;

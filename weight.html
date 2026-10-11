@@ -385,6 +385,7 @@
   <script type="module">
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
+    import { parseKg } from './number-input.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { showToast } from './toast.js';
     import {
@@ -1061,10 +1062,13 @@
     // Writes
     // ------------------------------------------------------------------
     function parseWeight(raw) {
-      const value = Number(String(raw).replace(',', '.').trim());
+      const value = parseKg(raw);
       if (!isFinite(value)) return { error: 'Enter a weight, e.g. 80.5' };
-      if (value <= 20 || value >= 500) return { error: 'That does not look like a bodyweight in kg.' };
-      return { value: Math.round(value * 10) / 10 };
+      // Range-check the rounded value — that's what gets saved, and the
+      // database rejects anything at or outside 20–500.
+      const rounded = Math.round(value * 10) / 10;
+      if (rounded <= 20 || rounded >= 500) return { error: 'That does not look like a bodyweight in kg.' };
+      return { value: rounded };
     }
 
     async function saveNew() {
@@ -1075,6 +1079,7 @@
       const timeStr = newTime.value;
       let measuredAt = new Date();
       let timeKnown = true;
+      if (timeStr && !dateStr) { show(addStatus, 'error', 'Pick a date for that time.'); return; }
       if (dateStr) {
         // Date given without a time: stamp local midday and say so, rather
         // than pretending you weighed yourself at midnight.
