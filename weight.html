@@ -798,6 +798,9 @@
       }
       emptyEntries.hidden = true;
       entryList.hidden = false;
+      // Before any early return below — the list shows every weigh-in, even
+      // while there's too little history for a chart.
+      renderEntries();
 
       const ascending = [...entries].sort((a, b) => new Date(a.measured_at) - new Date(b.measured_at));
 
@@ -913,8 +916,6 @@
         <span><i style="background:var(--live)"></i>${trendLabel[0].toUpperCase()}${trendLabel.slice(1)}</span>
         <span><i class="dot" style="background:var(--muted)"></i>Reading</span>`;
       legend.hidden = trend.length === 0;
-
-      renderEntries();
     }
 
     function renderEntries() {
