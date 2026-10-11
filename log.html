@@ -1821,7 +1821,12 @@
 
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving…';
-        const { data, error } = await supabase.from('body_weights').insert({ weight_kg: w }).select().single();
+        const { data, error } = await supabase.from('body_weights').insert({
+          user_id: user.id,
+          weight_kg: w,
+          measured_at: new Date().toISOString(),
+          time_known: true,
+        }).select().single();
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save bodyweight';
 
