@@ -1,5 +1,5 @@
 // Bump on deployment. Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",

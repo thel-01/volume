@@ -1274,9 +1274,8 @@ export function renderDayBarChart(svg, { days, goalLine = true, scrub } = {}) {
       previousGoal = goal;
     });
     // The line slices through the bars instead of lying on them: a wider
-    // stroke in the chart's background color cuts a gap, then the solid grey
-    // line is drawn in that gap.
-    // A dashed line's gap follows the same dashes, so the bar shows between them.
+    // stroke in the chart's background color cuts one solid gap, then the
+    // dashed green line is drawn in that gap.
     const dash = '14 5';
     const color = 'var(--ok)';
     const layers = [['var(--surface)', 5.5], [color, 1.5]];
@@ -1286,7 +1285,7 @@ export function renderDayBarChart(svg, { days, goalLine = true, scrub } = {}) {
         'stroke-linecap': 'butt',
         'vector-effect': 'non-scaling-stroke', 'pointer-events': 'none',
       });
-      if (dash && !(goalStyle.gap === 'full' && stroke === 'var(--surface)')) el.setAttribute('stroke-dasharray', dash);
+      if (stroke !== 'var(--surface)') el.setAttribute('stroke-dasharray', dash);
       svg.appendChild(el); goalEls.push(el);
     }
   }
