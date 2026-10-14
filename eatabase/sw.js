@@ -1,5 +1,5 @@
-// Bump on deployment. Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v5';
+// Bump on EVERY deployment that changes any shell file. Eatabase owns only its own caches, alongside Volume.
+const VERSION = 'v6';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -62,8 +62,9 @@ const APP_SHELL = [
 ];
 const assets = new Set(APP_SHELL.map(path => new URL(path, self.location).href));
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL.map(path => new Request(new URL(path, self.location), { cache: 'reload' })))));
 });
+// Let existing tabs finish using the previous version before activation.
 self.addEventListener('activate', event => {
   event.waitUntil(caches.keys().then(names => Promise.all(names.filter(name => name.startsWith('eatabase-') && name !== CACHE).map(name => caches.delete(name)))).then(() => self.clients.claim()));
 });
@@ -75,14 +76,18 @@ self.addEventListener('fetch', event => {
   if (!navigation && !assets.has(url.href)) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
+    // Install fills one complete version before activating. Serve that same
+    // version's HTML and modules together, without a network wait per import.
+    // Query strings select page state, not a different static document.
+    const assetURL = new URL(request.url); assetURL.search = ''; assetURL.hash = '';
+    if (assets.has(assetURL.href)) {
+      const cached = await cache.match(assetURL.href);
+      if (cached) return cached;
+    }
     try {
-      // Revalidate with the server: the HTTP cache (GitHub Pages keeps files ~10 min) could
-      // otherwise pair a fresh page with a stale script it imports.
-      const response = await fetch(request, { cache: 'no-cache' });
-      if (response.ok && response.type === 'basic') await cache.put(request, response.clone());
-      return response;
+      return await fetch(request, { cache: 'no-cache' });
     } catch {
-      return await cache.match(request) || (navigation ? await cache.match('./offline.html') : Response.error());
+      return (navigation ? await cache.match('./offline.html') : null) || Response.error();
     }
   })());
 });

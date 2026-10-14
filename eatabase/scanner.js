@@ -1,5 +1,4 @@
-// Keep the tuned camera and decoder together, so scanning stays instant when
-// the food sheet moves between tabs without asking for camera permission again.
+// Keep the decoder warm, but release the camera whenever Scan is hidden.
 
 const VARIANTS = ['normal', 'invert', 'normal', 'histogram'];
 
@@ -24,7 +23,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     style.setAttribute('data-scn-style', '');
     style.textContent = `
       .scn-container { position:relative; overflow:hidden; background:var(--surface,#111); }
-      .scn-video { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:block; max-width:none; max-height:none; visibility:hidden; }
+      .scn-video { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:block; width:100%; height:100%; object-fit:cover; max-width:none; max-height:none; visibility:hidden; }
       .scn-video.scn-fit { visibility:visible; }
       .scn-guide { box-sizing:content-box; position:absolute; left:50%; top:50%; width:72%; aspect-ratio:1; transform:translate(-50%,-50%); border:2px solid rgba(255,255,255,.55); border-radius:10px; transition:border-color .08s; pointer-events:none; }
       .scn-guide.scn-hit { border-color:#3ddc84; box-shadow:0 0 0 9999px rgba(61,220,132,.18); }
@@ -95,9 +94,8 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     if (fitW && (vw !== fitW || vh !== fitH)) { hideVideo(); revealWhenStable(); }
     if (vw === fitW && vh === fitH && box.width === fitBoxW && box.height === fitBoxH) return;
     fitW = vw; fitH = vh; fitBoxW = box.width; fitBoxH = box.height;
-    const scale = Math.max(box.width / vw, box.height / vh);
-    video.style.width = `${vw * scale}px`;
-    video.style.height = `${vh * scale}px`;
+    // CSS object-fit crops every painted frame, including iOS orientation changes
+    // that arrive before the video's resize event. No stale pixel dimensions.
   }
   video.addEventListener('resize', fitVideo);
   video.addEventListener('loadedmetadata', fitVideo);
@@ -114,9 +112,11 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     if (!box.width || !box.height || !v.width || !v.height || !g.width || !g.height) return null;
     // The drawn guide is the decoded region, even when the video overflows.
     const r = { x: g.left - box.left, y: g.top - box.top, w: g.width, h: g.height };
-    const scale = v.width / vw;
-    const sx = (box.left + r.x - v.left) / scale, sw = r.w / scale;
-    const sy = (box.top + r.y - v.top) / scale, sh = r.h / scale;
+    const scale = Math.max(v.width / vw, v.height / vh);
+    const left = v.left + (v.width - vw * scale) / 2;
+    const top = v.top + (v.height - vh * scale) / 2;
+    const sx = (box.left + r.x - left) / scale, sw = r.w / scale;
+    const sy = (box.top + r.y - top) / scale, sh = r.h / scale;
     const k = Math.min(1, 1000 / Math.max(sw, sh));
     canvas.width = Math.round(sw * k); canvas.height = Math.round(sh * k);
     if (!canvas.width || !canvas.height) return null;
@@ -240,7 +240,8 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
       await target.applyConstraints({ advanced: [{ torch: !!on }] });
       if (target === track && wanted) updateTorch(!!on);
     } catch (cause) {
-      if (target === track) updateTorch(false);
+      if (target !== track || !wanted) return;
+      updateTorch(false);
       const error = new Error("Flash isn't available on this camera.");
       error.name = cause?.name || 'Error';
       onError(error);
@@ -256,7 +257,6 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     watchdog = null;
     wanted = true;
     const token = ++generation;
-    const restoreTorch = torchOn;
     const cancelled = () => token !== generation || !wanted;
     const operation = (async () => {
       let acquired;
@@ -296,8 +296,6 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
           // A refused zoom must not fail the whole start: 1× is iOS's default anyway.
           await track.applyConstraints({ advanced: [{ zoom: Math.min(caps.zoom.max, Math.max(caps.zoom.min, 1)) }] }).catch(() => {});
         }
-        if (cancelled()) return;
-        if (restoreTorch) await setTorch(true);
         if (cancelled()) return;
         fitVideo();
         revealWhenStable();
@@ -340,8 +338,15 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     cancelLoop();
     win.clearInterval(watchdog);
     watchdog = null;
+    // Best effort explicit flash-off as well as stopping every track. Never wait
+    // for constraints before releasing hardware (pagehide cannot await cleanup).
+    if (track?.readyState === 'live') {
+      try { void track.applyConstraints({ advanced: [{ torch: false }] }).catch(() => {}); } catch {}
+    }
     stream?.getTracks().forEach(t => t.stop());
+    video.pause();
     stream = null; track = null; video.srcObject = null;
+    pending = null; lastCode = null; lastCodeAt = 0;
     hideVideo(); fitW = fitH = 0;
     paused = false;
     updateTorch(false);

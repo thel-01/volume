@@ -4,8 +4,8 @@ import * as store from './store.js';
 pageHeader('History','./settings.html','Back to settings');
 async function load() {
   try {
-    const settings = await store.getSettings(), nutrient = trackedNutrients(settings)[0];
-    const entries = await store.entriesBetween('0001-01-01', shiftDay(localDay(), -1));
+    const [settings, entries] = await Promise.all([store.getSettings(), store.entriesBetween('0001-01-01', shiftDay(localDay(), -1))]);
+    const nutrient = trackedNutrients(settings)[0];
     const groups = new Map();
     for (const entry of entries) {
       if (!groups.has(entry.day)) groups.set(entry.day, []);

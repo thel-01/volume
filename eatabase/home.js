@@ -33,9 +33,10 @@ async function loadOverview() {
   loading('overview-status'); $('analytics-preview').hidden = true;
   try {
     const today = localDay(); observedToday = today;
-    const [settings, history, entries, firstDay, todayEntries] = await Promise.all([
-      store.getSettings(), store.getGoalHistory(), store.entriesBetween(shiftDay(today, -27), today), store.firstLoggedDay(), store.listEntries(today),
+    const [settings, history, entries, firstDay] = await Promise.all([
+      store.getSettings(), store.getGoalHistory(), store.entriesBetween(shiftDay(today, -27), today), store.firstLoggedDay(),
     ]);
+    const todayEntries = entries.filter(entry => entry.day === today);
     const n = trackedNutrients(settings)[0], t = dayTotals(todayEntries)[n.key], g = settings.nutrients[n.key], st = goalStatus(n.key, t.value, g.goal, g.type);
     const value = t.missing === t.count && t.count ? '—' : `${t.missing ? '≥ ' : ''}${fmt(n.key, t.value)}`;
     const side = st ? `${fmt(n.key, Math.abs(st.left))} ${st.left >= 0 ? 'left' : 'over'}` : '';

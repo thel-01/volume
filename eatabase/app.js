@@ -19,7 +19,7 @@ let observedToday = localDay();
 let day = pastDay ? requestedDay : localDay(), settings, entries = [], remembered = [], ownFoods = [];
 let view = 'day', tab = 'search', step = null, returnStep = null, currentFood = null, editing = null;
 let selectedMeal = null, portions = 1, searchQuery = '', searchRows = [], searchVersion = 0, searchTimer;
-let bls = null, blsError = false, blsPromise, cameraTimer, cameraDeadline = 0, cameraPending;
+let bls = null, blsError = false, blsPromise, cameraPending, cameraRun = 0;
 let cameraMessage = '', scanCode = null, lookupVersion = 0, loadVersion = 0, writeBlocked = false;
 let dayScroll = 0, infoFocus = null;
 const productCache = new Map(), productPending = new Map();
@@ -206,7 +206,6 @@ function loadBls() {
   blsPromise = fetch('./bls-foods.json').then(r => { if (!r.ok) throw new Error('Unavailable'); return r.json(); }).then(json => { bls = prepareBls(json); }).catch(() => { blsError = true; }).finally(() => { if (view === 'add' && !step && tab === 'search') search(searchQuery); });
   return blsPromise;
 }
-loadBls();
 
 const scanner = createScanner({
   container: $('camera-container'),
@@ -217,39 +216,42 @@ function renderCameraStatus() {
   if (view === 'add' && !step && tab === 'scan') status('camera-status', cameraMessage, cameraMessage.includes('Starting') ? 'info' : 'error', cameraMessage && !cameraMessage.includes('Starting') ? () => warmCamera(true) : null);
   else status('camera-status');
 }
+const scanVisible = () => view === 'add' && !step && tab === 'scan' && !scanCode && !document.hidden;
 async function warmCamera(force = false) {
-  clearTimeout(cameraTimer); cameraDeadline = 0;
-  if (document.hidden) return;
-  if (cameraPending) { await cameraPending; syncCamera(); return; }
-  if (force) scanner.stop();
+  if (!scanVisible()) return;
+  if (force) parkCamera();
+  if (cameraPending) return cameraPending;
+  const run = ++cameraRun;
   cameraMessage = 'Starting camera…'; renderCameraStatus();
   cameraPending = (async () => {
-    try { const started = scanner.start(); scanner.pause(); await started; cameraMessage = ''; }
-    catch (error) { cameraMessage = error?.message || "Couldn't start the camera. Check camera access and try again."; }
-    finally { cameraPending = null; syncCamera(); renderCameraStatus(); }
+    try { await scanner.start(); if (run === cameraRun) cameraMessage = ''; }
+    catch (error) { if (run === cameraRun) cameraMessage = error?.message || "Couldn't start the camera. Check camera access and try again."; }
+    finally {
+      if (run === cameraRun) { cameraPending = null; syncCamera(); renderCameraStatus(); }
+    }
   })();
-  await cameraPending;
+  return cameraPending;
 }
 function syncCamera() {
-  const active = view === 'add' && !step && tab === 'scan' && !scanCode;
+  const active = scanVisible();
   $('camera-container').classList.toggle('parked', !active); $('camera-container').setAttribute('aria-hidden', String(!active));
-  if (active && !document.hidden && scanner.running) scanner.resume(); else scanner.pause();
-  // A delayed start must also respect a sheet closed while permission was pending.
-  if (view !== 'add' && !cameraDeadline && scanner.running) parkCamera();
+  if (active) { if (scanner.running) scanner.resume(); }
+  else parkCamera();
 }
 function parkCamera() {
-  scanner.pause(); $('camera-container').classList.add('parked'); $('camera-container').setAttribute('aria-hidden', 'true');
-  clearTimeout(cameraTimer); cameraDeadline = Date.now() + 120000;
-  cameraTimer = setTimeout(() => { scanner.stop(); }, 120000);
+  ++cameraRun; cameraPending = null;
+  scanner.stop();
+  $('camera-container').classList.add('parked'); $('camera-container').setAttribute('aria-hidden', 'true');
 }
 document.addEventListener('visibilitychange', () => {
-  // Back after a while: past 5:00 the day snaps back to today (loadDay enforces the scope).
   if (!document.hidden && !writeBlocked && (view === 'day' || observedToday !== localDay())) loadDay();
-  if (document.hidden) scanner.pause();
-  else if (view === 'add' && tab === 'scan' && !step) warmCamera();
-  else if (cameraDeadline && Date.now() >= cameraDeadline) scanner.stop();
+  if (document.hidden) parkCamera();
+  else if (scanVisible()) { syncCamera(); warmCamera(); }
 });
-window.addEventListener('pagehide', () => scanner.stop());
+window.addEventListener('pagehide', parkCamera);
+window.addEventListener('pageshow', event => {
+  if (event.persisted && scanVisible()) { syncCamera(); warmCamera(); }
+});
 
 function sheetHeader(title, back = false) {
   $('sheet-header').innerHTML = `<button type="button" id="sheet-back" class="icon-link" aria-label="${back ? 'Back' : 'Close'}">${back ? BACK_ICON : '×'}</button><h1>${escapeHtml(title)}</h1><span class="icon-link header-blank" aria-hidden="true"></span>`;
@@ -269,7 +271,7 @@ function goBack() {
   if (step === 'save-food') { step = 'amount'; if (editing.basis === 'once') renderOnceEdit(); else renderAmount(); return; }
   if (editing) { closeAdd(); return; }
   if (step === 'own' && returnStep?.step === 'amount') { currentFood = returnStep.food; step = 'amount'; renderAmount(); return; }
-  step = null; scanCode = null; renderTab(); syncCamera();
+  step = null; scanCode = null; renderTab(); syncCamera(); if (tab === 'scan') warmCamera();
 }
 function renderTab() {
   status('sheet-status'); sheetHeader('Add food'); syncCamera(); renderCameraStatus();
@@ -282,6 +284,7 @@ function switchTab(next) {
   renderTab(); if (tab === 'scan' && !scanner.running) warmCamera();
 }
 function renderSearch() {
+  if (!blsPromise) loadBls();
   $('bottom-actions').hidden = true;
   $('add-content').innerHTML = `${field('food-query', 'Search foods', searchQuery, { mode: 'search', placeholder: 'Food or brand' })}<div id="search-results"></div><button type="button" id="create-own" class="link-button">Create your own product</button>`;
   $('food-query').oninput = () => { searchQuery = $('food-query').value; search(searchQuery); };
@@ -326,7 +329,7 @@ function renderScan() {
   $('add-content').innerHTML = '<p class="muted scan-hint">Point at a barcode</p><div id="scan-result" aria-live="polite"></div>';
 }
 async function lookup(code) {
-  scanCode = code; scanner.pause(); const version = ++lookupVersion;
+  scanCode = code; syncCamera(); const version = ++lookupVersion;
   $('scan-result').innerHTML = '<div class="status info">Looking up product…</div>';
   try {
     let food = await store.foodByBarcode(code);

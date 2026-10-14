@@ -1123,9 +1123,6 @@ function intensityColor(value) {
   return GAUGE_COLORS[idx];
 }
 
-/** Rendered svg width under which the intensity axis says "Mid" rather than "Medium". */
-const INTENSITY_NARROW_PX = 300;
-
 /**
  * @param {SVGElement} svg
  * @param {object}   opts
@@ -1145,14 +1142,12 @@ export function renderIntensityBarChart(svg, opts) {
   const n = weeks.length;
   const labelSize = 11;
 
-  // Low/Medium/High centered on the same quartile bands that color the bars
+  // Low/Mid/High centered on the same quartile bands that color the bars
   // (0.125 / 0.5 / 0.875 — the middle of the "good" band, the midpoint of
   // the middle two bands combined, and the middle of "critical"), not
   // evenly spaced, so the axis and the bar colors can never disagree about
-  // what counts as which. "Medium" widens the measured left margin below;
-  // on a very narrow chart that costs too much plot, so it falls back to "Mid".
-  const narrow = (svg.getBoundingClientRect().width || BAR_VIEW_W) < INTENSITY_NARROW_PX;
-  const AXIS_LABELS = [{ v: 0.125, txt: 'Low' }, { v: 0.5, txt: narrow ? 'Mid' : 'Medium' }, { v: 0.875, txt: 'High' }];
+  // what counts as which.
+  const AXIS_LABELS = [{ v: 0.125, txt: 'Low' }, { v: 0.5, txt: 'Mid' }, { v: 0.875, txt: 'High' }];
 
   // Measured, not guessed — same principle the x-axis labels already use,
   // just applied to the y-axis: whichever word is widest sets the left
