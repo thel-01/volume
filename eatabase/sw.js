@@ -1,5 +1,5 @@
 // Bump on deployment. Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -76,7 +76,9 @@ self.addEventListener('fetch', event => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
-      const response = await fetch(request);
+      // Revalidate with the server: the HTTP cache (GitHub Pages keeps files ~10 min) could
+      // otherwise pair a fresh page with a stale script it imports.
+      const response = await fetch(request, { cache: 'no-cache' });
       if (response.ok && response.type === 'basic') await cache.put(request, response.clone());
       return response;
     } catch {

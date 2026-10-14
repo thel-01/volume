@@ -1,4 +1,4 @@
-import { $, escapeHtml, CHEVRON, pageHeader, navRow, status, toast, run, toggleMarkup, setToggle } from './ui.js';
+import { $, escapeHtml, CHEVRON, pageHeader, navRow, loading, status, toast, run, toggleMarkup, setToggle } from './ui.js';
 import { trackedNutrients, fmt, localDay } from './nutrition.js';
 import * as store from './store.js';
 import { BACKEND } from './config.js';
@@ -11,8 +11,10 @@ function goalsCard(settings) {
 }
 const messageFor = error => error?.message || 'Something went wrong. Please try again.';
 async function loadSettings() {
+  $('settings-content').hidden = true; loading('page-status');
   try {
     const [settings, foods] = await Promise.all([store.getSettings(), store.listFoods()]);
+    await renderAccount();
     $('settings-menu').innerHTML = `<li>${goalsCard(settings)}</li>` + navRow('Your foods', foods.length ? `${foods.length} saved` : 'None yet', './foods.html') + navRow('History', '', './history.html');
     $('meal-setting').innerHTML = toggleMarkup('group-meals', 'Group by meal', settings.meals);
     $('group-meals').onclick = async () => {
@@ -20,29 +22,31 @@ async function loadSettings() {
       try { const next = await store.getSettings(); next.meals = !next.meals; await store.saveSettings(next); setToggle(b,next.meals); }
       catch(error) { toast(messageFor(error), null, false, 'error'); } finally { b.disabled = false; }
     };
-    status('page-status');
-  } catch(error) { status('page-status', "Couldn't load settings.", 'error', loadSettings); }
+    status('page-status'); $('settings-content').hidden = false;
+  } catch(error) { status('page-status', `Couldn't load settings. ${messageFor(error)}`, 'error', loadSettings); }
 }
 // Account: same as Volume's. The lab has no account, so it says so and can't log out.
 async function renderAccount() {
-  // Quickest way to tell why a change hasn't shown up yet: an installed
-  // copy serves from its own cache until the service worker updates.
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   $('account-mode').textContent = standalone ? 'Installed app' : 'Browser tab';
   if (BACKEND !== 'supabase') { $('account-email').textContent = 'Lab (no account)'; $('log-out').disabled = true; return; }
   const { supabase } = await import('../supabase-client.js');
-  const { data } = await supabase.auth.getSession();
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
   $('account-email').textContent = data?.session?.user?.email || 'Unknown';
   const button = $('log-out');
   button.onclick = async () => {
     button.disabled = true; button.textContent = 'Logging out…';
-    const { error } = await supabase.auth.signOut({ scope: 'local' });
-    if (!error) return location.replace('./login.html');
-    toast(`Could not log out: ${error.message}`, null, false, 'error');
-    button.disabled = false; button.textContent = 'Log out';
+    try {
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) throw error;
+      location.replace('./login.html');
+    } catch(error) {
+      toast(`Could not log out: ${messageFor(error)}`, null, false, 'error');
+      button.disabled = false; button.textContent = 'Log out';
+    }
   };
 }
-renderAccount();
 function csvCell(value) {
   let text = String(value ?? '');
   if (/^\s*[=+@-]/.test(text)) text = "'" + text;
