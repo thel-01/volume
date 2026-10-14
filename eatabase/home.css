@@ -1,0 +1,42 @@
+/* Shared chart, readout, header and button components come from the real app. */
+html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
+.screen { padding-bottom: calc(var(--tap) + var(--space-8) + env(safe-area-inset-bottom)); }
+.bottom-actions { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; max-width: 460px; margin: 0 auto; padding: var(--space-3) max(var(--space-5), env(safe-area-inset-right)) calc(var(--space-4) + env(safe-area-inset-bottom)) max(var(--space-5), env(safe-area-inset-left)); background: var(--bg); border-top: 1px solid var(--line); }
+.nutrient-section + .nutrient-section { margin-top: var(--space-6); }
+.nutrient-section .section-label { margin-top: 0; }
+.scrub-readout .v { font-family: var(--font-mono); }
+#overview-status .link-button { min-height: 44px; min-width: 44px; }
+
+
+.today-card { display:block; color:var(--text); text-decoration:none; }
+.nav-link { display:flex; justify-content:center; align-items:center; min-height:44px; margin-top:var(--space-6); }
+.screen { padding-bottom:calc(var(--space-6) + env(safe-area-inset-bottom)); }
+
+/* Add food / Quick under the today card (same pair as Your day's footer). */
+.home-actions { margin: calc(-1 * var(--space-3)) 0 var(--space-6); }
+/* The title opens the About popup; it still reads as the page title. */
+.about-title { width: auto; min-height: var(--tap); color: var(--text); font-size: var(--fs-xl); font-weight: 700; text-align: center; }
+.about-link { display: inline-block; margin-top: var(--space-4); }
+#about-modal .modal-card { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
+
+/* Analytics preview. Rows: label | 7 dots | count. */
+.ap-row { display: grid; grid-template-columns: 4.5em 1fr 2.5em; align-items: center; gap: var(--space-3); min-height: 28px; }
+.ap-row + .ap-row { margin-top: var(--space-2); }
+.ap-row .stat-label { margin: 0; }
+.ap-off { grid-column: 2 / 4; font-size: var(--fs-sm); }
+.ap-dots { display: flex; gap: 6px; }
+.ap-dot { width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; }
+.ap-dot.hit { background: var(--ok); }
+.ap-dot.logged { border: 2px solid var(--text); }
+.ap-dot.off { background: var(--surface-2); }
+.ap-count { font-family: var(--font-mono); text-align: right; font-size: var(--fs-sm); }
+.analytics-card .is-hit { color: var(--ok); }
+/* Analytics page: the averages card has no chevron, so its body takes the full width. */
+.averages-card { display: block; margin-bottom: var(--space-6); }
+.averages-card:active { transform: none; }   /* the card itself isn't tappable; only its macros are */
+.chart-jump { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.chart-jump:active { opacity: 0.6; }
+.nutrient-section { scroll-margin-top: var(--space-4); }
+.today-label { margin-top: 0; }
+/* Goal-line legend swatch: two --ok dashes with the chart's 5px dash gap in the middle, at the stylebook's 3px line-swatch height. */
+.legend i.goal-swatch { display: inline-block; width: 24px; height: 3px; border-radius: 0; background: linear-gradient(90deg, var(--ok) 0 9.5px, transparent 9.5px 14.5px, var(--ok) 14.5px); }

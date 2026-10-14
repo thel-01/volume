@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.53.3';
+const VERSION = 'v1.53.4';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -62,7 +62,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((names) => Promise.all(
-        names.filter((n) => n !== CACHE).map((n) => caches.delete(n))
+        names.filter((n) => n.startsWith('volume-') && n !== CACHE).map((n) => caches.delete(n))
       ))
       .then(() => self.clients.claim())
   );

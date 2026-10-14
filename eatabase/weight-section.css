@@ -1,0 +1,36 @@
+    #weight-section .stat-value {
+      font-family: var(--font-mono);
+      font-size: var(--fs-3xl);
+      font-weight: 500;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    #weight-section .stat-value.lg { font-size: var(--fs-4xl); }
+    #weight-section .stat-value.live { color: var(--live); }
+    /* DM Mono is monospaced, so a literal space before a unit reads as a
+       much wider gap than it would in a proportional font. Styled down and
+       set apart with margin instead of a space character. */
+    #weight-section .stat-value .unit {
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 3px;
+    }
+    #weight-section .stat-label { font-size: 13px; color: var(--muted); }
+    /* Uncoloured on purpose: gaining weight isn't inherently good or bad. */
+    #weight-section .stat-change {
+      font-size: 13px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    /* Value / label+info / change, each its own line — same stacked shape
+       weight.html's own stat blocks already use. */
+    .weight-hero { margin-bottom: var(--space-4); display: flex; flex-direction: column; gap: 3px; }
+    .weight-hero .label-row { display: flex; align-items: center; gap: var(--space-2); }
+
+
+#weight-section { margin-bottom: var(--space-6); }
+
+/* Restore Volume's plain navigation link inside this copied info popup. */
+#weight-trend-info-modal .nav-link { min-height: 0; }

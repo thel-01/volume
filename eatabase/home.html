@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000">
+  <title>Eatabase</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Eatabase">
+  <script type="module" src="./page-init.js"></script>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./home.css">
+  <script>/* No zooming at all: iOS ignores user-scalable=no, so cancel its pinch gestures too. */
+    for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, e => e.preventDefault(), { passive: false });</script>
+</head>
+<body>
+  <main>
+    <section class="screen">
+      <header class="page-header"><span class="icon-link header-blank" aria-hidden="true"></span><h1><button type="button" id="open-about" class="link-button about-title" aria-haspopup="dialog">Eatabase</button></h1><a href="./settings.html" class="icon-link" aria-label="Settings"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2.1" fill="var(--surface)"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2.1" fill="var(--surface)"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="11" cy="18" r="2.1" fill="var(--surface)"/></svg></a></header>
+      <p class="section-label today-label">Today</p>
+      <a id="today-card" class="card nutrition-summary today-card" href="./index.html" aria-label="Your day" hidden></a>
+      <div id="home-actions" class="day-actions home-actions" hidden></div>
+      <!-- Bodyweight section (cloned from Volume's dashboard), mounted by weight-section.js -->
+      <section id="weight-section" class="weight-section" aria-label="Bodyweight"></section>
+      <div id="overview-status" class="status info" role="status" aria-live="polite">Loading…</div>
+      <div id="analytics-preview" class="analytics-preview" hidden></div>
+    </section>
+  </main>
+  <div id="toast-layer" aria-live="polite"></div>
+  <!-- About popup (tap the Eatabase title); Volume gets the same popup on its logo. -->
+  <div id="about-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
+    <div class="modal-card">
+      <div class="modal-header"><h2 id="about-title">Eatabase</h2><button type="button" id="close-about" class="modal-close" aria-label="Close">×</button></div>
+      <p class="muted">I vibecoded this for myself and friends. Also see my workout tracker, Volume.</p>
+      <a class="link-button nav-link about-link" href="https://thel-01.github.io/volume/dashboard.html" target="_blank" rel="noopener">Go to Volume ↗</a>
+    </div>
+  </div>
+  <noscript><p class="empty-state">Turn on JavaScript to see your overview.</p></noscript>
+  <script type="module" src="./home.js"></script>
+  <script type="module" src="./weight-section.js"></script>
+</body>
+</html>

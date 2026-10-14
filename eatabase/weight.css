@@ -1,0 +1,98 @@
+
+    .stat-row {
+      display: flex;
+      gap: 22px;
+      margin-bottom: var(--space-3);
+      flex-wrap: wrap;
+    }
+    .stat { display: flex; flex-direction: column; gap: 3px; }
+    .stat-value {
+      font-family: var(--font-mono);
+      font-size: var(--fs-3xl);
+      font-weight: 500;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-value.live { color: var(--live); }
+    /* DM Mono is monospaced, so a literal space before a unit reads as a
+       much wider gap than it would in a proportional font. Styled down and
+       set apart with margin instead of a space character. */
+    .stat-value .unit {
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 3px;
+    }
+    .stat-label { font-size: 13px; color: var(--muted); }
+    /* While scrubbing, this line holds a reading's date and time: keep it on one
+       line so the card never changes height under the finger. */
+    #current-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .label-row { display: flex; align-items: center; gap: var(--space-2); }
+    /* Deliberately uncoloured: gaining weight isn't inherently bad, so
+       painting one direction green and the other red would editorialise. */
+    .stat-change {
+      font-size: 13px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    /* Its own row above the <svg>, not an overlay on top of it — the chart's
+       own top-right corner is live plot area (the trend line can end
+       anywhere, and the scrub's highlight dot sits right up against it),
+       so this reserves real space instead of risking a collision. Same
+       move .legend already makes below the chart. Adds height to the card;
+       the chart itself, sized purely off width, doesn't shrink at all. */
+    .chart-change-row { display: flex; align-items: baseline; justify-content: flex-end; padding: 0 var(--space-1) var(--space-2); }
+    /* Same var(--live) amber as the trend stat above — this number belongs
+       to that one, not a new accent. Still no red/green by direction (see
+       .stat-change above); "steady" alone drops back to muted so a real
+       change and "nothing happened" stay visually distinct. */
+    .chart-change-value { font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--live); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .chart-change-value.steady { color: var(--muted); font-weight: 400; }
+    .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+    /* The readings are drawn as points now, so their key is a point too. */
+    .legend i.dot { width: 7px; height: 7px; border-radius: 50%; }
+    /* Control-caption gap (13px muted, --space-3 below the control it
+       explains), same tier the stylebook already locked in elsewhere.
+       Wraps normally — no ellipsis, the "?" just stays put at the end. */
+    /* align-items:center, not flex-start — the "?" circle's own center
+       should line up with the text's center, whether the text holds to one
+       line or (rarely) wraps to two. */
+    .noise-row { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
+    /* display:flex above would otherwise beat `hidden` (same as .reference-line). */
+    .noise-row[hidden] { display: none; }
+    /* flex:1 + min-width:0 so this actually wraps under the fixed-width "?"
+       when it's too long, instead of the default flex-item behavior of
+       refusing to shrink below its own unwrapped content width and
+       overflowing past the row instead. */
+    .noise-line { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.4; }
+    /* Applied by JS only when the line actually wrapped at the normal size —
+       narrow phones with the longer generic copy, mainly. Smaller but still
+       legible; avoids burning a whole two-line caption on a stat row for
+       what's normally a one-liner. */
+    .noise-line.compact { font-size: var(--fs-2xs); }
+    .entry-weight {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      font-size: 16px;
+    }
+    /* Scoped to just this row, not .chip globally, and only below the width
+       where the shared 16px chip padding actually wraps "Max" onto its own
+       second row (measured: wraps at 360px, clears at 375px). Full padding
+       everywhere it already fits; height (the tap target) is untouched
+       either way. */
+    @media (max-width: 380px) {
+      #chart-window-row.chips .chip { padding: 0 10px; }
+    }
+    /* The EWMA label spelled out in full ("Exponential moving average")
+       plus its "?" button is wide enough that, on the narrowest phones, its
+       own unwrapped width — not the row's actual available space — is what
+       the browser uses to decide whether the two stat columns fit side by
+       side, so they stack instead of the label just wrapping (measured:
+       stacks at 350, clears at 360). flex-basis:0 makes the row-fit decision
+       ignore that unwrapped width and shrink the column instead — same
+       columns, same "7-day average" wording untouched, just lets the long
+       EWMA label wrap under itself rather than pushing the whole row. */
+    @media (max-width: 359px) {
+      .stat-row .stat { flex: 1 1 0%; min-width: 0; }
+    }

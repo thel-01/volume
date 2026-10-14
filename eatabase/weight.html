@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Eatabase — Weight</title>
+
+  <meta name="theme-color" content="#000">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Eatabase">
+  <script type="module" src="./page-init.js"></script>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="./weight.css">
+
+</head>
+<body>
+  <main class="screen">
+
+    <div id="top-status" class="status" role="status" aria-live="polite" hidden></div>
+
+    <section id="home-view">
+    <div class="page-header">
+      <a href="./home.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
+      <h1>Weight</h1>
+      <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
+    </div>
+
+    <div id="loading" class="loading-state">
+      <svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" role="status" aria-label="Loading">
+        <path d="M 6,30 L 18,30 L 18,18 L 30,18 L 30,6" pathLength="1" />
+      </svg>
+    </div>
+
+    <div id="content" hidden>
+
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-value" id="current-weight">—</span>
+          <span class="stat-label" id="current-label">latest reading</span>
+          <!-- Balances the change line opposite, and earns its place: it says
+               whether that number is from this morning or from last week. -->
+          <span class="stat-change" id="current-when"></span>
+        </div>
+        <div class="stat">
+          <!-- Coloured to match its line on the chart, so the number and the
+               curve are obviously the same thing. -->
+          <span class="stat-value" id="average-weight">—</span>
+          <div class="label-row">
+            <span class="stat-label" id="average-weight-label">trend</span>
+            <button type="button" class="info-btn" id="weight-trend-info-trigger" aria-label="How is this calculated?">?</button>
+          </div>
+          <span class="stat-change" id="trend-change"></span>
+        </div>
+      </div>
+
+      <div id="chart-window-row" class="chips" style="margin-bottom:var(--space-3);" hidden></div>
+
+      <div class="chart-card" id="chart-card">
+        <div class="chart-change-row"><span class="chart-change-value" id="window-change"></span></div>
+        <svg id="chart" viewBox="0 0 340 180" role="img" aria-label="Bodyweight over time"></svg>
+        <div id="legend" class="legend" hidden></div>
+      </div>
+      <p id="chart-empty" class="empty-state" hidden></p>
+
+      <div id="noise-row" class="noise-row" hidden>
+        <p class="noise-line" id="noise-text"></p>
+        <button type="button" class="info-btn" id="noise-info-trigger" aria-label="How is this calculated?">?</button>
+      </div>
+
+      <!-- No longer its own tap target — the button right below it does
+           that job now. Purely informational. -->
+      <div id="stale-notice" class="status info" hidden></div>
+
+      <button id="add-toggle" type="button" style="margin-top:var(--space-5);">+ Log weight</button>
+
+
+      <!-- Add form. Date and time stay tucked away: the overwhelmingly common
+           case is weighing yourself and logging it there and then. -->
+      <div id="add-form" style="margin-top:var(--space-3);" hidden>
+        <div class="field">
+          <label for="new-weight">Weight (kg)</label>
+          <input id="new-weight" type="text" inputmode="decimal" autocomplete="off" placeholder="Log a weigh-in">
+        </div>
+
+        <button id="when-toggle" type="button" class="link-button" style="display:block;">+ Change date &amp; time</button>
+        <div id="when-fields" hidden>
+          <div class="field-row" style="margin-top:var(--space-3);">
+            <div class="field">
+              <label for="new-date">Date</label>
+              <input id="new-date" type="date">
+            </div>
+            <div class="field">
+              <label for="new-time">Time</label>
+              <input id="new-time" type="time">
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:var(--space-3);">
+          <button id="add-cancel" class="secondary" type="button">Cancel</button>
+          <button id="add-save" type="button">Save</button>
+        </div>
+        <div id="add-status" class="status" role="status" aria-live="polite" hidden></div>
+      </div>
+
+      <!-- Bucket headings ("This week", "Earlier", "2025") do the labelling
+           here, exactly as in the session history — a second "All entries"
+           heading above them would just stack two labels. -->
+      <div id="entry-list" style="margin-top:var(--space-6);"></div>
+      <p id="empty-entries" class="empty-state" hidden>No weight logged yet.</p>
+
+    </div>
+    </section>
+
+  </main>
+
+  <div class="modal-backdrop" id="weight-trend-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="weight-trend-info-title">Exponential moving average</h2>
+        <button type="button" class="modal-close" id="weight-trend-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" id="weight-trend-info-body" style="font-size:var(--fs-base);line-height:1.5;"></p>
+      <a href="./settings.html" class="nav-link" style="display:block;margin-top:var(--space-3);">Change in Settings</a>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="noise-info-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Daily Noise</h2>
+        <button type="button" class="modal-close" id="noise-info-close" aria-label="Close">&times;</button>
+      </div>
+      <p class="muted" id="noise-info-body" style="font-size:var(--fs-base);line-height:1.5;"></p>
+    </div>
+  </div>
+
+  <script type="module" src="./weight.js"></script>
+</body>
+</html>

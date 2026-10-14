@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Eatabase">
+  <script type="module" src="./page-init.js"></script>
+  <title>Eatabase — Your day</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="./app.css">
+  <script>/* No zooming at all: iOS ignores user-scalable=no, so cancel its pinch gestures too. */
+    for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, e => e.preventDefault(), { passive: false });</script>
+</head>
+<body>
+  <main>
+    <section id="day-view" class="screen">
+      <header class="page-header day-header">
+        <a href="./home.html" id="day-back" class="icon-link" aria-label="Back to home"></a>
+        <div id="day-navigation" class="day-navigation">
+        <h1><button type="button" id="day-title" class="link-button">Today</button></h1>
+        </div>
+        <span class="icon-link header-blank" aria-hidden="true"></span>
+      </header>
+      <div id="day-status" class="status info" role="status" aria-live="polite">Loading your day…</div>
+      <div id="summary" class="card nutrition-summary" hidden></div>
+      <div id="entries" hidden></div>
+    </section>
+
+    <!-- Offscreen, never display:none: iOS must keep the parked video alive. -->
+    <section id="add-view" class="screen inactive" aria-hidden="true" inert>
+      <header id="sheet-header" class="page-header"></header>
+      <div id="add-tabs" class="tabs" role="tablist" aria-label="Add food">
+        <button type="button" class="tab" data-tab="search" role="tab" aria-controls="add-content">Search</button>
+        <button type="button" class="tab" data-tab="scan" role="tab" aria-controls="add-content">Scan</button>
+      </div>
+      <div id="camera-container" class="camera-box parked" aria-hidden="true"></div>
+      <div id="camera-status" class="status info" role="status" aria-live="polite" hidden></div>
+      <div id="add-content"></div>
+      <div id="sheet-status" class="status" role="status" aria-live="polite" hidden></div>
+    </section>
+
+  </main>
+
+  <footer id="bottom-actions" class="bottom-actions"><div class="day-actions"><button type="button" id="add-food" disabled>Add food</button><button type="button" id="quick-log" class="secondary" disabled>Quick</button></div></footer>
+  <div id="toast-layer" aria-live="polite"></div>
+  <div id="info-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="info-title" hidden>
+    <div class="modal-card">
+      <div class="modal-header"><h2 id="info-title"></h2><button type="button" id="close-info" class="modal-close" aria-label="Close information">×</button></div>
+      <p id="info-text" class="muted"></p>
+      <button type="button" id="info-action" hidden></button>
+    </div>
+  </div>
+  <noscript><p class="empty-state">Turn on JavaScript to use your food log.</p></noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

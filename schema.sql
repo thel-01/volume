@@ -1741,3 +1741,247 @@ $$;
 grant usage on schema public to supabase_auth_admin;
 grant execute on function public.hook_only_anonymous_signups(jsonb) to supabase_auth_admin;
 revoke execute on function public.hook_only_anonymous_signups(jsonb) from authenticated, anon, public;
+
+
+-- ===========================================================================
+-- Eatabase (calorie/macro tracker at /eatabase/) — tables prefixed cal_.
+-- Data layer: eatabase/store-supabase.js. Same account and project as Volume;
+-- bodyweight reuses body_weights / user_settings above.
+--
+-- Nutrient values: kcal in kcal, the rest in grams. NULL means "unknown"
+-- (not on the label), never 0 — a quicklog of just calories has unknown protein.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- Settings: what you track and your goals. One row per user.
+-- ---------------------------------------------------------------------------
+create table if not exists public.cal_settings (
+  user_id     uuid primary key references auth.users (id) on delete cascade,
+  -- { kcal: {on, goal, type}, protein: {…}, carbs: …, fat: … }
+  -- type: 'min' (≥) | 'target' (=) | 'max' (≤)
+  -- jsonb rather than ten columns: which nutrients exist is still moving
+  -- (see normalizeSettings() in app/nutrition.js, which validates it).
+  nutrients   jsonb not null default '{"kcal":{"on":true,"goal":null,"type":"target"},"protein":{"on":true,"goal":null,"type":"min"},"carbs":{"on":false,"goal":null,"type":"target"},"fat":{"on":false,"goal":null,"type":"target"}}'::jsonb,
+  meals       boolean not null default true,   -- group the day by breakfast/lunch/dinner/snacks
+  updated_at  timestamptz not null default now()
+);
+
+-- Goal history: one row per user per day a goal changed (the day's last
+-- change wins), so a past day is judged against the goal it actually had.
+create table if not exists public.cal_goal_history (
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  day         date not null,
+  nutrients   jsonb not null,
+  primary key (user_id, day)
+);
+
+-- ---------------------------------------------------------------------------
+-- Your own foods: products you entered (per 100 g) and saved quicklogs
+-- (per portion). Soft-deleted: an entry may still point at one.
+-- ---------------------------------------------------------------------------
+create table if not exists public.cal_foods (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+  name        text not null check (length(btrim(name)) between 1 and 120),
+  brand       text check (brand is null or length(brand) <= 80),
+  barcode     text check (barcode is null or barcode ~ '^[0-9]{8,14}$'),
+  basis       text not null check (basis in ('per100', 'portion')),
+  kcal        numeric(7, 1) check (kcal is null or kcal between 0 and 10000),
+  protein     numeric(6, 1) check (protein is null or protein between 0 and 1000),
+  carbs       numeric(6, 1) check (carbs is null or carbs between 0 and 1000),
+  fat         numeric(6, 1) check (fat is null or fat between 0 and 1000),
+  created_at  timestamptz not null default now(),
+  deleted_at  timestamptz
+);
+
+-- One live product per barcode per user (a scan must resolve to one thing).
+create unique index if not exists cal_foods_user_barcode_live_idx
+  on public.cal_foods (user_id, barcode)
+  where barcode is not null and deleted_at is null;
+
+-- ---------------------------------------------------------------------------
+-- Log entries. Each one COPIES the food's nutrition at logging time
+-- (per100/portion snapshot + the computed values), like sets.bodyweight_kg:
+-- editing your product later, or Open Food Facts changing theirs, never
+-- rewrites a logged day. Hard-deleted, like sets — cheap to redo.
+-- ---------------------------------------------------------------------------
+create table if not exists public.cal_entries (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users (id) on delete cascade,
+
+  -- The calendar day the entry belongs to, as the user meant it ("today" on
+  -- their phone). Stored as a plain date on purpose: a late-night snack
+  -- logged at 00:30 UTC still belongs to the local day it was eaten on.
+  day         date not null,
+  logged_at   timestamptz not null default now(),   -- UTC, shown local
+  created_at  timestamptz not null default now(),   -- insertion order, independent of the logged day
+  meal        text check (meal is null or meal in ('breakfast', 'lunch', 'dinner', 'snack')),
+
+  -- Where it came from: 'BLS' generic food (source_ref = BLS code), 'OFF'
+  -- product (barcode), 'own' (cal_foods.id as text), 'quick' (one-off, no ref).
+  -- Deliberately not a foreign key: the snapshot below is the record.
+  source      text not null check (source in ('BLS', 'OFF', 'own', 'quick')),
+  source_ref  text,
+  name        text not null check (length(btrim(name)) between 1 and 160),
+  name_de     text,
+  brand       text,
+
+  -- 'per100' → grams; 'portion' → portions; 'once' → a one-off quicklog
+  basis       text not null check (basis in ('per100', 'portion', 'once')),
+  grams       numeric(6, 1) check (grams is null or grams > 0 and grams <= 5000),
+  portions    numeric(4, 1) check (portions is null or portions > 0 and portions <= 50),
+
+  -- The food's own values at logging time (per 100 g or per portion).
+  base_kcal numeric(7, 1), base_protein numeric(6, 1), base_carbs numeric(6, 1),
+  base_fat numeric(6, 1),
+
+  -- What was actually eaten.
+  kcal numeric(7, 1), protein numeric(6, 1), carbs numeric(6, 1),
+  fat numeric(6, 1),
+
+  constraint cal_entries_amount_matches_basis check (
+    (basis = 'per100'  and grams is not null and portions is null) or
+    (basis = 'portion' and portions is not null and grams is null) or
+    (basis = 'once'    and grams is null and portions is null)
+  )
+);
+
+-- Upgrade an earlier draft safely; no table recreation needed.
+alter table public.cal_entries drop constraint if exists cal_entries_base_kcal_nonnegative;
+alter table public.cal_entries add constraint cal_entries_base_kcal_nonnegative
+  check (base_kcal >= 0 and base_kcal < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_base_protein_nonnegative;
+alter table public.cal_entries add constraint cal_entries_base_protein_nonnegative
+  check (base_protein >= 0 and base_protein < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_base_carbs_nonnegative;
+alter table public.cal_entries add constraint cal_entries_base_carbs_nonnegative
+  check (base_carbs >= 0 and base_carbs < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_base_fat_nonnegative;
+alter table public.cal_entries add constraint cal_entries_base_fat_nonnegative
+  check (base_fat >= 0 and base_fat < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_kcal_nonnegative;
+alter table public.cal_entries add constraint cal_entries_kcal_nonnegative
+  check (kcal >= 0 and kcal < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_protein_nonnegative;
+alter table public.cal_entries add constraint cal_entries_protein_nonnegative
+  check (protein >= 0 and protein < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_carbs_nonnegative;
+alter table public.cal_entries add constraint cal_entries_carbs_nonnegative
+  check (carbs >= 0 and carbs < 'Infinity'::numeric);
+alter table public.cal_entries drop constraint if exists cal_entries_fat_nonnegative;
+alter table public.cal_entries add constraint cal_entries_fat_nonnegative
+  check (fat >= 0 and fat < 'Infinity'::numeric);
+
+alter table public.cal_entries add column if not exists created_at timestamptz not null default now();
+
+create index if not exists cal_foods_user_created_idx
+  on public.cal_foods (user_id, created_at, id);
+create index if not exists cal_foods_user_deleted_idx
+  on public.cal_foods (user_id, deleted_at desc, id) where deleted_at is not null;
+create index if not exists cal_entries_user_created_idx
+  on public.cal_entries (user_id, created_at, id);
+
+create index if not exists cal_entries_user_day_idx
+  on public.cal_entries (user_id, day, logged_at);
+-- "Remembered foods" reads the last 90 days of entries.
+create index if not exists cal_entries_user_logged_idx
+  on public.cal_entries (user_id, logged_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Access list: Eatabase is open only to the accounts listed here (alpha).
+-- Every cal_* policy and the food-api relay check it, so an account that
+-- isn't listed gets nothing even if it finds the page. Managed by hand in
+-- the SQL editor: no grants to change it from the app.
+--   let someone in:  insert into public.cal_access (user_id)
+--                    select id from auth.users where lower(email) = 'friend@example.com'
+--                    on conflict do nothing;
+--   take them out:   delete from public.cal_access where user_id = '<their id>';
+-- ---------------------------------------------------------------------------
+create table if not exists public.cal_access (
+  user_id   uuid primary key references auth.users (id) on delete cascade,
+  added_at  timestamptz not null default now()
+);
+alter table public.cal_access enable row level security;
+-- You can see whether you're on the list (the app asks), nothing else.
+drop policy if exists cal_access_select_own on public.cal_access;
+create policy cal_access_select_own on public.cal_access
+  for select to authenticated using (user_id = (select auth.uid()));
+grant select on public.cal_access to authenticated;
+
+-- "Is the signed-in account on the list?" Security definer so policies can
+-- call it cheaply; it only ever answers for the caller's own id.
+create or replace function public.cal_allowed()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (select 1 from public.cal_access where user_id = (select auth.uid()));
+$$;
+revoke all on function public.cal_allowed() from public;
+grant execute on function public.cal_allowed() to authenticated;
+
+-- The owner's account. Re-running is a no-op.
+insert into public.cal_access (user_id)
+select id from auth.users where lower(email) = 'till@helfert.de'
+on conflict (user_id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- RLS: each user sees only their own rows (anonymous demo users are
+-- `authenticated` too — so every policy checks user_id, never just login),
+-- and only while their account is on the access list above.
+-- ---------------------------------------------------------------------------
+alter table public.cal_settings enable row level security;
+alter table public.cal_foods    enable row level security;
+alter table public.cal_entries  enable row level security;
+alter table public.cal_goal_history enable row level security;
+
+drop policy if exists cal_goal_history_all_own on public.cal_goal_history;
+create policy cal_goal_history_all_own on public.cal_goal_history
+  for all to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed())) with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+grant select, insert, update on public.cal_goal_history to authenticated;
+
+drop policy if exists cal_settings_select_own on public.cal_settings;
+create policy cal_settings_select_own on public.cal_settings
+  for select to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_settings_insert_own on public.cal_settings;
+create policy cal_settings_insert_own on public.cal_settings
+  for insert to authenticated with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_settings_update_own on public.cal_settings;
+create policy cal_settings_update_own on public.cal_settings
+  for update to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed())) with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+
+drop policy if exists cal_foods_select_own on public.cal_foods;
+create policy cal_foods_select_own on public.cal_foods
+  for select to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_foods_insert_own on public.cal_foods;
+create policy cal_foods_insert_own on public.cal_foods
+  for insert to authenticated with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_foods_update_own on public.cal_foods;
+create policy cal_foods_update_own on public.cal_foods
+  for update to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed())) with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+-- No delete policy: own foods are soft-deleted (deleted_at) only.
+
+drop policy if exists cal_entries_select_own on public.cal_entries;
+create policy cal_entries_select_own on public.cal_entries
+  for select to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_entries_insert_own on public.cal_entries;
+create policy cal_entries_insert_own on public.cal_entries
+  for insert to authenticated with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_entries_update_own on public.cal_entries;
+create policy cal_entries_update_own on public.cal_entries
+  for update to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed())) with check (user_id = (select auth.uid()) and (select public.cal_allowed()));
+drop policy if exists cal_entries_delete_own on public.cal_entries;
+create policy cal_entries_delete_own on public.cal_entries
+  for delete to authenticated using (user_id = (select auth.uid()) and (select public.cal_allowed()));
+
+grant select, insert, update on public.cal_settings to authenticated;
+grant select, insert, update on public.cal_foods    to authenticated;
+grant select, insert, update, delete on public.cal_entries to authenticated;
+
+-- Shared body_weights / user_settings already exist in Volume's schema.sql.
+-- No duplicate tables, credentials, seeding or changes to those tables here.
+-- All four cal_* tables cascade directly from auth.users. Entries reference
+-- foods by a text snapshot, so Volume's sessions-first demo deletion still works.
+-- On merge, export all FOUR cal_* tables from Volume's settings.html too.

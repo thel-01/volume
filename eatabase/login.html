@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Eatabase — Log in</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#000">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Eatabase">
+  <script type="module" src="./page-init.js"></script>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <main class="screen">
+    <div class="brand"><img src="./icons/icon-192.png" alt=""><div><h1>Eatabase</h1></div></div>
+    <div class="spacer"></div>
+    <form id="login-form" novalidate>
+      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></div>
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+      <button id="submit" type="submit" class="uppercase">Log in</button>
+    </form>
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <div class="spacer"></div>
+  </main>
+  <script type="module" src="./login.js"></script>
+</body>
+</html>

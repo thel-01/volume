@@ -1,0 +1,164 @@
+/* Page-specific composition. Controls and surfaces come from ../styles.css. */
+html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
+.screen { padding-bottom: calc(var(--tap) + var(--space-8) + env(safe-area-inset-bottom)); }
+.screen.inactive { position: fixed; left: -10000px; top: 0; width: min(100%, 460px); opacity: 0; pointer-events: none; }
+.header-blank { visibility: hidden; }
+.day-header { display: grid; grid-template-columns: var(--tap) minmax(0, 1fr) var(--tap); gap: 0; }
+/* Chevrons sit at fixed spots (the title column has a fixed share), so they never move as the date text changes length. */
+.day-navigation { min-width: 0; }
+.day-navigation h1 { min-width: 0; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-chevron { width: 44px; height: 44px; min-height: 44px; padding: 0; background: none; border: 0; color: var(--text); display: flex; align-items: center; justify-content: center; touch-action: pan-x pan-y; -webkit-tap-highlight-color: transparent; }
+.day-chevron:disabled { color: var(--text-tertiary); background: none; }
+/* Off = not reachable (outside the late-night window): keeps its grid slot so nothing moves. */
+.day-chevron.off { visibility: hidden; }
+#day-title:disabled { color: var(--text); background: none; opacity: 1; }
+#day-title { width: 100%; min-height: var(--tap); padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; color: var(--text); font-size: var(--fs-xl); font-weight: 600; }
+.bottom-actions { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; max-width: 460px; margin: 0 auto; padding: var(--space-3) max(var(--space-5), env(safe-area-inset-right)) calc(var(--space-4) + env(safe-area-inset-bottom)) max(var(--space-5), env(safe-area-inset-left)); background: var(--bg); border-top: 1px solid var(--line); }
+.nutrition-summary { margin-bottom: var(--space-6); }
+.summary-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.summary-hero > div { min-width: 0; }
+.stat-label { font-size: var(--fs-sm); color: var(--muted); }
+.stat-value { font-family: var(--font-mono); font-weight: 500; font-size: var(--fs-3xl); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat-value.lg { font-size: var(--fs-4xl); }
+.stat-value .unit { font: var(--fs-sm) var(--font-body); color: var(--muted); margin-left: var(--space-1); }
+.nutrient-value { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+.summary-columns { display: grid; gap: var(--space-3); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.summary-columns .stat-value { font-size: var(--fs-input); }
+.summary-columns .unit { font-size: var(--fs-xs); margin-left: 0; }
+.summary-columns .nutrient-value { column-gap: var(--space-1); }
+.summary-columns .goal { color: var(--muted); font-family: var(--font-body); font-size: var(--fs-xs); }
+.summary-columns .stat-value { white-space: nowrap; }
+.summary-columns .stat-label { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; }
+.summary-columns > div { display: flex; flex-direction: column; justify-content: space-between; }
+.progress-track { position: relative; height: var(--space-1); margin-top: var(--space-3); background: var(--surface-2); overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); }
+.entry-value { font-family: var(--font-mono); font-size: var(--fs-md); font-weight: 400; font-variant-numeric: tabular-nums; text-align: right; flex: 0 0 auto; }
+#entries > .list { margin-top: var(--space-4); }
+.camera-box { position: relative; width: 100%; aspect-ratio: 4 / 5; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); flex: 0 0 auto; }
+.camera-box.parked { position: fixed; left: -10000px; top: max(var(--space-6), env(safe-area-inset-top)); width: 350px; opacity: 0; pointer-events: none; }
+.scan-hint { margin: var(--space-3) 0 var(--space-5); text-align: center; }
+.amount-field input { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; font-variant-numeric: tabular-nums; }
+.amount-input { position: relative; }
+.amount-input input { padding-right: var(--tap); }
+.amount-input .unit { position: absolute; right: var(--space-4); top: 50%; transform: translateY(-50%); color: var(--muted); font-size: var(--fs-input); pointer-events: none; }
+.amount-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin: var(--space-5) 0; }
+.form-heading { margin: 0 0 var(--space-2); font-size: var(--fs-xl); overflow-wrap: anywhere; }
+.food-meta { margin: 0 0 var(--space-5); }
+.meal-chips { margin: var(--space-5) 0; }
+.meal-chips .chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.meal-chips .chip { width: 100%; padding: 0 var(--space-2); white-space: nowrap; }
+.meal-chips .chip.selected { font-weight: 500; }
+.toggle-row { display: flex; align-items: center; gap: var(--space-3); min-height: var(--tap); margin: var(--space-4) 0; }
+.toggle-row > span { flex: 1; }
+.track-row { margin-bottom: var(--space-5); }
+.track-row .toggle-row { margin: 0; }
+.track-goal { display: flex; align-items: center; gap: var(--space-1); }
+.track-goal .field { width: 110px; }
+.track-goal input { padding: 0 var(--space-2); text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.track-goal > .muted { font-size: var(--fs-sm); min-width: 2.2em; }   /* "g" and "kcal" take the same slot, so the goal fields line up */
+.track-row .field { margin: 0; }
+.caption { color: var(--muted); font-size: var(--fs-sm); margin: var(--space-3) 0; }
+.field .status { margin-top: var(--space-2); }
+#add-view .link-button, #settings-view .arm-confirm-btn, #add-view .arm-confirm-btn, .toast-action { min-height: 44px; min-width: 44px; }
+.form-delete { margin-top: var(--space-6); }
+#info-modal .modal-card { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
+@media (max-width: 360px) { .summary-columns { gap: var(--space-2); } .summary-columns .stat-value { font-size: var(--fs-base); } }
+
+@media (max-width: 399px) { .meal-chips .chip { padding: 0 var(--space-1); } }
+@media (max-width: 339px) { .meal-chips .chip { padding: 0 2px; font-size: var(--fs-sm); } }
+@media (max-width: 360px) { .day-header { grid-template-columns: 44px minmax(0, 1fr) 44px; } .day-header .icon-link { width: 44px; } #day-title { font-size: var(--fs-lg); } }
+/* Four secondary nutrients need compact type to keep value / goal unit together. */
+.summary-columns:has(> div:nth-child(4)) .stat-value { font-size: var(--fs-sm); }
+.summary-columns:has(> div:nth-child(4)) .goal { font-family: var(--font-body); font-size: var(--fs-2xs); }
+.summary-columns:has(> div:nth-child(4)) .unit { font-size: var(--fs-2xs); }
+@media (max-width: 360px) {
+  .summary-columns:has(> div:nth-child(4)) { gap: 2px; }
+  .summary-columns:has(> div:nth-child(4)) .stat-value { font-size: var(--fs-2xs); }
+  .summary-columns:has(> div:nth-child(4)) .goal,
+  .summary-columns:has(> div:nth-child(4)) .unit { font-size: calc(var(--fs-2xs) - 1px); }
+}
+
+.toast-actions { display: flex; gap: var(--space-4); }
+
+
+/* ---- Summary states ---------------------------------------------------------
+   The day's hero number and its bar are live (the day is still happening);
+   macros stay white. On target → green (--ok), for the hero and macros
+   alike. Past a target/limit, the bar rescales: the goal becomes a tick and
+   the overshoot continues striped in the same color. No red anywhere. */
+.summary-hero .stat-value.lg { color: var(--live); }
+.nutrition-summary > .progress-track .progress-fill { background: var(--live); }
+.stat-value.is-hit, .summary-hero .stat-value.lg.is-hit { color: var(--ok); }
+.progress-track.is-hit .progress-fill, .nutrition-summary > .progress-track.is-hit .progress-fill { background: var(--ok); }
+.progress-over { position: absolute; top: 0; bottom: 0; right: 0; margin-left: 2px;
+  background: repeating-linear-gradient(135deg, var(--bar-color, var(--accent)) 0 2px, transparent 2px 4px); }
+.nutrition-summary > .progress-track .progress-over { --bar-color: var(--live); }
+.progress-track.is-hit .progress-over { --bar-color: var(--ok); }
+/* All goals on the card met → the card itself goes green. */
+.nutrition-summary { transition: border-color .2s, background-color .2s; }
+.nutrition-summary.all-hit { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--surface)); }
+
+/* Day footer: Add food (primary) + Quick (secondary). */
+.day-actions { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-3); }
+
+/* Goal row in settings: type (≥ = ≤) + value. */
+.goal-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-2); }
+.goal-types { flex-wrap: nowrap; gap: var(--space-1); }
+.goal-types .chip { min-width: 44px; padding: 0; font-family: var(--font-mono); font-size: var(--fs-md); }
+
+
+/* Quicklog popup: the numbers in a 2-column grid, one main action. */
+.quicklog-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-3); }
+.quicklog-fields .field { margin-bottom: var(--space-3); }
+.quicklog-fields input { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+#quicklog-modal .modal-card { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
+#ql-log { margin-top: var(--space-3); }
+
+/* Separate settings pages, with the same app controls and trailing row slot. */
+.settings-page { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
+.list > li > a.list-item { color: var(--text); text-decoration: none; }
+.setting-toggle > .toggle-row { width: 100%; margin: 0; }
+.export-buttons { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--space-3); }
+.track-chips { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: var(--space-2); }
+.track-chips .chip { min-width: 0; padding: 0 2px; font-size: var(--fs-sm); }
+.goal-block { margin-bottom: var(--space-5); }
+.goal-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-2); align-items: center; }
+.goal-name { color: var(--text); grid-column: span 2; font-size: 16px; font-weight: 600; }
+.goal-grid > .field { margin: 0; min-width: 0; }
+.goal-grid input { width: 100%; min-width: 0; text-align: right; padding-left: var(--space-1); padding-right: 38px; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.goal-grid .unit { right: var(--space-2); font-size: var(--fs-xs); }
+.goal-grid.chips { margin-top: var(--space-2); }
+.goal-grid .chip { width: 100%; min-width: 0; padding: 0 var(--space-1); }
+.restore-food { flex: 0 0 auto; min-height: 44px; }
+.day-navigation.past-day { display: block; }
+.list-item.read-only { cursor: default; }
+.list-item.read-only:active { background: none; }
+
+.export-buttons button { padding-left: var(--space-2); padding-right: var(--space-2); }
+@media (max-width: 360px) {
+  .summary-columns .stat-value { white-space: normal; }
+  .summary-columns .summary-total { display: block; white-space: nowrap; }
+  .export-buttons button { font-size: var(--fs-base); }
+}
+
+/* Past day (from History): finished, so the hero isn't --live; on-target green still applies. */
+.nutrition-summary.finished .summary-hero .stat-value.lg:not(.is-hit) { color: var(--text); }
+.nutrition-summary.finished > .progress-track:not(.is-hit) .progress-fill { background: var(--accent); }
+.nutrition-summary.finished > .progress-track:not(.is-hit) .progress-over { --bar-color: var(--accent); }
+
+/* Late-night day switch: a small muted caret after "Today"/"Yesterday" marks the title as tappable. */
+#day-title .day-switch-caret { margin-left: 6px; vertical-align: 2px; color: var(--muted); }
+#info-action { margin-top: var(--space-5); }
+
+/* Settings: Goals card = the tracking card reduced to goals only. */
+.goals-card { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-4); margin-bottom: var(--space-3); color: var(--text); text-decoration: none; }
+.goals-card-body { flex: 1; min-width: 0; }
+.goals-card-title { margin-bottom: var(--space-3); }
+.goals-card .stat-value { font-size: var(--fs-3xl); }
+.goals-card .stat-value .unit, .goals-card .goal-value .unit { font: var(--fs-sm) var(--font-body); color: var(--muted); margin-left: var(--space-1); }
+.goals-card .goal-value { font-family: var(--font-mono); font-size: var(--fs-input); font-weight: 500; white-space: nowrap; }
+.goals-card .summary-columns { margin-top: var(--space-4); }
+.meal-setting .toggle-row { margin: var(--space-2) 0 var(--space-6); }
+/* The numbers (and the divider) stretch across the card body only; a strip on the right is the chevron's, with room around it. */
+/* "Not open for this account" page (page-init.js): two centered links under the message. */
+.closed-link { display: flex; justify-content: center; align-items: center; width: 100%; min-height: var(--tap); }

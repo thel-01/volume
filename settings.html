@@ -925,7 +925,7 @@
         window.location.replace(`./index.html?demo=${deleted ? 'ended' : 'ended-pending'}`);
         return;
       }
-      const { error } = await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
       if (error) {
         flash(`Could not log out: ${error.message}`, 'error');
         logoutBtn.disabled = false;
@@ -957,13 +957,18 @@
       ['injuries', 'started_at'],
       ['injury_checkins', 'created_at'],
       ['user_settings', 'created_at'],
+      ['cal_settings', 'updated_at'],
+      ['cal_goal_history', 'day'],
+      ['cal_foods', 'created_at'],
+      ['cal_entries', 'created_at'],
+      ['cal_access', 'added_at'],
     ];
 
     // Paged via fetchAllRows() (supabase-client.js) — a plain select('*')
-    // would quietly stop at Supabase's 1000-row cap. user_settings has no
-    // id column (its key is user_id), so it tiebreaks on that instead.
+    // would quietly stop at Supabase's 1000-row cap. Settings and access rows
+    // use user_id; goal history uses the unique day/user_id pair.
     function fetchEntireTable(table, orderCol) {
-      const tiebreak = table === 'user_settings' ? 'user_id' : 'id';
+      const tiebreak = ['user_settings', 'cal_settings', 'cal_goal_history', 'cal_access'].includes(table) ? 'user_id' : 'id';
       return fetchAllRows(() => supabase.from(table).select('*').order(orderCol).order(tiebreak));
     }
 
