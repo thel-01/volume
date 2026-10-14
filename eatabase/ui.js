@@ -12,8 +12,14 @@ export function number(raw, { required = false, min = 0, max = 100000, integer =
   if (integer && !Number.isInteger(value)) return { error: 'Enter a whole number.' };
   return { value };
 }
+// Volume's step loader (styles.css .loading-state/.step-loader), centered on the screen.
+const LOADER = '<svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" aria-hidden="true"><path d="M 6,30 L 18,30 L 18,18 L 30,18 L 30,6" pathLength="1" /></svg>';
+export function loading(id) {
+  const el = $(id); if (!el) return; el.className = 'loading-state'; el.hidden = false;
+  el.setAttribute('aria-label', 'Loading'); el.innerHTML = LOADER;
+}
 export function status(id, message = '', kind = 'info', retry) {
-  const el = $(id); if (!el) return; el.className = `status ${kind}`; el.hidden = !message;
+  const el = $(id); if (!el) return; el.className = `status ${kind}`; el.hidden = !message; el.removeAttribute('aria-label');
   el.replaceChildren(document.createTextNode(message));
   if (retry) { const b = document.createElement('button'); b.type = 'button'; b.className = 'link-button'; b.textContent = 'Retry'; b.onclick = retry; el.append(b); }
 }

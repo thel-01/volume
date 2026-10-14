@@ -2,7 +2,7 @@ import { dayTotals, goalStatus, trackedNutrients, localDay, shiftDay, fmt } from
 import * as store from './store.js';
 import { goalDaysBody } from './nutrient-charts.js';
 
-import { $, escapeHtml, status as showStatus, CHEVRON, toast } from './ui.js';
+import { $, escapeHtml, status as showStatus, loading, CHEVRON, toast } from './ui.js';
 import { openQuicklog } from './quicklog.js';
 
 // Same two actions as Your day's footer: Add food opens the add sheet there; Quick logs right here.
@@ -30,7 +30,7 @@ function renderAnalytics(data) {
 }
 
 async function loadOverview() {
-  status('Loading…'); $('analytics-preview').hidden = true;
+  loading('overview-status'); $('analytics-preview').hidden = true;
   try {
     const today = localDay(); observedToday = today;
     const [settings, history, entries, firstDay, todayEntries] = await Promise.all([

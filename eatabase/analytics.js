@@ -1,7 +1,7 @@
 // Analytics: every tracked nutrient's 4-week day chart, one after another.
 import { trackedNutrients, localDay, shiftDay } from './nutrition.js';
 import * as store from './store.js';
-import { $, pageHeader, status as showStatus } from './ui.js';
+import { $, pageHeader, status as showStatus, loading } from './ui.js';
 import { renderNutrientCharts, averagesBody } from './nutrient-charts.js';
 
 pageHeader('Analytics', './home.html', 'Back to home');
@@ -25,7 +25,7 @@ function linkMacrosToCharts(container) {
 }
 
 async function load() {
-  status('Loading…'); $('nutrient-charts').hidden = true;
+  loading('analytics-status'); $('nutrient-charts').hidden = true;
   try {
     const today = localDay();
     const [settings, history, entries, firstDay] = await Promise.all([
