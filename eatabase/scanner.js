@@ -4,7 +4,7 @@ const VARIANTS = ['normal', 'invert', 'normal', 'histogram'];
 
 function cameraError(cause) {
   const messages = {
-    NotAllowedError: "Camera access was denied. Allow it in Safari's settings for this site, then try again.",
+    NotAllowedError: "Camera access was denied. Allow it in your browser's settings for this site, then try again.",
     NotFoundError: 'No camera found.',
     NotReadableError: 'The camera is busy. Close any other app using it, then try again.',
     OverconstrainedError: "This camera couldn't use the requested settings. Try again.",
@@ -23,8 +23,10 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     style.setAttribute('data-scn-style', '');
     style.textContent = `
       .scn-container { position:relative; overflow:hidden; background:var(--surface,#111); }
-      .scn-video { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:block; width:100%; height:100%; object-fit:cover; max-width:none; max-height:none; visibility:hidden; }
-      .scn-video.scn-fit { visibility:visible; }
+      .scn-video { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:block; width:100%; height:100%; object-fit:cover; max-width:none; max-height:none; visibility:visible; }
+      .scn-container .scn-cover { position:absolute; inset:0; z-index:3; display:grid; place-items:center; background:var(--surface,#111); opacity:1; transition:opacity 180ms ease-in; pointer-events:none; }
+      .scn-container .scn-cover[hidden] { display:none; }
+      .scn-container .scn-cover.scn-revealing { opacity:0; }
       .scn-guide { box-sizing:content-box; position:absolute; left:50%; top:50%; width:72%; aspect-ratio:1; transform:translate(-50%,-50%); border:2px solid rgba(255,255,255,.55); border-radius:10px; transition:border-color .08s; pointer-events:none; }
       .scn-guide.scn-hit { border-color:#3ddc84; box-shadow:0 0 0 9999px rgba(61,220,132,.18); }
       .scn-container .scn-torch { position:absolute; top:12px; right:12px; width:44px; height:44px; min-width:44px; min-height:44px; border-radius:50%; border:0; background:rgba(0,0,0,.55); color:var(--text,#fff); display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer; }
@@ -37,6 +39,9 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   container.classList.add('scn-container');
   const video = doc.createElement('video');
   video.className = 'scn-video';
+  // Inline dimensions and a continuously visible video avoid WebKit's stale
+  // framing after restarts. Mask warmup with a sibling, not video visibility.
+  video.style.width = '100%'; video.style.height = '100%';
   video.muted = true;
   video.autoplay = true;
   video.playsInline = true;
@@ -49,7 +54,11 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   torch.setAttribute('aria-label', 'Flash');
   torch.setAttribute('aria-pressed', 'false');
   torch.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>';
-  container.append(video, guide, torch);
+  const cover = doc.createElement('div');
+  cover.className = 'scn-cover'; cover.hidden = true;
+  cover.setAttribute('role', 'status'); cover.setAttribute('aria-label', 'Starting camera');
+  cover.innerHTML = '<svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" aria-hidden="true"><path d="M6 30h12V18h12V6" pathLength="1"/></svg>';
+  container.append(video, guide, torch, cover);
   const canvas = doc.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -58,55 +67,83 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   let pending = null, frameId = 0, lastCode = null, lastCodeAt = 0;
   let frameHandle = null, loopVersion = 0, lastTick = 0, watchdog = null;
   let cancelFirstFrame = null, flashTimer = null;
-  let fitW = 0, fitH = 0, fitBoxW = -1, fitBoxH = -1;
+  let cancelPreview = null, cancelReveal = null;
   const running = () => wanted && track?.readyState === 'live';
   const now = () => win.performance.now();
 
-  // The feed stays hidden until it's sized to cover the box for the stream's
-  // CURRENT dimensions: iOS can paint a frame at a new size (e.g. portrait
-  // after landscape) before the resize event, which showed as black bars.
-  let revealFrame = null;
-  function hideVideo() {
-    video.classList.remove('scn-fit');
-    if (revealFrame !== null) win.cancelAnimationFrame(revealFrame);
-    revealFrame = null;
+  function resetCover(show = false) {
+    cover.style.transition = 'none'; cover.classList.remove('scn-revealing');
+    cover.hidden = !show; container.setAttribute('aria-busy', String(show));
   }
-  function revealWhenStable() {
-    if (revealFrame !== null) win.cancelAnimationFrame(revealFrame);
-    let seenW = 0, seenH = 0, steady = 0;
-    const check = () => {
-      revealFrame = null;
-      if (!video.srcObject) return;
-      fitVideo();
-      if (revealFrame !== null) return;   // fitVideo saw new dimensions and restarted this check
-      const vw = video.videoWidth, vh = video.videoHeight;
-      steady = vw && vh && vw === seenW && vh === seenH && vw === fitW && vh === fitH ? steady + 1 : 0;
-      seenW = vw; seenH = vh;
-      if (steady >= 2) video.classList.add('scn-fit');
-      else revealFrame = win.requestAnimationFrame(check);
-    };
-    revealFrame = win.requestAnimationFrame(check);
+
+  // Presentation callbacks can stall behind an opaque cover on iOS. Probe a
+  // decoded frame independently, then allow a short period of stable layout.
+  function waitForPreview(token) {
+    return new Promise((resolve, reject) => {
+      let paint = null, finished = false, stableSince = 0, seen = '';
+      const probe = doc.createElement('canvas'); probe.width = probe.height = 1;
+      const probeCtx = probe.getContext('2d');
+      const dimensions = () => {
+        const box = container.getBoundingClientRect(), v = video.getBoundingClientRect();
+        return [video.videoWidth, video.videoHeight, box.width, box.height, v.width, v.height].map(Math.round).join(':');
+      };
+      const finish = error => {
+        if (finished) return;
+        finished = true; win.clearTimeout(deadline); win.clearInterval(poll);
+        if (paint !== null) win.cancelAnimationFrame(paint);
+        if (cancelPreview === cancel) cancelPreview = null;
+        error ? reject(error) : resolve();
+      };
+      const cancel = () => finish(new DOMException('Camera start was cancelled.', 'AbortError'));
+      const deadline = win.setTimeout(() => finish(new Error('No decoded camera preview became available.')), 3000);
+      const poll = win.setInterval(() => {
+        if (!wanted || token !== generation) { cancel(); return; }
+        let decoded = video.readyState >= 2 && video.videoWidth && video.videoHeight && !video.paused;
+        if (decoded) {
+          try { if (!probeCtx) throw new Error(); probeCtx.drawImage(video, 0, 0, 1, 1); }
+          catch { decoded = false; }
+        }
+        const key = dimensions();
+        if (!decoded) { stableSince = 0; seen = ''; return; }
+        if (key !== seen) { seen = key; stableSince = now(); }
+        if (now() - stableSince < 180 || paint !== null) return;
+        paint = win.requestAnimationFrame(() => {
+          paint = win.requestAnimationFrame(() => {
+            paint = null;
+            if (!wanted || token !== generation) { cancel(); return; }
+            if (dimensions() !== seen) { seen = ''; stableSince = 0; return; }
+            finish();
+          });
+        });
+      }, 40);
+      cancelPreview = cancel;
+    });
   }
-  function fitVideo() {
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const box = container.getBoundingClientRect();
-    if (!vw || !vh || !box.width || !box.height) return;
-    if (fitW && (vw !== fitW || vh !== fitH)) { hideVideo(); revealWhenStable(); }
-    if (vw === fitW && vh === fitH && box.width === fitBoxW && box.height === fitBoxH) return;
-    fitW = vw; fitH = vh; fitBoxW = box.width; fitBoxH = box.height;
-    // CSS object-fit crops every painted frame, including iOS orientation changes
-    // that arrive before the video's resize event. No stale pixel dimensions.
+
+  function revealPreview(token) {
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const finish = error => {
+        if (finished) return;
+        finished = true; win.clearTimeout(timer); cover.removeEventListener('transitionend', ended);
+        if (cancelReveal === cancel) cancelReveal = null;
+        error ? reject(error) : resolve();
+      };
+      const cancel = () => finish(new DOMException('Camera start was cancelled.', 'AbortError'));
+      const ended = event => { if (event.target === cover && event.propertyName === 'opacity') finish(); };
+      const timer = win.setTimeout(() => finish(), 300);
+      cancelReveal = cancel;
+      if (!wanted || token !== generation) { cancel(); return; }
+      cover.style.removeProperty('transition');
+      void cover.offsetWidth;
+      cover.addEventListener('transitionend', ended);
+      cover.classList.add('scn-revealing');
+    });
   }
-  video.addEventListener('resize', fitVideo);
-  video.addEventListener('loadedmetadata', fitVideo);
-  win.addEventListener('resize', fitVideo);
-  const observer = win.ResizeObserver ? new win.ResizeObserver(fitVideo) : null;
-  observer?.observe(container);
 
   function grab() {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh || video.readyState < 2 || !ctx) return null;
-    fitVideo();
     const box = container.getBoundingClientRect();
     const v = video.getBoundingClientRect(), g = guide.getBoundingClientRect();
     if (!box.width || !box.height || !v.width || !v.height || !g.width || !g.height) return null;
@@ -256,6 +293,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     win.clearInterval(watchdog);
     watchdog = null;
     wanted = true;
+    resetCover(true);
     const token = ++generation;
     const cancelled = () => token !== generation || !wanted;
     const operation = (async () => {
@@ -274,7 +312,6 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
         } });
         if (cancelled()) { acquired.getTracks().forEach(t => t.stop()); return; }
         stream?.getTracks().forEach(t => t.stop());
-        hideVideo(); fitW = fitH = 0;
         stream = acquired;
         track = stream.getVideoTracks()[0];
         video.srcObject = stream;
@@ -297,8 +334,11 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
           await track.applyConstraints({ advanced: [{ zoom: Math.min(caps.zoom.max, Math.max(caps.zoom.min, 1)) }] }).catch(() => {});
         }
         if (cancelled()) return;
-        fitVideo();
-        revealWhenStable();
+        await waitForPreview(token);
+        if (cancelled()) return;
+        await revealPreview(token);
+        if (cancelled()) return;
+        cover.hidden = true; container.setAttribute('aria-busy', 'false');
         loop();
         win.clearInterval(watchdog);
         watchdog = win.setInterval(() => {
@@ -308,6 +348,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
         acquired?.getTracks().forEach(t => t.stop());
         if (cancelled()) return;
         wanted = false;
+        cancelPreview?.(); cancelReveal?.(); resetCover();
         track = null; stream = null; video.srcObject = null;
         updateTorch(false);
         cancelLoop();
@@ -327,7 +368,6 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   }
   function resume() {
     paused = false;
-    fitVideo();
     if (running()) { ensureWorker(); loop(); }
   }
   function stop() {
@@ -335,6 +375,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     generation++;
     starting = null;
     cancelFirstFrame?.();
+    cancelPreview?.(); cancelReveal?.(); resetCover();
     cancelLoop();
     win.clearInterval(watchdog);
     watchdog = null;
@@ -347,7 +388,6 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     video.pause();
     stream = null; track = null; video.srcObject = null;
     pending = null; lastCode = null; lastCodeAt = 0;
-    hideVideo(); fitW = fitH = 0;
     paused = false;
     updateTorch(false);
     win.clearTimeout(flashTimer);
@@ -356,7 +396,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   doc.addEventListener('visibilitychange', () => {
     if (doc.visibilityState !== 'visible' || !wanted) return;
     if (track?.readyState === 'ended') void start().catch(() => {});
-    else { fitVideo(); if (!paused && now() - lastTick > 1000) loop(); }
+    else { if (!paused && now() - lastTick > 1000) loop(); }
   });
 
   return { start, pause, resume, stop, setTorch,
