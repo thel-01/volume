@@ -162,3 +162,7 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 /* The numbers (and the divider) stretch across the card body only; a strip on the right is the chevron's, with room around it. */
 /* "Not open for this account" page (page-init.js): two centered links under the message. */
 .closed-link { display: flex; justify-content: center; align-items: center; width: 100%; min-height: var(--tap); }
+
+.amount-choices { margin-bottom: var(--space-3); }
+.amount-choices .chip { min-height: var(--tap); }
+#search-products { margin-bottom: var(--space-4); }

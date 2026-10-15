@@ -2,7 +2,7 @@ import { $, pageHeader, navRow, escapeHtml, status, toast, run, arm, field, fiel
 import { NUTRIENTS } from './nutrition.js';
 import * as store from './store.js';
 let foods = [], editing;
-const meta = f => f.basis === 'portion' ? 'Saved meal · per portion' : `Per 100 g${f.brand ? ` · ${f.brand}` : ''}`;
+const meta = f => f.basis === 'portion' ? 'Saved meal · per portion' : `Per 100 ${f.amountUnit || 'g'}${f.brand ? ` · ${f.brand}` : ''}`;
 async function load() {
   editing = null; pageHeader('Your foods','./settings.html','Back to settings');
   try {
@@ -20,7 +20,9 @@ function openEdit(food) {
   editing = food; pageHeader('Edit food','#','Back to your foods');
   $('page-header').querySelector('a').onclick = e => { e.preventDefault(); load(); };
   const per100 = food.basis === 'per100', values = per100 ? food.per100 : food.portion;
-  $('foods-content').innerHTML = `${field('food-name','Name · required',food.name,{mode:'text',required:true, maxlength: 120})}${per100 ? field('food-brand','Brand (optional)',food.brand || '',{mode:'text', maxlength: 80}) + field('food-barcode','Barcode (optional)',food.barcode || '',{mode:'numeric', maxlength: 14}) : ''}<p class="section-label">${per100 ? 'Per 100 g' : 'Per portion'}</p>${NUTRIENTS.map(n => field(`food-${n.key}`,`${n.label} (${n.unit})`,values?.[n.key] ?? '',{required:true})).join('')}<button type="button" id="save-food">Save</button><div class="form-delete"><button type="button" class="arm-confirm-btn" id="delete-food">Delete</button></div>`;
+  let unit = food.amountUnit || 'g';
+  $('foods-content').innerHTML = `${field('food-name','Name · required',food.name,{mode:'text',required:true, maxlength: 120})}${per100 ? field('food-brand','Brand (optional)',food.brand || '',{mode:'text', maxlength: 80}) + field('food-barcode','Barcode (optional)',food.barcode || '',{mode:'numeric', maxlength: 14}) : ''}${per100 ? `<label>Nutrition on the label</label><div class="chips amount-choices" role="group" aria-label="Nutrition basis">${['g','ml'].map(u => `<button type="button" class="chip${u === unit ? ' selected' : ''}" data-food-unit="${u}" aria-pressed="${u === unit}">Per 100 ${u}</button>`).join('')}</div>` : '<p class="section-label">Per portion</p>'}${NUTRIENTS.map(n => field(`food-${n.key}`,`${n.label} (${n.unit})`,values?.[n.key] ?? '',{required:true})).join('')}<button type="button" id="save-food">Save</button><div class="form-delete"><button type="button" class="arm-confirm-btn" id="delete-food">Delete</button></div>`;
+  $('foods-content').querySelectorAll('[data-food-unit]').forEach(b => b.onclick = () => { unit = b.dataset.foodUnit; $('foods-content').querySelectorAll('[data-food-unit]').forEach(x => { x.classList.toggle('selected',x === b); x.setAttribute('aria-pressed', String(x === b)); }); });
   $('save-food').onclick = e => run(e.currentTarget, async () => {
     const name = $('food-name').value.trim(), barcode = per100 ? $('food-barcode').value.trim() : null;
     fieldError('food-name',!name ? 'Enter the food name.' : name.length > 120 ? 'Use no more than 120 characters.' : '');
@@ -34,7 +36,7 @@ function openEdit(food) {
       values[n.key] = r.value; if (r.error) valid = false;
     }
     if (!valid) { $('foods-content').querySelector('[aria-invalid="true"]')?.focus(); return; }
-    await store.updateFood(food.id,{name,...(per100 ? {brand:$('food-brand').value.trim() || null,barcode:barcode || null,per100:values} : {portion:values})});
+    await store.updateFood(food.id,{name,...(per100 ? {amountUnit:unit,brand:$('food-brand').value.trim() || null,barcode:barcode || null,per100:values} : {portion:values})});
     await load(); toast('Food saved');
   });
   arm($('delete-food'),async () => {

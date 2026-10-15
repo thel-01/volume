@@ -1,7 +1,8 @@
+import { amountUnit, foodMetadata } from './food-product.js';
 // Eatabase nutrition logic. DOM-free, so it runs under Node for tests
 // (nutrition.test.mjs) exactly like strength-index.js does in the real app.
 //
-// Units: all nutrient values are per the stated basis — `per100` = per 100 g,
+// Units: all nutrient values are per the stated basis — `per100` = per 100 g or ml (amountUnit),
 // an entry's `values` = what was actually eaten. kcal in kcal, the rest in g.
 // `null` always means "unknown", never 0 (a quicklog with only kcal has
 // unknown protein).
@@ -401,7 +402,7 @@ export function rememberedFoods(entries, ownFoods = [], now = new Date()) {
         key, ref: e.source, id: e.sourceRef ?? e.name, source: e.source, sourceRef: e.sourceRef ?? null,
         name: e.name, nameDe: e.nameDe || null, brand: e.brand || null,
         basis: e.basis, per100: e.per100 || null, portion: e.portion || null,
-        lastGrams: e.grams ?? null, lastPortions: e.portions ?? null,
+        ...foodMetadata(e), lastGrams: e.grams ?? null, lastMillilitres: e.millilitres ?? null, lastAmountUnit: amountUnit(e), lastPortions: e.portions ?? null,
         uses: 0, lastUsed: e.loggedAt,
       };
       byKey.set(key, f);
@@ -412,7 +413,7 @@ export function rememberedFoods(entries, ownFoods = [], now = new Date()) {
     const key = `own:${o.id}`;
     const f = byKey.get(key);
     // the product as it is now (you may have edited it) beats the old entry snapshot
-    const fresh = { name: o.name, brand: o.brand || null, basis: o.basis, per100: o.per100 || null, portion: o.portion || null };
+    const fresh = { ...foodMetadata(o), name: o.name, brand: o.brand || null, basis: o.basis, per100: o.per100 || null, portion: o.portion || null };
     if (f) Object.assign(f, fresh);
     else byKey.set(key, { key, ref: 'own', id: o.id, source: 'own', sourceRef: o.id, nameDe: null, ...fresh,
       lastGrams: null, lastPortions: null, uses: 0, lastUsed: o.createdAt });
@@ -432,14 +433,16 @@ export function rememberedFoods(entries, ownFoods = [], now = new Date()) {
  * The nutrition is COPIED into the entry (a snapshot): editing the product
  * later, or Open Food Facts changing it, never rewrites a logged day.
  */
-export function makeEntry(food, { grams = null, portions = null, meal = null, day, now = new Date() }) {
+export function makeEntry(food, { grams = null, millilitres = null, portions = null, meal = null, day, now = new Date() }) {
   const basis = food.basis || 'per100';
   grams = grams == null ? null : round1(grams);
+  millilitres = millilitres == null ? null : round1(millilitres);
+  const unit = amountUnit(food), amount = unit === 'ml' ? millilitres : grams;
   portions = portions == null ? null : round1(portions);
-  if (basis === 'per100' && !(grams > 0)) throw new Error('makeEntry: grams required for a per-100 g food');
+  if (basis === 'per100' && (!(amount > 0) || amount > 5000)) throw new Error('Enter an amount greater than zero and no more than 5000.');
   const per100 = basis === 'per100' ? pickNutrients(food.per100 || food) : null;
   const portion = basis === 'portion' ? pickNutrients(food.portion || food) : null;
-  const values = basis === 'per100' ? scaleValues(per100, grams) : multiplyValues(portion, portions ?? 1);
+  const values = basis === 'per100' ? scaleValues(per100, amount) : multiplyValues(portion, portions ?? 1);
   return {
     day: day || localDay(now),
     loggedAt: now.toISOString(),
@@ -450,7 +453,9 @@ export function makeEntry(food, { grams = null, portions = null, meal = null, da
     nameDe: food.nameDe || null,
     brand: food.brand || null,
     basis,
-    grams: basis === 'per100' ? grams : null,
+    ...foodMetadata(food), amountUnit: unit,
+    grams: basis === 'per100' && unit === 'g' ? grams : null,
+    millilitres: basis === 'per100' && unit === 'ml' ? millilitres : null,
     portions: basis === 'portion' ? (portions ?? 1) : null,
     per100,
     portion,
@@ -459,8 +464,12 @@ export function makeEntry(food, { grams = null, portions = null, meal = null, da
 }
 
 /** Same entry, new amount: recomputed from its own snapshot. */
-export function withAmount(entry, { grams, portions }) {
-  if (entry.basis === 'per100') return { ...entry, grams, values: scaleValues(entry.per100, grams) };
+export function withAmount(entry, { grams, millilitres, portions }) {
+  if (entry.basis === 'per100') {
+    const unit = amountUnit(entry), amount = round1(unit === 'ml' ? millilitres : grams);
+    if (!(amount > 0) || amount > 5000) throw new Error('Enter a valid amount.');
+    return { ...entry, grams: unit === 'g' ? round1(amount) : null, millilitres: unit === 'ml' ? round1(amount) : null, values: scaleValues(entry.per100, round1(amount)) };
+  }
   if (entry.basis === 'portion') return { ...entry, portions, values: multiplyValues(entry.portion, portions) };
   return entry;   // a one-off quicklog has no basis to rescale from
 }

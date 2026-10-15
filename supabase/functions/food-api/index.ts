@@ -11,7 +11,13 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const UA = 'Eatabase/0.1 (personal non-commercial food tracker)';
+const UA = 'Eatabase/0.2 (https://github.com/thel-01/volume)';
+const PRODUCT_FIELDS = 'code,schema_version,product_name,product_name_de,product_name_en,brands,quantity,product_quantity,product_quantity_unit,serving_size,serving_quantity,serving_quantity_unit,nutrition.input_sets,last_modified_t';
+// Opportunistic edge-instance caching; upstream limits still apply across instances.
+const productCache = new Map<string, { at:number; body:unknown }>();
+class UpstreamError extends Error {
+  constructor(message:string, public status:number, public retryAfter:string | null = null) { super(message); }
+}
 const FIELDS = 'code,product_name,product_name_de,brands,quantity,nutriments,unique_scans_n';
 // Query-syntax characters OFF's search treats as operators; typed text must not use them.
 const SEARCH_NOISE = new Set([...'()[]{}:"\\/^~*?!+-']);
@@ -26,10 +32,10 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
-function json(status: number, body: unknown): Response {
+function json(status: number, body: unknown, retryAfter?: string | null): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, 'Content-Type': 'application/json' },
+    headers: { ...CORS, 'Content-Type': 'application/json', ...(retryAfter ? { 'Retry-After': retryAfter, 'Access-Control-Expose-Headers': 'Retry-After' } : {}) },
   });
 }
 
@@ -55,9 +61,9 @@ async function access(req: Request): Promise<'ok' | 'anon' | 'denied'> {
   return !allowed.error && allowed.data === true ? 'ok' : 'denied';
 }
 
-async function fetchJson(url: string): Promise<unknown> {
+async function fetchJson(url: string, allowMissing = false): Promise<unknown> {
   const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) throw new Error(`Open Food Facts answered HTTP ${res.status}`);
+  if (!res.ok && !(allowMissing && res.status === 404)) throw new UpstreamError(`Open Food Facts answered HTTP ${res.status}`, res.status, res.headers.get('Retry-After'));
   return res.json();
 }
 
@@ -90,7 +96,14 @@ async function offSearch(params: URLSearchParams): Promise<unknown> {
 async function offProduct(params: URLSearchParams): Promise<unknown> {
   const code = params.get('code') ?? '';
   if (!/^\d{8,14}$/.test(code)) throw new InvalidInput('Barcode must be 8–14 digits.');
-  return fetchJson(`https://world.openfoodfacts.org/api/v2/product/${code}?fields=${FIELDS}`);
+  const cached = productCache.get(code);
+  if (cached && Date.now() - cached.at < 3600e3) return cached.body;
+  const body = await fetchJson(`https://world.openfoodfacts.org/api/v3.6/product/${code}.json?fields=${PRODUCT_FIELDS}&lc=de`, true) as { result?: { id?:string } };
+  if (body.result?.id === 'product_found' || body.result?.id === 'product_not_found') {
+    if (productCache.size >= 500) productCache.delete(productCache.keys().next().value!);
+    productCache.set(code, { at:Date.now(), body });
+  }
+  return body;
 }
 
 Deno.serve(async (req) => {
@@ -104,14 +117,14 @@ Deno.serve(async (req) => {
     : null;
   if (!route) return json(404, { error: 'not found' });
 
-  const who = await access(req);
-  if (who === 'anon') return json(401, { error: 'log in to use food search' });
-  if (who === 'denied') return json(403, { error: 'Eatabase isn’t open for this account yet' });
-
   try {
+    const who = await access(req);
+    if (who === 'anon') return json(401, { error: 'log in to use food search' });
+    if (who === 'denied') return json(403, { error: 'Eatabase isn’t open for this account yet' });
     return json(200, await route(searchParams));
   } catch (e) {
     // Surface upstream failures to the page, never hang.
-    return json(e instanceof InvalidInput ? 400 : 502, { error: e instanceof Error ? e.message : String(e) });
+    const throttled = e instanceof UpstreamError && e.status === 429;
+    return json(e instanceof InvalidInput ? 400 : throttled ? 429 : 502, { error: e instanceof Error ? e.message : String(e), kind: throttled ? 'throttled' : 'unavailable' }, e instanceof UpstreamError ? e.retryAfter : null);
   }
 });

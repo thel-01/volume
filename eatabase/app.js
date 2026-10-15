@@ -9,7 +9,8 @@ import { createScanner } from './scanner.js';
 import { openQuicklog as showQuicklog, closeQuicklog } from './quicklog.js';
 import { API_BASE } from './config.js';
 import { foodFetch } from './food-fetch.js';
-import { prepareBls, searchBls, searchOff, rerankOff, searchMine, mergeResults, parseOffProduct, plausibility } from './food-search.js';
+import { fetchProduct, amountUnit, entryAmount, amountOptions, initialAmount, PRODUCT_VERSION } from './food-product.js';
+import { prepareBls, searchBls, searchOff, rerankOff, searchMine, mergeResults, plausibility } from './food-search.js';
 
 const requestedDay = new URLSearchParams(location.search).get('day');
 const validPastDay = /^\d{4}-\d{2}-\d{2}$/.test(requestedDay || '') && !Number.isNaN(new Date(`${requestedDay}T12:00:00`).getTime()) && localDay(new Date(`${requestedDay}T12:00:00`)) === requestedDay && requestedDay < localDay();
@@ -18,6 +19,7 @@ let pastEditing = false, explicitDay = pastDay, addToday = false;
 let observedToday = localDay();
 let day = pastDay ? requestedDay : localDay(), settings, entries = [], remembered = [], ownFoods = [];
 let view = 'day', tab = 'search', step = null, returnStep = null, currentFood = null, editing = null;
+let amountState = null;
 let selectedMeal = null, portions = 1, searchQuery = '', searchRows = [], searchVersion = 0, searchTimer;
 let bls = null, blsError = false, blsPromise, cameraPending, cameraRun = 0;
 let cameraMessage = '', scanCode = null, lookupVersion = 0, loadVersion = 0, writeBlocked = false;
@@ -150,7 +152,7 @@ function progressBar(n, total) {
 }
 function entryMeta(e) {
   if (e.basis === 'once') return ''; if (e.basis === 'portion') return `${e.portions} portion${e.portions === 1 ? '' : 's'}`;
-  return `${e.grams} g${e.brand ? ` · ${e.brand}` : ''}`;
+  return `${entryAmount(e)} ${amountUnit(e)}${e.brand ? ` · ${e.brand}` : ''}`;
 }
 function foodValues(food) { return food.basis === 'portion' ? food.portion : food.per100 || food; }
 function foodSource(food) { return food.source === 'MINE' ? food.ref : food.source; }
@@ -268,6 +270,7 @@ function closeAdd() {
   ++lookupVersion; ++searchVersion; clearTimeout(searchTimer); step = null; editing = null; scanCode = null; parkCamera(); showView('day'); dayAction(); status('sheet-status');
 }
 function goBack() {
+  ++lookupVersion;
   if (step === 'save-food') { step = 'amount'; if (editing.basis === 'once') renderOnceEdit(); else renderAmount(); return; }
   if (editing) { closeAdd(); return; }
   if (step === 'own' && returnStep?.step === 'amount') { currentFood = returnStep.food; step = 'amount'; renderAmount(); return; }
@@ -286,8 +289,11 @@ function switchTab(next) {
 function renderSearch() {
   if (!blsPromise) loadBls();
   $('bottom-actions').hidden = true;
-  $('add-content').innerHTML = `${field('food-query', 'Search foods', searchQuery, { mode: 'search', placeholder: 'Food or brand' })}<div id="search-results"></div><button type="button" id="create-own" class="link-button">Create your own product</button>`;
-  $('food-query').oninput = () => { searchQuery = $('food-query').value; search(searchQuery); };
+  $('add-content').innerHTML = `${field('food-query', 'Search foods', searchQuery, { mode: 'search', placeholder: 'Food or brand' })}<button type="button" id="search-products" class="secondary">Search packaged products</button><div id="search-results"></div><button type="button" id="create-own" class="link-button">Create your own product</button>`;
+  $('food-query').oninput = () => { searchQuery = $('food-query').value; $('search-products').disabled = searchQuery.trim().length < 3; search(searchQuery); };
+  $('search-products').disabled = searchQuery.trim().length < 3;
+  $('search-products').onclick = () => search(searchQuery, true);
+  $('food-query').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); if (searchQuery.trim().length >= 3) search(searchQuery, true); } };
   $('create-own').onclick = () => openOwn({ name: searchQuery });
   search(searchQuery); requestAnimationFrame(() => { if (view === 'add' && !step && tab === 'search') $('food-query')?.focus(); });
 }
@@ -298,7 +304,7 @@ function searchList(rows, { recent = false, pending = false, error = false } = {
     const v = foodValues(r), kcal = v?.kcal;
     return `<li class="list-item" role="button" tabindex="0" data-result="${i}">${listRow(r.name, foodMeta(r), kcal == null ? '—' : `${fmt('kcal', kcal)} kcal`, r.check?.flag ? '<span class="badge">Check</span>' : '')}</li>`;
   }).join('')}</ul>${!rows.length && recent ? '<p class="muted">Foods you log show up here.</p>' : !rows.length && !pending && !blsError && bls ? '<p class="muted">No matching foods.</p>' : ''}${!bls && !blsError ? '<p class="muted" role="status">Loading foods…</p>' : ''}${blsError ? '<div class="status error">The food database couldn’t load. <button type="button" class="link-button" id="retry-bls">Retry</button></div>' : ''}${pending ? '<p class="muted" role="status">Searching products…</p>' : ''}${error ? '<div class="status info">Product search didn’t work — showing basic foods only. <button type="button" class="link-button" id="retry-search">Retry</button></div>' : ''}`;
-  el.querySelectorAll('[data-result]').forEach(b => { const open = () => openAmount(searchRows[Number(b.dataset.result)]); b.onclick = open; b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }; });
+  el.querySelectorAll('[data-result]').forEach(b => { const open = () => selectFood(searchRows[Number(b.dataset.result)]); b.onclick = open; b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }; });
   $('retry-search')?.addEventListener('click', () => search(searchQuery, true)); $('retry-bls')?.addEventListener('click', () => { loadBls(); search(searchQuery); });
 }
 function search(q, retry = false) {
@@ -309,6 +315,7 @@ function search(q, retry = false) {
   if (q.length < 3) { searchList(mergeResults({ mine, bls: generic, pinned })); return; }
   const display = data => searchList(mergeResults({ mine, bls: generic, off: data.ranked.slice(0, 20), brand: data.brand, pinned }));
   if (productCache.has(q) && !retry) { display(productCache.get(q)); return; }
+  if (!retry) { searchList(mergeResults({ mine, bls: generic, pinned })); return; }
   searchList(pinned, { pending: true });
   const products = async () => {
     try {
@@ -329,26 +336,52 @@ function renderScan() {
   $('add-content').innerHTML = '<p class="muted scan-hint">Point at a barcode</p><div id="scan-result" aria-live="polite"></div>';
 }
 async function lookup(code) {
-  scanCode = code; syncCamera(); const version = ++lookupVersion;
-  $('scan-result').innerHTML = '<div class="status info">Looking up product…</div>';
+  scanCode = code;
+  return loadProduct({ source:'OFF', id:code, name:'Scanned product' });
+}
+function selectFood(food) {
+  if (foodSource(food) !== 'OFF' || food.productVersion === PRODUCT_VERSION && food.per100) { openAmount(food); return; }
+  return loadProduct(food);
+}
+async function loadProduct(preview, refresh = false) {
+  const code = String(preview.sourceRef ?? preview.id), version = ++lookupVersion;
+  ++searchVersion; clearTimeout(searchTimer); editing = null; currentFood = preview; step = 'details';
+  sheetHeader('Product', true); syncCamera(); renderCameraStatus(); $('bottom-actions').hidden = true;
+  $('add-content').innerHTML = `<h2 class="form-heading">${escapeHtml(preview.name || 'Scanned product')}</h2><p class="muted food-meta">${escapeHtml(foodMeta(preview))}</p><div id="product-loading" role="status"></div>`;
+  loading('product-loading');
+  const active = () => version === lookupVersion && view === 'add' && step === 'details';
+  const explain = (message, { retry = false, product = preview } = {}) => {
+    if (!active()) return;
+    currentFood = product;
+    $('add-content').innerHTML = `<h2 class="form-heading">${escapeHtml(product.name || preview.name || 'Scanned product')}</h2><p class="muted food-meta">${escapeHtml(foodMeta(product))}</p><div class="status info" role="status">${escapeHtml(message)}</div>${retry ? '<button type="button" id="retry-product">Try again</button>' : ''}<button type="button" id="product-label" class="link-button">Enter label values</button>`;
+    if (retry) $('retry-product').onclick = () => loadProduct(preview, true);
+    $('product-label').onclick = () => openOwn({ name:product.name === 'Scanned product' ? '' : product.name || preview.name, brand:product.brand, barcode:code, amountUnit:product.amountUnit || null });
+  };
   try {
-    let food = await store.foodByBarcode(code);
-    if (food) food = { ...food, source: 'own', sourceRef: food.id };
-    else {
-      food = await store.cachedProduct(code);
-      if (food === undefined) {
-        const fields = 'code,product_name,product_name_de,product_name_en,brands,quantity,nutriments,unique_scans_n';
-        const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}?fields=${fields}&lc=de`, { signal: AbortSignal.timeout(15000) });
-        if (!response.ok) throw new Error('Unavailable'); const body = await response.json();
-        food = body.status === 1 && body.product ? parseOffProduct({ ...body.product, code }) : null;
-        if (!writeBlocked) await store.cacheProduct(code, food);
+    const own = ownFoods.find(food => food.barcode === code);
+    if (!active()) return;
+    if (own) { openAmount({ ...own, source:'own', sourceRef:own.id }); return; }
+    const savedDetail = await store.cachedProduct(code, { stale:true });
+    let food = refresh ? undefined : await store.cachedProduct(code);
+    if (food === undefined) {
+      food = await fetchProduct(code, { base:API_BASE, fetchFn:foodFetch });
+      if (food === null && savedDetail?.usable) {
+        if (active()) { openAmount(savedDetail); status('sheet-status', 'This product is no longer listed. Using saved product details.'); }
+        return;
       }
+      if (!writeBlocked) await store.cacheProduct(code, food);
     }
-    if (version !== lookupVersion || view !== 'add' || tab !== 'scan' || step) return;
-    if (food) { openAmount(food); return; }
-    $('scan-result').innerHTML = `<div class="card"><h2 class="form-heading">Not in the database</h2><p class="muted">${escapeHtml(code)}</p><button type="button" id="scan-own">Add as your own product</button><button type="button" id="scan-again" class="link-button">Scan again</button></div>`;
-    $('scan-own').onclick = () => openOwn({ barcode: code }); $('scan-again').onclick = scanAgain;
-  } catch { if (version === lookupVersion && view === 'add' && !step && tab === 'scan') { $('scan-result').innerHTML = '<div class="status error">Couldn’t look up this barcode. Check your connection and try again.</div><button type="button" id="retry-barcode" class="secondary">Try again</button><button type="button" id="scan-again" class="link-button">Scan again</button>'; $('retry-barcode').onclick = () => lookup(code); $('scan-again').onclick = scanAgain; } }
+    if (!active()) return;
+    if (!food) { explain('This product is not available in the database. You can keep it by entering its label values.'); return; }
+    if (!food.usable) { explain('The nutrition details need checking. Enter the label values to use this product.', { product:food }); return; }
+    openAmount(food);
+  } catch (error) {
+    if (!active()) return;
+    const saved = await store.cachedProduct(code, { stale:true });
+    if (!active()) return;
+    if (saved?.usable) { openAmount(saved); status('sheet-status', 'Using saved product details. Fresh details couldn’t load.'); return; }
+    explain(error.message || 'Product details couldn’t load. Your selection is still here.', { retry:true });
+  }
 }
 function scanAgain() { scanCode = null; ++lookupVersion; renderScan(); syncCamera(); if (!scanner.running) warmCamera(); }
 
@@ -371,12 +404,12 @@ function openQuicklog() {
 function normalizeFood(food) {
   const source = foodSource(food) || 'own', sourceRef = food.sourceRef ?? food.id;
   const last = remembered.find(r => r.source === source && String(r.sourceRef) === String(sourceRef));
-  const v = foodValues(food) || {}, check = food.check || (source === 'own' ? plausibility(v.kcal, v.protein, v.carbs, v.fat) : null);
+  const v = foodValues(food) || {}, check = food.check || plausibility(v.kcal, v.protein, v.carbs, v.fat);
   return { ...last, ...food, source, sourceRef, name: food.name || 'Unnamed product', basis: food.basis || 'per100', check };
 }
 function openAmount(food) {
   ++searchVersion; clearTimeout(searchTimer); currentFood = normalizeFood(food); editing = null; step = 'amount'; selectedMeal = settings.meals ? defaultMeal() : null;
-  portions = currentFood.lastPortions || 1; renderAmount(); syncCamera(); window.scrollTo(0, 0);
+  amountState = initialAmount(currentFood); portions = currentFood.lastPortions || 1; renderAmount(); syncCamera(); window.scrollTo(0, 0);
 }
 function amountValuesMarkup(values) {
   return trackedNutrients(settings).map(n => `<div><div class="stat-label">${n.label}</div><span class="stat-value">${fmt(n.key, values?.[n.key])}<span class="unit">${values?.[n.key] == null ? '' : n.unit}</span></span></div>`).join('');
@@ -384,26 +417,48 @@ function amountValuesMarkup(values) {
 function warningMarkup(food) {
   return food.check?.flag ? `<div class="status info">These values look off: ${fmt('kcal', foodValues(food).kcal)} kcal on the label, but the macros add up to about ${fmt('kcal', food.check.expected)} kcal.</div>` : '';
 }
+function canonicalAmount() {
+  const selected = amountOptions(currentFood).find(o => o.id === amountState.mode) || { factor:1 };
+  const r = number($('amount-grams').value, { required:true, min:0.000001, max:5000 / selected.factor });
+  const total = r.error ? null : Math.round(r.value * selected.factor * 10) / 10;
+  return r.error || !(total > 0) || total > 5000 ? { error:`Enter an amount greater than zero and no more than 5000 ${amountUnit(currentFood)}.` } : { value:total };
+}
 function renderAmount() {
   status('sheet-status'); sheetHeader(editing ? 'Edit entry' : 'Amount', true); renderCameraStatus();
-  const food = currentFood, portion = food.basis === 'portion', v = foodValues(food);
-  $('add-content').innerHTML = `<h2 class="form-heading">${escapeHtml(food.name)}</h2><p class="muted food-meta">${[foodMeta(food), foodSource(food) === 'BLS' ? food.nameDe : ''].filter(Boolean).map(escapeHtml).join('<br>')}</p>${warningMarkup(food)}${portion ? `<div class="stepper-row"><button type="button" id="portion-minus" class="stepper-btn" aria-label="Decrease by half a portion">−</button><div class="stepper-value"><span class="value" id="portion-value"></span></div><button type="button" id="portion-plus" class="stepper-btn" aria-label="Increase by half a portion">+</button></div>` : `<div class="amount-field">${field('amount-grams', 'Amount (g)', editing?.grams ?? food.lastGrams ?? 100, { required: true, unit: 'g' })}</div>`}<div id="amount-values" class="amount-values"></div>${!portion ? `<p class="caption">per 100 g: ${fmt('kcal', v.kcal)} kcal · P ${fmt('protein', v.protein)} · C ${fmt('carbs', v.carbs)} · F ${fmt('fat', v.fat)}</p>` : ''}${mealChips(selectedMeal)}${editing ? `${SAVE_AS_FOOD}<div class="form-delete"><button type="button" id="delete-entry" class="arm-confirm-btn">Delete</button></div>` : ''}`;
+  const food = currentFood, portion = food.basis === 'portion', v = foodValues(food), unit = amountUnit(food);
+  amountState ||= initialAmount(food, editing);
+  const options = amountOptions(food), selected = options.find(o => o.id === amountState.mode) || options.at(-1);
+  amountState.mode = selected.id;
+  const display = amountState.total == null ? '' : Number((amountState.total / selected.factor).toFixed(6));
+  const usableServing = food.servingSize?.unit === unit && food.servingSize.amount > 0 && !food.sizeConflict;
+  const sizeNote = food.sizeConflict ? 'Package and serving sizes disagree. Enter the amount you ate.' : !usableServing && options.some(o => o.id === 'package') ? 'Serving size unavailable. Enter an amount or select Package.' : '';
+  $('add-content').innerHTML = `<h2 class="form-heading">${escapeHtml(food.name)}</h2><p class="muted food-meta">${[foodMeta(food), foodSource(food) === 'BLS' ? food.nameDe : ''].filter(Boolean).map(escapeHtml).join('<br>')}</p>${warningMarkup(food)}${portion ? `<div class="stepper-row"><button type="button" id="portion-minus" class="stepper-btn" aria-label="Decrease by half a portion">−</button><div class="stepper-value"><span class="value" id="portion-value"></span></div><button type="button" id="portion-plus" class="stepper-btn" aria-label="Increase by half a portion">+</button></div>` : `${options.length > 1 ? `<div class="chips amount-choices" role="group" aria-label="Amount unit">${options.map(o => `<button type="button" class="chip${o.id === selected.id ? ' selected' : ''}" data-amount-mode="${o.id}" aria-pressed="${o.id === selected.id}">${o.label}</button>`).join('')}</div>` : ''}<div class="amount-field">${field('amount-grams', selected.id === 'manual' ? `Amount (${unit})` : `Number of ${selected.id === 'package' ? 'packages' : 'servings'}`, display, { required:true, unit:selected.id === 'manual' ? unit : selected.id === 'package' ? 'packages' : 'servings' })}</div><p id="amount-total" class="caption" aria-live="polite"></p>${sizeNote ? `<p class="caption">${escapeHtml(sizeNote)}</p>` : ''}`}<div id="amount-values" class="amount-values"></div>${!portion ? `<p class="caption">per 100 ${unit}: ${fmt('kcal', v.kcal)} kcal · P ${fmt('protein', v.protein)} · C ${fmt('carbs', v.carbs)} · F ${fmt('fat', v.fat)}</p>` : ''}${mealChips(selectedMeal)}${editing ? `${SAVE_AS_FOOD}<div class="form-delete"><button type="button" id="delete-entry" class="arm-confirm-btn">Delete</button></div>` : ''}`;
+  bottom(editing ? 'Save' : 'Log', e => run(e.currentTarget, saveAmount));
   const update = () => {
-    if (portion) { $('portion-value').innerHTML = `${portions}<span class="unit">portions</span>`; $('portion-minus').disabled = portions <= 0.5; $('portion-plus').disabled = portions >= 50; $('amount-values').innerHTML = amountValuesMarkup(multiplyValues(v, portions)); }
-    else { const r = readNumber('amount-grams', { required: true, min: 1, max: 5000 }); $('amount-values').innerHTML = amountValuesMarkup(r.error ? {} : scaleValues(v, r.value)); }
+    if (portion) {
+      $('portion-value').innerHTML = `${portions}<span class="unit">portions</span>`; $('portion-minus').disabled = portions <= 0.5; $('portion-plus').disabled = portions >= 50; $('amount-values').innerHTML = amountValuesMarkup(multiplyValues(v, portions));
+    } else {
+      const r = canonicalAmount(); amountState.total = r.error ? null : r.value;
+      $('amount-total').textContent = r.error || (selected.id === 'manual' ? '' : `${r.value} ${unit} total · 1 ${selected.id} = ${selected.factor} ${unit}`);
+      $('amount-values').innerHTML = amountValuesMarkup(r.error ? {} : scaleValues(v, r.value));
+      $('bottom-actions').firstElementChild.disabled = !!r.error || writeBlocked;
+    }
   };
   if (portion) { $('portion-minus').onclick = () => { portions = Math.max(0.5, portions - 0.5); update(); }; $('portion-plus').onclick = () => { portions = Math.min(50, portions + 0.5); update(); }; }
-  else { $('amount-grams').oninput = update; $('amount-grams').onfocus = e => e.target.select(); }
-  update(); wireMeals(); if (editing) { wireDelete(); wireSaveAsFood(); } bottom(editing ? 'Save' : 'Log', e => run(e.currentTarget, saveAmount));
+  else {
+    $('amount-grams').oninput = update; $('amount-grams').onfocus = e => e.target.select();
+    $('add-content').querySelectorAll('[data-amount-mode]').forEach(b => b.onclick = () => { update(); amountState.mode = b.dataset.amountMode; renderAmount(); });
+  }
+  update(); wireMeals(); if (editing) { wireDelete(); wireSaveAsFood(); }
 }
 async function saveAmount() {
   const portion = currentFood.basis === 'portion';
-  const r = portion ? number(String(portions), { required: true, min: 0.5, max: 50 }) : readNumber('amount-grams', { required: true, min: 1, max: 5000 });
+  const r = portion ? number(String(portions), { required:true, min:0.5, max:50 }) : canonicalAmount();
   if (r.error) { status('sheet-status', r.error, 'error'); $('amount-grams')?.focus(); return; }
-  const amount = portion ? { portions: r.value } : { grams: r.value };
+  const amount = portion ? { portions:r.value } : amountUnit(currentFood) === 'ml' ? { millilitres:r.value } : { grams:r.value };
   if (editing) {
-    await mutate(() => store.updateEntry(editing.id, { ...withAmount(editing, amount), meal: settings.meals ? selectedMeal : editing.meal })); closeAdd(); await loadDay(); toast('Saved');
-  } else { if (addToday) day = localDay(); const row = await mutate(() => store.addEntry(makeEntry(currentFood, { ...amount, meal: settings.meals ? selectedMeal : null, day }))); await afterLog(row); }
+    await mutate(() => store.updateEntry(editing.id, { ...withAmount(editing, amount), meal:settings.meals ? selectedMeal : editing.meal })); closeAdd(); await loadDay(); toast('Saved');
+  } else { if (addToday) day = localDay(); const row = await mutate(() => store.addEntry(makeEntry(currentFood, { ...amount, meal:settings.meals ? selectedMeal : null, day }))); await afterLog(row); }
 }
 async function afterLog(row) {
   closeAdd(); await loadDay();
@@ -416,23 +471,25 @@ async function afterLog(row) {
     run: async () => { await mutate(() => store.updateEntry(row.id, { day: localDay() })); day = localDay(); await loadDay(); toast('Moved to today'); },
   });
 }
-function openOwn({ name = '', barcode = '' } = {}) {
+function openOwn({ name = '', brand = '', barcode = '', amountUnit:unit = 'g' } = {}) {
   ++searchVersion; clearTimeout(searchTimer); returnStep = { step, food: currentFood }; step = 'own'; scanner.pause(); syncCamera(); sheetHeader('Your product', true); renderCameraStatus(); status('sheet-status');
-  $('add-content').innerHTML = `${field('own-name', 'Name · required', name, { mode: 'text', required: true , maxlength: 120})}${field('own-brand', 'Brand (optional)', '', { mode: 'text' , maxlength: 80})}${field('own-barcode', 'Barcode (optional)', barcode, { mode: 'numeric' , maxlength: 14})}<p class="section-label">Per 100 g</p>${nutrientFields('own', {}, ALL_NUTRIENTS)}<div id="own-check" class="status info" role="status" hidden></div>`;
+  $('add-content').innerHTML = `${field('own-name', 'Name · required', name, { mode: 'text', required: true , maxlength: 120})}${field('own-brand', 'Brand (optional)', brand || '', { mode: 'text' , maxlength: 80})}${field('own-barcode', 'Barcode (optional)', barcode, { mode: 'numeric' , maxlength: 14})}<label>Nutrition on the label</label><div class="chips amount-choices" role="group" aria-label="Nutrition basis"><button type="button" class="chip${unit === 'g' ? ' selected' : ''}" data-own-unit="g" aria-pressed="${unit === 'g'}">Per 100 g</button><button type="button" class="chip${unit === 'ml' ? ' selected' : ''}" data-own-unit="ml" aria-pressed="${unit === 'ml'}">Per 100 ml</button></div>${nutrientFields('own', {}, ALL_NUTRIENTS)}<div id="own-check" class="status info" role="status" hidden></div>`;
+  $('add-content').querySelectorAll('[data-own-unit]').forEach(b => b.onclick = () => { unit = b.dataset.ownUnit; $('add-content').querySelectorAll('[data-own-unit]').forEach(x => { x.classList.toggle('selected', x === b); x.setAttribute('aria-pressed', String(x === b)); }); status('sheet-status'); });
   const update = () => { const r = readNutrients('own', { per100: true, showErrors: false }), v = r.values, check = plausibility(v.kcal, v.protein, v.carbs, v.fat); status('own-check', r.valid && check.flag ? `These values look off: ${fmt('kcal', v.kcal)} kcal on the label, but the macros add up to about ${check.expected} kcal.` : ''); };
   $('add-content').querySelectorAll('input').forEach(x => x.addEventListener('input', update));
   bottom('Save', e => run(e.currentTarget, async () => {
+    if (!unit) { status('sheet-status', 'Choose whether the label is per 100 g or per 100 ml.'); return; }
     const name = $('own-name').value.trim(), barcode = $('own-barcode').value.trim(), r = readNutrients('own', { required: ALL_NUTRIENTS, per100: true });
     fieldError('own-name', !name ? 'Enter the product name.' : name.length > 120 ? 'Use no more than 120 characters.' : '');
     const brand = $('own-brand').value.trim(); fieldError('own-brand', brand.length > 80 ? 'Use no more than 80 characters.' : ''); const barcodeValid = !barcode || /^\d{8,14}$/.test(barcode); fieldError('own-barcode', barcodeValid ? '' : 'Use 8–14 digits for the barcode.');
     if (!name || name.length > 120 || brand.length > 80 || !barcodeValid || !r.valid) { $('add-content').querySelector('[aria-invalid="true"]')?.focus(); return; }
-    const food = await mutate(() => store.addFood({ name, brand: brand || null, barcode: barcode || null, basis: 'per100', per100: r.values }));
+    const food = await mutate(() => store.addFood({ name, brand: brand || null, barcode: barcode || null, basis: 'per100', amountUnit:unit, per100: r.values }));
     ownFoods = await store.listFoods(); remembered = rememberedFoods(await store.recentEntries(), ownFoods); toast('Product saved'); openAmount({ ...food, source: 'own', sourceRef: food.id });
   })); window.scrollTo(0, 0);
 }
 function openEdit(entry) {
   if (pastDay && !pastEditing) return;
-  dayScroll = window.scrollY; editing = entry; currentFood = normalizeFood(entry); step = 'amount'; selectedMeal = entry.meal; portions = entry.portions || 1; showView('add'); syncCamera();
+  dayScroll = window.scrollY; amountState = initialAmount(entry, entry); editing = entry; currentFood = normalizeFood(entry); step = 'amount'; selectedMeal = entry.meal; portions = entry.portions || 1; showView('add'); syncCamera();
   if (entry.basis === 'once') renderOnceEdit(); else renderAmount();
 }
 function renderOnceEdit() {
@@ -451,7 +508,7 @@ const SAVE_AS_FOOD = '<button type="button" id="save-as-food" class="link-button
 function wireSaveAsFood() { $('save-as-food').onclick = renderSaveAsFood; }
 function defaultFoodName(entry) {
   const name = entry.basis === 'once' && entry.name === 'Quicklog' ? '' : entry.name || '';
-  const amount = entry.basis === 'per100' ? ` ${fmt('grams', entry.grams)} g` : entry.basis === 'portion' && entry.portions !== 1 ? ` ×${entry.portions}` : '';
+  const amount = entry.basis === 'per100' ? ` ${fmt('grams', entryAmount(entry))} ${amountUnit(entry)}` : entry.basis === 'portion' && entry.portions !== 1 ? ` ×${entry.portions}` : '';
   return name ? (name + amount).slice(0, 120) : '';
 }
 function renderSaveAsFood() {

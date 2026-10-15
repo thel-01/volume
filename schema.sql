@@ -1985,3 +1985,31 @@ grant select, insert, update, delete on public.cal_entries to authenticated;
 -- All four cal_* tables cascade directly from auth.users. Entries reference
 -- foods by a text snapshot, so Volume's sessions-first demo deletion still works.
 -- On merge, export all FOUR cal_* tables from Volume's settings.html too.
+
+-- Explicit food amount units. Legacy rows and older clients keep using grams.
+-- Metadata snapshots retain package/serving sizes and nutrition provenance;
+-- they never change the nutrient totals already stored on an entry.
+alter table public.cal_foods add column if not exists food_metadata jsonb not null default '{}'::jsonb;
+alter table public.cal_entries add column if not exists food_metadata jsonb not null default '{}'::jsonb;
+alter table public.cal_entries add column if not exists millilitres numeric(6, 1);
+alter table public.cal_foods drop constraint if exists cal_foods_metadata_valid;
+alter table public.cal_foods add constraint cal_foods_metadata_valid check (
+  jsonb_typeof(food_metadata) = 'object' and coalesce(food_metadata->>'amountUnit', 'g') in ('g','ml')
+);
+alter table public.cal_entries drop constraint if exists cal_entries_metadata_valid;
+alter table public.cal_entries add constraint cal_entries_metadata_valid check (
+  jsonb_typeof(food_metadata) = 'object' and coalesce(food_metadata->>'amountUnit', 'g') in ('g','ml')
+);
+alter table public.cal_entries drop constraint if exists cal_entries_millilitres_valid;
+alter table public.cal_entries add constraint cal_entries_millilitres_valid check (
+  millilitres is null or millilitres > 0 and millilitres <= 5000
+);
+alter table public.cal_entries drop constraint if exists cal_entries_amount_matches_basis;
+alter table public.cal_entries add constraint cal_entries_amount_matches_basis check (
+  (basis = 'per100' and portions is null and (
+    (coalesce(food_metadata->>'amountUnit','g') = 'g' and grams is not null and millilitres is null) or
+    (coalesce(food_metadata->>'amountUnit','g') = 'ml' and grams is null and millilitres is not null)
+  )) or
+  (basis = 'portion' and grams is null and millilitres is null and portions is not null) or
+  (basis = 'once' and grams is null and millilitres is null and portions is null)
+);

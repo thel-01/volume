@@ -1,3 +1,4 @@
+import { cachedDetail, foodMetadata } from './food-product.js';
 // Production store. Entry nutrition is a snapshot; food edits never touch it.
 import { supabase, fetchAllRows } from '../supabase-client.js';
 import { normalizeSettings, localDay } from './nutrition.js';
@@ -35,9 +36,10 @@ async function rows(table, filter = q => q, order = ['created_at', 'id']) {
 }
 const nutrients = (row, prefix = '') => Object.fromEntries(keys.map(k => [k, row[prefix + k] == null ? null : Number(row[prefix + k])]));
 const columns = (values, prefix = '') => Object.fromEntries(keys.map(k => [prefix + k, values?.[k] ?? null]));
-const entryFields = { id:'id', day:'day', loggedAt:'logged_at', meal:'meal', source:'source', sourceRef:'source_ref', name:'name', nameDe:'name_de', brand:'brand', basis:'basis', grams:'grams', portions:'portions' };
+const entryFields = { id:'id', day:'day', loggedAt:'logged_at', meal:'meal', source:'source', sourceRef:'source_ref', name:'name', nameDe:'name_de', brand:'brand', basis:'basis', grams:'grams', millilitres:'millilitres', portions:'portions' };
 function entryToRow(entry) {
   const row = {};
+  if ('amountUnit' in entry || 'productVersion' in entry) row.food_metadata = foodMetadata(entry);
   for (const [key, column] of Object.entries(entryFields)) if (key in entry) row[column] = entry[key];
   if ('values' in entry) Object.assign(row, columns(entry.values));
   if ('per100' in entry || 'portion' in entry) Object.assign(row, columns(entry.per100 || entry.portion, 'base_'));
@@ -46,17 +48,18 @@ function entryToRow(entry) {
 function entryFromRow(row) {
   const entry = Object.fromEntries(Object.entries(entryFields).map(([key, column]) => [key, row[column] ?? null]));
   entry.loggedAt = iso(entry.loggedAt);
-  for (const key of ['grams','portions']) if (entry[key] != null) entry[key] = Number(entry[key]);
-  return { ...entry, per100: row.basis === 'per100' ? nutrients(row, 'base_') : null, portion: row.basis === 'portion' ? nutrients(row, 'base_') : null, values: nutrients(row) };
+  for (const key of ['grams','millilitres','portions']) if (entry[key] != null) entry[key] = Number(entry[key]);
+  return { ...entry, ...(row.food_metadata || {}), per100: row.basis === 'per100' ? nutrients(row, 'base_') : null, portion: row.basis === 'portion' ? nutrients(row, 'base_') : null, values: nutrients(row) };
 }
 function foodToRow(food) {
   const row = {};
+  if ('amountUnit' in food || 'productVersion' in food) row.food_metadata = foodMetadata(food);
   for (const key of ['name','brand','barcode','basis']) if (key in food) row[key] = food[key] || null;
   if ('per100' in food || 'portion' in food) Object.assign(row, columns(food.per100 || food.portion));
   return row;
 }
 function foodFromRow(row) {
-  return { id:row.id, name:row.name, brand:row.brand ?? null, barcode:row.barcode ?? null, basis:row.basis, [row.basis === 'per100' ? 'per100' : 'portion']:nutrients(row), createdAt:iso(row.created_at), deletedAt:iso(row.deleted_at) };
+  return { ...(row.food_metadata || {}), id:row.id, name:row.name, brand:row.brand ?? null, barcode:row.barcode ?? null, basis:row.basis, [row.basis === 'per100' ? 'per100' : 'portion']:nutrients(row), createdAt:iso(row.created_at), deletedAt:iso(row.deleted_at) };
 }
 async function mutate(table, action, value, id, missing, barcodeMessage, liveOnly = false) {
   const owner = await userId();
@@ -121,16 +124,12 @@ export async function loggedDays() {
 }
 
 // OFF cache stays on the device and never enters a database backup.
-const CACHE_KEY = 'eatabase-off-cache-v1', MISS_TTL = 24 * 3600e3;
+const CACHE_KEY = 'eatabase-off-cache-v2';
 function products() {
   try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
   catch { return {}; }
 }
-export function cachedProduct(code) {
-  const c = products()[code];
-  if (!c || (c.product === null && Date.now() - c.at > MISS_TTL)) return undefined;
-  return clone(c.product);
-}
+export function cachedProduct(code, options) { return cachedDetail(products()[code], options); }
 export function cacheProduct(code, product) {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ...products(), [code]:{ product, at:Date.now() } })); }
   catch { /* cache failure must not prevent a scan, matching the local store */ }

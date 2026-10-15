@@ -1,3 +1,4 @@
+import { cachedDetail } from './food-product.js';
 // Rules mirrored from the real app:
 //   - timestamps stored as UTC ISO strings; `day` is the local calendar day
 //     the entry belongs to (what the user meant by "today")
@@ -133,13 +134,7 @@ export async function foodByBarcode(code) {
 
 // ---- barcode product cache (phone-local in the real app too) ------------------
 // product = parsed OFF product, or null = "not in Open Food Facts" (kept 24 h).
-const MISS_TTL = 24 * 3600e3;
-export function cachedProduct(code) {
-  const c = db.products[code];
-  if (!c) return undefined;
-  if (c.product === null && Date.now() - c.at > MISS_TTL) return undefined;
-  return clone(c.product);
-}
+export function cachedProduct(code, options) { return cachedDetail(db.products[code], options); }
 export function cacheProduct(code, product) {
   db.products[code] = { product, at: Date.now() };
   try { save(); } catch { /* a full cache is not worth failing a scan over */ }

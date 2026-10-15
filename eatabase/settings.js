@@ -54,8 +54,8 @@ function csvCell(value) {
 }
 async function download(format) {
   const data = await store.exportAll();
-  const columns = ['day','logged_at','meal','name','brand','source','amount','kcal','protein','carbs','fat'];
-  const content = format === 'json' ? JSON.stringify(data,null,2) : [columns.join(','), ...data.entries.map(e => [e.day,e.loggedAt,e.meal,e.name,e.brand,e.source,e.grams ?? e.portions,...['kcal','protein','carbs','fat'].map(k => e.values?.[k])].map(csvCell).join(','))].join('\r\n');
+  const columns = ['day','logged_at','meal','name','brand','source','amount','amount_unit','kcal','protein','carbs','fat'];
+  const content = format === 'json' ? JSON.stringify(data,null,2) : [columns.join(','), ...data.entries.map(e => [e.day,e.loggedAt,e.meal,e.name,e.brand,e.source,e.millilitres ?? e.grams ?? e.portions,e.basis === 'portion' ? 'portion' : e.basis === 'once' ? '' : e.amountUnit || (e.millilitres != null ? 'ml' : 'g'),...['kcal','protein','carbs','fat'].map(k => e.values?.[k])].map(csvCell).join(','))].join('\r\n');
   const url = URL.createObjectURL(new Blob([content], {type:format === 'json' ? 'application/json' : 'text/csv;charset=utf-8'}));
   const a = document.createElement('a'); a.href=url; a.download=`eatabase-${localDay()}.${format}`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url),1000); toast('Exported');
 }

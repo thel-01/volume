@@ -363,12 +363,7 @@ export async function searchOff(q, { base = '', limit = 10, fetchFn = fetch } = 
   return { results, total: body.count ?? null, brand, ms: Date.now() - t0 };
 }
 
-export async function lookupBarcode(code, { base = '', fetchFn = fetch } = {}) {
-  const res = await fetchFn(`${base}/api/off-product?code=${encodeURIComponent(code)}`);
-  if (!res.ok) throw new Error(`OFF product ${res.status}`);
-  const body = await res.json();
-  return body.status === 1 && body.product ? parseOffProduct({ ...body.product, code }) : null;
-}
+export { fetchProduct as lookupBarcode } from './food-product.js';
 
 // ---- Your own foods ----------------
 
