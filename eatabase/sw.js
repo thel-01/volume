@@ -1,5 +1,5 @@
 // Bump on EVERY deployment that changes any shell file. Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v12';
+const VERSION = 'v13';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -47,6 +47,7 @@ const APP_SHELL = [
   "./icons/apple-touch-icon.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/icon-maskable-512.png",
   "./food-search.js",
   "./food-product.js",
   "./bls-foods.json",

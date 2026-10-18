@@ -4,6 +4,7 @@
    browser's own [hidden] rule, so a hidden element would stay visible.
    This makes `hidden` always win, app-wide. */
 [hidden] { display: none !important; }
+html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 
 /* ---------------------------------------------------------------------
    Fonts — self-hosted (not a Google Fonts CDN link), since this is an
