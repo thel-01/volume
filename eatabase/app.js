@@ -25,7 +25,6 @@ let bls = null, blsError = false, blsPromise, cameraPending, cameraRun = 0;
 let cameraMessage = '', scanCode = null, lookupVersion = 0, loadVersion = 0, writeBlocked = false;
 let dayScroll = 0, infoFocus = null;
 const productCache = new Map(), productPending = new Map();
-try { const saved = localStorage.getItem('eatabase-last-add-tab'); if (['search', 'scan'].includes(saved)) tab = saved; } catch { /* Report on the next attempt to remember the tab. */ }
 
 // Normal day navigation logs today; History explicitly selects older days.
 // One exception: between midnight and 5:00 the previous day is still reachable
@@ -263,7 +262,7 @@ function sheetHeader(title, back = false) {
 function openAdd() {
   if (!explicitDay) day = localDay();
   addToday = !explicitDay && day === localDay();
-  dayScroll = window.scrollY; editing = null; step = null; scanCode = null; selectedMeal = settings.meals ? defaultMeal() : null;
+  dayScroll = window.scrollY; editing = null; tab = 'search'; step = null; scanCode = null; selectedMeal = settings.meals ? defaultMeal() : null;
   showView('add'); renderTab(); if (tab === 'scan') warmCamera();
 }
 function closeAdd() {
@@ -283,7 +282,6 @@ function renderTab() {
 function switchTab(next) {
   if (next === tab && !step) return;
   tab = next; step = null; scanCode = null; ++lookupVersion; ++searchVersion; clearTimeout(searchTimer);
-  try { localStorage.setItem('eatabase-last-add-tab', tab); } catch { toast("Couldn't remember this tab on this phone.", null, false, 'error'); }
   renderTab(); if (tab === 'scan' && !scanner.running) warmCamera();
 }
 function renderSearch() {
