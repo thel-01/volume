@@ -413,7 +413,7 @@ export function rememberedFoods(entries, ownFoods = [], now = new Date()) {
     const key = `own:${o.id}`;
     const f = byKey.get(key);
     // the product as it is now (you may have edited it) beats the old entry snapshot
-    const fresh = { ...foodMetadata(o), name: o.name, brand: o.brand || null, basis: o.basis, per100: o.per100 || null, portion: o.portion || null };
+    const fresh = { ...foodMetadata(o), servingSize:o.servingSize ?? null, name: o.name, brand: o.brand || null, basis: o.basis, per100: o.per100 || null, portion: o.portion || null };
     if (f) Object.assign(f, fresh);
     else byKey.set(key, { key, ref: 'own', id: o.id, source: 'own', sourceRef: o.id, nameDe: null, ...fresh,
       lastGrams: null, lastPortions: null, uses: 0, lastUsed: o.createdAt });

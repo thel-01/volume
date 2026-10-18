@@ -28,7 +28,15 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
       .scn-container .scn-cover[hidden] { display:none; }
       .scn-container .scn-cover.scn-revealing { opacity:0; }
       .scn-guide { box-sizing:content-box; position:absolute; left:50%; top:50%; width:72%; aspect-ratio:1; transform:translate(-50%,-50%); border:2px solid rgba(255,255,255,.55); border-radius:10px; transition:border-color .08s; pointer-events:none; }
-      .scn-guide.scn-hit { border-color:#3ddc84; box-shadow:0 0 0 9999px rgba(61,220,132,.18); }
+      .scn-guide.scn-hit { border-color:#3ddc84; box-shadow:0 0 0 9999px #3ddc842e; }
+      .scn-feedback-flash { position:absolute; inset:0; pointer-events:none; opacity:0; background:#3ddc84; }
+      .scn-feedback-flash.scn-hit { animation:scn-flash 350ms ease-out both; }
+      .scan-hint.scn-read { color:#3ddc84; }
+      @keyframes scn-flash { 0% {opacity:.22} 100% {opacity:0} }
+      @media(prefers-reduced-motion:reduce) {
+        .scn-guide, .scn-feedback-flash { animation:none!important; transition:none!important; }
+        .scn-feedback-flash.scn-hit { opacity:.12; }
+      }
       .scn-container .scn-torch { position:absolute; top:12px; right:12px; width:44px; height:44px; min-width:44px; min-height:44px; border-radius:50%; border:0; background:rgba(0,0,0,.55); color:var(--text,#fff); display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer; }
       .scn-container .scn-torch[aria-pressed="true"] { background:var(--text,#fff); color:var(--bg,#000); }
       .scn-container .scn-torch:focus-visible { outline:2px solid var(--text,#fff); outline-offset:3px; }
@@ -48,6 +56,9 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   for (const attr of ['playsinline', 'muted', 'autoplay']) video.setAttribute(attr, '');
   const guide = doc.createElement('div');
   guide.className = 'scn-guide';
+  const flash = doc.createElement('div');
+  flash.className = 'scn-feedback-flash';
+  flash.setAttribute('aria-hidden', 'true');
   const torch = doc.createElement('button');
   torch.className = 'scn-torch';
   torch.type = 'button';
@@ -58,7 +69,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   cover.className = 'scn-cover'; cover.hidden = true;
   cover.setAttribute('role', 'status'); cover.setAttribute('aria-label', 'Starting camera');
   cover.innerHTML = '<svg width="32" height="32" viewBox="0 0 40 40" class="step-loader" aria-hidden="true"><path d="M6 30h12V18h12V6" pathLength="1"/></svg>';
-  container.append(video, guide, torch, cover);
+  container.append(video, flash, guide, torch, cover);
   const canvas = doc.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
@@ -66,7 +77,7 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
   let wanted = false, paused = false, torchOn = false, generation = 0;
   let pending = null, frameId = 0, lastCode = null, lastCodeAt = 0;
   let frameHandle = null, loopVersion = 0, lastTick = 0, watchdog = null;
-  let cancelFirstFrame = null, flashTimer = null;
+  let cancelFirstFrame = null, flashTimer = null, feedbackHint = null;
   let cancelPreview = null, cancelReveal = null;
   const running = () => wanted && track?.readyState === 'live';
   const now = () => win.performance.now();
@@ -180,10 +191,27 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
         return;
       }
       lastCode = data.hit.text; lastCodeAt = time;
+      // Pause before scheduling delivery: even a different barcode cannot fire
+      // while the confirmation is visible. stop() cancels delivery on navigation.
+      pause();
       guide.classList.add('scn-hit');
-      win.clearTimeout(flashTimer);
-      flashTimer = win.setTimeout(() => guide.classList.remove('scn-hit'), 350);
-      onCode(data.hit.text, data.hit.format);
+      flash.classList.add('scn-hit');
+      feedbackHint = container.parentElement?.querySelector('.scan-hint');
+      if (feedbackHint) {
+        feedbackHint.textContent = 'Barcode read';
+        feedbackHint.classList.add('scn-read');
+        feedbackHint.setAttribute('role', 'status');
+        feedbackHint.setAttribute('aria-live', 'polite');
+      }
+      const token = generation;
+      flashTimer = win.setTimeout(() => {
+        flashTimer = null;
+        resetFeedback();
+        if (token !== generation || !running() || doc.hidden) return;
+        if (feedbackHint) feedbackHint.textContent = 'Looking up product…';
+        feedbackHint = null;
+        onCode(data.hit.text, data.hit.format);
+      }, 350);
     });
     worker.addEventListener('error', () => {
       pause();
@@ -362,11 +390,22 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     const promise = starting;
     return promise;
   }
+  function resetFeedback() {
+    win.clearTimeout(flashTimer);
+    flashTimer = null;
+    guide.classList.remove('scn-hit');
+    flash.classList.remove('scn-hit');
+    feedbackHint?.classList.remove('scn-read');
+  }
   function pause() {
     paused = true;
     cancelLoop();
   }
   function resume() {
+    // syncCamera() may resume an already-visible scanner during startup.
+    // Keep the confirmation locked until its delayed callback has fired.
+    if (flashTimer !== null) return;
+    resetFeedback();
     paused = false;
     if (running()) { ensureWorker(); loop(); }
   }
@@ -390,8 +429,9 @@ export function createScanner({ container, onCode = () => {}, onError = () => {}
     pending = null; lastCode = null; lastCodeAt = 0;
     paused = false;
     updateTorch(false);
-    win.clearTimeout(flashTimer);
-    guide.classList.remove('scn-hit');
+    resetFeedback();
+    if (feedbackHint?.isConnected) feedbackHint.textContent = 'Point at a barcode';
+    feedbackHint = null;
   }
   doc.addEventListener('visibilitychange', () => {
     if (doc.visibilityState !== 'visible' || !wanted) return;
