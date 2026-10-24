@@ -244,14 +244,17 @@ function parkCamera() {
   scanner.stop();
   $('camera-container').classList.add('parked'); $('camera-container').setAttribute('aria-hidden', 'true');
 }
+// Leaving the app releases the camera, and restarting it on return can make iOS
+// ask for camera access again. So coming back to Scan lands on Search instead:
+// scanning is one tap away, and the question only comes when asked for.
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !writeBlocked && (view === 'day' || observedToday !== localDay())) loadDay();
   if (document.hidden) parkCamera();
-  else if (scanVisible()) { syncCamera(); warmCamera(); }
+  else if (scanVisible()) switchTab('search');
 });
 window.addEventListener('pagehide', parkCamera);
 window.addEventListener('pageshow', event => {
-  if (event.persisted && scanVisible()) { syncCamera(); warmCamera(); }
+  if (event.persisted && scanVisible()) switchTab('search');
 });
 
 function sheetHeader(title, back = false) {
