@@ -135,11 +135,12 @@ export function dayTotals(entries) {
 }
 
 /**
- * How close counts as "on target": 5 % of the goal, but never tighter than
- * 50 kcal / 5 g (a 60 g protein goal shouldn't need gram-exact eating).
+ * How close counts as "on target": 2 % of the goal for calories (never
+ * tighter than 40 kcal), 3 % for macros (never tighter than 3 g), so a small
+ * goal doesn't need gram-exact eating. 3000 kcal → ±60, 150 g → ±4.5 g.
  */
 export function goalBand(key, goal) {
-  return Math.max(goal * 0.05, key === 'kcal' ? 50 : 5);
+  return key === 'kcal' ? Math.max(goal * 0.02, 40) : Math.max(goal * 0.03, 3);
 }
 
 /**
@@ -176,8 +177,9 @@ const MACROS = ['protein', 'carbs', 'fat'];
  * Keep the calorie goal consistent with the macro goals (4/4/9 kcal per g).
  * The macro goals pin down a kcal range: at least Σ of the ≥/= goals, and at
  * most Σ of the ≤/= goals (only when all three have one). If the calorie
- * goal can't be met inside that range — beyond a tolerance of 5 % / 50 kcal,
- * so 3000 vs. a computed 2950 is left alone and round goals stay round — the
+ * goal can't be met inside that range — beyond the calorie goal's own
+ * on-target band (goalBand), so 3000 vs. a computed 2950 is left alone and
+ * round goals stay round — the
  * calorie goal moves to the nearest edge of the range, rounded to 10 kcal.
  * Only macros that are on and have a goal count. Returns
  * { settings, changed, kcal: {from, to}, macroKcal: {lo, hi} }.
@@ -192,7 +194,7 @@ export function reconcileGoals(settings) {
   if (!k.on || !k.goal || !goals.length) return result;
   // The calorie goal's own range.
   const kLo = k.type === 'max' ? 0 : k.goal, kHi = k.type === 'min' ? Infinity : k.goal;
-  const tol = Math.max(k.goal * 0.05, 50);
+  const tol = goalBand('kcal', k.goal);
   let to = null;
   if (lo > kHi + tol) to = Math.ceil(lo / 10) * 10;          // macros alone need more than the calorie goal allows
   else if (hi < kLo - tol) to = Math.floor(hi / 10) * 10;    // macros can't reach the calorie goal
