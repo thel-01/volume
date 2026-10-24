@@ -1,5 +1,6 @@
-// Bump on EVERY deployment that changes any shell file. Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v14';
+// Bump on EVERY push, together with APP_VERSION in version.js (the number the
+// About popup shows). Eatabase owns only its own caches, alongside Volume.
+const VERSION = 'v15';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -36,6 +37,7 @@ const APP_SHELL = [
   "./store.js",
   "./toast.js",
   "./ui.js",
+  "./version.js",
   "./weight-section.js",
   "./weight-utils.js",
   "./weight.js",

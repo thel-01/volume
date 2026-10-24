@@ -17,6 +17,7 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 /* The title opens the About popup; it still reads as the page title. */
 .about-title { width: auto; min-height: var(--tap); color: var(--text); font-size: var(--fs-xl); font-weight: 700; text-align: center; }
 .about-link { display: inline-block; margin-top: var(--space-4); }
+.about-version { margin: var(--space-4) 0 0; font-size: var(--fs-xs); color: var(--muted); }
 #about-modal .modal-card { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
 
 /* Analytics preview. Rows: label | 7 dots | count. */

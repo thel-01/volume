@@ -4,6 +4,7 @@ import { goalDaysBody } from './nutrient-charts.js';
 
 import { $, escapeHtml, status as showStatus, loading, CHEVRON, toast } from './ui.js';
 import { openQuicklog } from './quicklog.js';
+import { APP_VERSION } from './version.js';
 
 // Same two actions as Your day's footer: Add food opens the add sheet there; Quick logs right here.
 let homeSettings = null, observedToday = localDay();
@@ -16,6 +17,7 @@ function renderActions() {
   } });
   $('home-actions').hidden = false;
 }
+$('about-version').textContent = `Version ${APP_VERSION}`;
 $('open-about').onclick = () => { $('about-modal').hidden = false; $('close-about').focus(); };
 $('close-about').onclick = () => { $('about-modal').hidden = true; };
 $('about-modal').onclick = e => { if (e.target === $('about-modal')) $('about-modal').hidden = true; };
