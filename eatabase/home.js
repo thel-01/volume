@@ -17,7 +17,7 @@ function renderActions() {
   } });
   $('home-actions').hidden = false;
 }
-$('about-version').textContent = `Version ${APP_VERSION}`;
+$('about-version').textContent = `v${APP_VERSION}`;
 $('open-about').onclick = () => { $('about-modal').hidden = false; $('close-about').focus(); };
 $('close-about').onclick = () => { $('about-modal').hidden = true; };
 $('about-modal').onclick = e => { if (e.target === $('about-modal')) $('about-modal').hidden = true; };
