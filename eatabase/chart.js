@@ -1248,12 +1248,15 @@ export function renderDayBarChart(svg, { days, goalLine = true, scrub } = {}) {
   const bars = [], items = [];
   days.forEach((point, index) => {
     const cx = xOfIndex(index);
-    const height = point.logged ? Math.max(0, point.value / axisMax * plotH) : 0;
+    const isToday = index === days.length - 1;
+    // Nothing logged today yet: a 3px striped sliver (the weekly chart's floor
+    // height) says the day is still going. Any other unlogged day stays empty.
+    const height = point.logged ? Math.max(0, point.value / axisMax * plotH) : isToday ? 3 : 0;
     const top = baseline - height;
     // An empty group keeps scrub indices aligned without drawing an unknown day.
-    const bar = point.logged
+    const bar = point.logged || isToday
       ? svgEl('rect', { x: cx - barW / 2, y: top, width: barW, height,
-        fill: index === days.length - 1 ? currentFill : 'var(--accent)',
+        fill: isToday ? currentFill : 'var(--accent)',
         // A day with a real gap (see dailySeries quality) is a lower bound: drawn faint.
         ...(point.quality === 'partial' ? { 'fill-opacity': 0.35, 'data-partial': '' } : {}) })
       : svgEl('g');
