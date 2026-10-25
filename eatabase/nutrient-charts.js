@@ -32,7 +32,10 @@ export function summaryCopy(summary, nutrient) {
 /** Append one section per nutrient to `container`. */
 export function renderNutrientCharts(container, nutrients, { entries, history, firstDay, today }) {
   for (const nutrient of nutrients) {
-    const days = dailySeries(entries, history, nutrient.key, today, 28);
+    const month = dailySeries(entries, history, nutrient.key, today, 28);
+    // Less than 4 weeks of history: the chart spans only the logged period,
+    // like Volume's weekly chart. The 4-week sentence still judges the full window.
+    const days = firstDay && firstDay > month[0].day ? month.filter(p => p.day >= firstDay) : month;
     const section = document.createElement('section'); section.className = 'nutrient-section';
     section.setAttribute('aria-labelledby', `label-${nutrient.key}`);
     section.innerHTML = `<p class="section-label has-readout"><span id="label-${nutrient.key}">${escapeHtml(nutrient.label)}</span><span class="scrub-readout" hidden></span></p><div class="chart-card"></div>`;
@@ -45,14 +48,19 @@ export function renderNutrientCharts(container, nutrients, { entries, history, f
       continue;
     }
     // Gate: if most recent days are missing a lot of this nutrient, the chart would show lower bounds, not eating.
-    const gate = chartGate(days, today);
+    const gate = chartGate(month, today);
     if (!gate.ok) {
       card.outerHTML = missingMessage;
       continue;
     }
+    // One bar has nothing to compare against (Volume's weekly chart, same rule).
+    if (days.length < 2) {
+      card.outerHTML = '<p class="empty-state">Not enough days logged yet. Come back later.</p>';
+      continue;
+    }
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', `${nutrient.label} logged per day over the last 28 days, with historical goals. Today is in progress.`);
+    svg.setAttribute('aria-label', `${nutrient.label} logged per day over the last ${days.length} days, with historical goals. Today is in progress.`);
     card.append(svg);
     // Legend inside the chart card, under the chart (stylebook: charts get one quiet card, legend included).
     if (days.some(p => p.goal)) card.insertAdjacentHTML('beforeend', '<div class="legend"><span><i class="goal-swatch"></i>Goal</span></div>');
@@ -64,7 +72,7 @@ export function renderNutrientCharts(container, nutrients, { entries, history, f
       readout.show([{ value, date: dateLabel(point.day, true) }, { value, date: dateLabel(point.day) }]);
     } } });
     // No honest 4-week average yet → no sentence at all, like Volume's averages paragraph.
-    const copy = summaryCopy(averageSummary(days, nutrient.key, firstDay, today), nutrient);
+    const copy = summaryCopy(averageSummary(month, nutrient.key, firstDay, today), nutrient);
     if (copy) { const paragraph = document.createElement('p'); paragraph.className = 'averages-copy muted'; paragraph.textContent = copy; section.append(paragraph); }
   }
 }
