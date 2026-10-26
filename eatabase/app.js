@@ -424,6 +424,8 @@ function canonicalAmount() {
   const total = r.error ? null : Math.round(r.value * selected.factor * 10) / 10;
   return r.error || !(total > 0) || total > 5000 ? { error:`Enter an amount greater than zero and no more than 5000 ${amountUnit(currentFood)}.` } : { value:total };
 }
+// "1 serving", "2 servings", "0.5 servings": singular only for exactly one.
+const countUnit = (id, n) => `${id === 'package' ? 'package' : id === 'portion' ? 'portion' : 'serving'}${Number(n) === 1 ? '' : 's'}`;
 function renderAmount() {
   status('sheet-status'); sheetHeader(editing ? 'Edit entry' : 'Amount', true); renderCameraStatus();
   const food = currentFood, portion = food.basis === 'portion', v = foodValues(food), unit = amountUnit(food);
@@ -433,13 +435,14 @@ function renderAmount() {
   const display = amountState.total == null ? '' : Number((amountState.total / selected.factor).toFixed(6));
   const usableServing = food.servingSize?.unit === unit && food.servingSize.amount > 0 && !food.sizeConflict;
   const sizeNote = food.sizeConflict ? 'Package and serving sizes disagree. Enter the amount you ate.' : !usableServing && options.some(o => o.id === 'package') ? 'Serving size unavailable. Enter an amount or select Package.' : '';
-  $('add-content').innerHTML = `<h2 class="form-heading">${escapeHtml(food.name)}</h2><p class="muted food-meta">${[foodMeta(food), foodSource(food) === 'BLS' ? food.nameDe : ''].filter(Boolean).map(escapeHtml).join('<br>')}</p>${warningMarkup(food)}${portion ? `<div class="stepper-row"><button type="button" id="portion-minus" class="stepper-btn" aria-label="Decrease by half a portion">−</button><div class="stepper-value"><span class="value" id="portion-value"></span></div><button type="button" id="portion-plus" class="stepper-btn" aria-label="Increase by half a portion">+</button></div>` : `${options.length > 1 ? `<div class="chips amount-choices" role="group" aria-label="Amount unit">${options.map(o => `<button type="button" class="chip${o.id === selected.id ? ' selected' : ''}" data-amount-mode="${o.id}" aria-pressed="${o.id === selected.id}">${o.label}</button>`).join('')}</div>` : ''}<div class="amount-field">${field('amount-grams', selected.id === 'manual' ? `Amount (${unit})` : `Number of ${selected.id === 'package' ? 'packages' : 'servings'}`, display, { required:true, unit:selected.id === 'manual' ? unit : selected.id === 'package' ? 'packages' : 'servings' })}</div><p id="amount-total" class="caption" aria-live="polite"></p>${sizeNote ? `<p class="caption">${escapeHtml(sizeNote)}</p>` : ''}`}<div id="amount-values" class="amount-values"></div>${!portion ? `<p class="caption">per 100 ${unit}: ${fmt('kcal', v.kcal)} kcal · P ${fmt('protein', v.protein)} · C ${fmt('carbs', v.carbs)} · F ${fmt('fat', v.fat)}</p>` : ''}${mealChips(selectedMeal)}${editing ? `${SAVE_AS_FOOD}<div class="form-delete"><button type="button" id="delete-entry" class="arm-confirm-btn">Delete</button></div>` : ''}`;
+  $('add-content').innerHTML = `<h2 class="form-heading">${escapeHtml(food.name)}</h2><p class="muted food-meta">${[foodMeta(food), foodSource(food) === 'BLS' ? food.nameDe : ''].filter(Boolean).map(escapeHtml).join('<br>')}</p>${warningMarkup(food)}${portion ? `<div class="stepper-row"><button type="button" id="portion-minus" class="stepper-btn" aria-label="Decrease by half a portion">−</button><div class="stepper-value"><span class="value" id="portion-value"></span></div><button type="button" id="portion-plus" class="stepper-btn" aria-label="Increase by half a portion">+</button></div>` : `${options.length > 1 ? `<div class="chips amount-choices" role="group" aria-label="Amount unit">${options.map(o => `<button type="button" class="chip${o.id === selected.id ? ' selected' : ''}" data-amount-mode="${o.id}" aria-pressed="${o.id === selected.id}">${o.label}</button>`).join('')}</div>` : ''}<div class="amount-field">${field('amount-grams', selected.id === 'manual' ? `Amount (${unit})` : `Number of ${selected.id === 'package' ? 'packages' : 'servings'}`, display, { required:true, unit:selected.id === 'manual' ? unit : countUnit(selected.id, display) })}</div><p id="amount-total" class="caption" aria-live="polite"></p>${sizeNote ? `<p class="caption">${escapeHtml(sizeNote)}</p>` : ''}`}<div id="amount-values" class="amount-values"></div>${!portion ? `<p class="caption">per 100 ${unit}: ${fmt('kcal', v.kcal)} kcal · P ${fmt('protein', v.protein)} · C ${fmt('carbs', v.carbs)} · F ${fmt('fat', v.fat)}</p>` : ''}${mealChips(selectedMeal)}${editing ? `${SAVE_AS_FOOD}<div class="form-delete"><button type="button" id="delete-entry" class="arm-confirm-btn">Delete</button></div>` : ''}`;
   bottom(editing ? 'Save' : 'Log', e => run(e.currentTarget, saveAmount));
   const update = () => {
     if (portion) {
-      $('portion-value').innerHTML = `${portions}<span class="unit">portions</span>`; $('portion-minus').disabled = portions <= 0.5; $('portion-plus').disabled = portions >= 50; $('amount-values').innerHTML = amountValuesMarkup(multiplyValues(v, portions));
+      $('portion-value').innerHTML = `${portions}<span class="unit">${countUnit('portion', portions)}</span>`; $('portion-minus').disabled = portions <= 0.5; $('portion-plus').disabled = portions >= 50; $('amount-values').innerHTML = amountValuesMarkup(multiplyValues(v, portions));
     } else {
       const r = canonicalAmount(); amountState.total = r.error ? null : r.value;
+      if (selected.id !== 'manual') $('amount-grams').parentElement.querySelector('.unit').textContent = countUnit(selected.id, $('amount-grams').value.trim().replace(',', '.'));
       $('amount-total').textContent = r.error || (selected.id === 'manual' ? '' : `${r.value} ${unit} total · 1 ${selected.id} = ${selected.factor} ${unit}`);
       $('amount-values').innerHTML = amountValuesMarkup(r.error ? {} : scaleValues(v, r.value));
       $('bottom-actions').firstElementChild.disabled = !!r.error || writeBlocked;
@@ -449,6 +452,8 @@ function renderAmount() {
   else {
     $('amount-grams').oninput = update; $('amount-grams').onfocus = e => e.target.select();
     $('add-content').querySelectorAll('[data-amount-mode]').forEach(b => b.onclick = () => { update(); amountState.mode = b.dataset.amountMode; renderAmount(); });
+    // Tapping "servings" / "packages" beside the number sets it to exactly one.
+    if (selected.id !== 'manual') { const u = $('amount-grams').parentElement.querySelector('.unit'); u.classList.add('set-one'); u.onclick = () => { $('amount-grams').value = '1'; update(); }; }
   }
   update(); wireMeals(); if (editing) { wireDelete(); wireSaveAsFood(); }
 }

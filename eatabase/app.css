@@ -41,6 +41,7 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 .amount-input { position: relative; }
 .amount-input input { padding-right: var(--tap); }
 .amount-input .unit { position: absolute; right: var(--space-4); top: 50%; transform: translateY(-50%); color: var(--muted); font-size: var(--fs-input); pointer-events: none; }
+.amount-input .unit.set-one { pointer-events: auto; cursor: pointer; padding: var(--space-3) 0 var(--space-3) var(--space-2); }
 .amount-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin: var(--space-5) 0; }
 .form-heading { margin: 0 0 var(--space-2); font-size: var(--fs-xl); overflow-wrap: anywhere; }
 .food-meta { margin: 0 0 var(--space-5); }
