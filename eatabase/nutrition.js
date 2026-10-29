@@ -44,11 +44,12 @@ export const DEFAULT_SETTINGS = {
     fat: { on: false, goal: null, type: 'target' },
   },
   meals: true,
+  dayEndHour: 0,   // the tracking day ends at this local hour (0 = midnight, up to 5)
 };
 
 /** Settings with every key present (older/partial saved settings → defaults filled in). */
 export function normalizeSettings(s) {
-  const out = { nutrients: {}, meals: !!(s?.meals ?? DEFAULT_SETTINGS.meals) };
+  const out = { nutrients: {}, meals: !!(s?.meals ?? DEFAULT_SETTINGS.meals), dayEndHour: validDayEndHour(s?.dayEndHour) };
   for (const k of NUTRIENT_KEYS) {
     const v = s?.nutrients?.[k] || {}, d = DEFAULT_SETTINGS.nutrients[k];
     out.nutrients[k] = {
@@ -370,14 +371,39 @@ export function groupByMeal(entries) {
   return groups.filter(g => g.entries.length);
 }
 
-/** Local calendar day 'YYYY-MM-DD' (the day a user means by "today"; timestamps themselves stay UTC). */
-export function localDay(date = new Date()) {
+export const MAX_DAY_END_HOUR = 5;
+const validDayEndHour = h => Number.isInteger(h) && h >= 0 && h <= MAX_DAY_END_HOUR ? h : 0;
+// The chosen cutoff is remembered on the phone too, so every page knows "today" the moment it loads —
+// before (or without) the settings request. getSettings()/saveSettings() keep it in step with the saved value.
+const HOUR_KEY = 'eatabase-day-end-hour';
+let memoryHour = 0;   // only used when localStorage is unavailable
+// Read on every use, so a page restored from the back/forward cache still sees a change made on another page.
+const dayEndHour = () => { try { return validDayEndHour(Number(localStorage.getItem(HOUR_KEY))); } catch { return memoryHour; } };
+/** Remember the hour. Returns true when it changed AND will survive a reload (so a caller may reload to re-pick the day). */
+export function setDayEndHour(hour) {
+  const next = validDayEndHour(hour), changed = next !== dayEndHour();
+  memoryHour = next;
+  try { localStorage.setItem(HOUR_KEY, String(next)); return changed; } catch { return false; }
+}
+
+/** Plain calendar date 'YYYY-MM-DD' of a local Date — no day-end shift. */
+export function calendarDay(date = new Date()) {
   const p = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
 }
+/**
+ * The tracking day 'YYYY-MM-DD' — what a user means by "today" (timestamps themselves stay UTC). Before the
+ * day-end hour (local wall-clock) it is still the previous calendar date.
+ */
+export function localDay(date = new Date()) {
+  if (date.getHours() >= dayEndHour()) return calendarDay(date);
+  return calendarDay(new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1));
+}
+/** True between midnight and the day-end hour: "today" is still the previous calendar date. */
+export const inDayEndGap = (date = new Date()) => date.getHours() < dayEndHour();
 export function shiftDay(day, delta) {
   const [y, m, d] = day.split('-').map(Number);
-  return localDay(new Date(y, m - 1, d + delta));
+  return calendarDay(new Date(y, m - 1, d + delta));
 }
 
 /** Identity of "the same food" across entries: where it came from + its id there. */

@@ -1,5 +1,5 @@
 import { $, escapeHtml, CHEVRON, pageHeader, navRow, loading, status, toast, run, toggleMarkup, setToggle } from './ui.js';
-import { trackedNutrients, fmt, localDay } from './nutrition.js';
+import { trackedNutrients, fmt, localDay, MAX_DAY_END_HOUR } from './nutrition.js';
 import * as store from './store.js';
 import { BACKEND } from './config.js';
 pageHeader('Settings', './home.html', 'Back to home');
@@ -9,6 +9,29 @@ function goalsCard(settings) {
   const [hero, ...rest] = trackedNutrients(settings);
   return `<a class="card goals-card" href="./goals.html" aria-label="Goals"><div class="goals-card-body"><div class="list-item-name goals-card-title">Goals</div><div class="stat-label">${escapeHtml(hero.label)}</div><div class="stat-value">${goalText(hero, settings.nutrients[hero.key])}</div>${rest.length ? `<div class="summary-columns" style="grid-template-columns:repeat(${rest.length},minmax(0,1fr))">${rest.map(n => `<div><div class="stat-label">${escapeHtml(n.label)}</div><div class="goal-value">${goalText(n, settings.nutrients[n.key])}</div></div>`).join('')}</div>` : ''}</div><span class="list-item-chevron">${CHEVRON}</span></a>`;
 }
+// Day ends at: a card that opens a small chip picker (Midnight alone, then 1–5 am).
+const hourLabel = h => h === 0 ? 'Midnight' : `${h} am`;
+let dayEndFocus = null;
+function closeDayEnd() { if ($('day-end-modal').hidden) return; $('day-end-modal').hidden = true; dayEndFocus?.focus(); }
+function renderDayEnd(hour) {
+  $('day-end-setting').innerHTML = `<ul class="list"><li><button type="button" class="list-item" id="day-end-row" aria-haspopup="dialog"><div class="list-item-body"><div class="list-item-name">Day ends at</div><div class="list-item-meta">${hourLabel(hour)}</div></div><span class="list-item-chevron">${CHEVRON}</span></button></li></ul><p class="caption" style="margin-top:0;">Before this time, food is logged to the previous day.</p>`;
+  $('day-end-grid').innerHTML = Array.from({ length: MAX_DAY_END_HOUR + 1 }, (_, h) => `<button type="button" class="chip${h ? ' chip-num' : ' chip-nopain'}${h === hour ? ' selected' : ''}" data-hour="${h}" aria-pressed="${h === hour}">${hourLabel(h)}</button>`).join('');
+  $('day-end-row').onclick = () => { dayEndFocus = $('day-end-row'); $('day-end-modal').hidden = false; $('day-end-grid').querySelector('.selected').focus(); };
+  $('day-end-grid').querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const next = Number(b.dataset.hour); if (next === hour) { closeDayEnd(); return; }
+    $('day-end-grid').querySelectorAll('button').forEach(x => x.disabled = true);
+    try { const s = await store.getSettings(); s.dayEndHour = next; await store.saveSettings(s); hour = next; closeDayEnd(); renderDayEnd(next); }
+    catch (error) {
+      toast(messageFor(error), null, false, 'error');
+      // A partly-saved change may still have taken effect: show what's actually saved.
+      try { renderDayEnd((await store.getSettings()).dayEndHour); } catch { /* keep what is shown */ }
+    }
+    finally { $('day-end-grid').querySelectorAll('button').forEach(x => x.disabled = false); }
+  });
+}
+$('close-day-end').onclick = closeDayEnd;
+$('day-end-modal').onclick = e => { if (e.target === $('day-end-modal')) closeDayEnd(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDayEnd(); });
 const messageFor = error => error?.message || 'Something went wrong. Please try again.';
 async function loadSettings() {
   $('settings-content').hidden = true; loading('page-status');
@@ -16,6 +39,7 @@ async function loadSettings() {
     const [settings, foods] = await Promise.all([store.getSettings(), store.listFoods()]);
     await renderAccount();
     $('settings-menu').innerHTML = `<li>${goalsCard(settings)}</li>` + navRow('Your foods', foods.length ? `${foods.length} saved` : 'None yet', './foods.html') + navRow('History', '', './history.html');
+    renderDayEnd(settings.dayEndHour);
     $('meal-setting').innerHTML = toggleMarkup('group-meals', 'Group by meal', settings.meals);
     $('group-meals').onclick = async () => {
       const b = $('group-meals'); b.disabled = true;

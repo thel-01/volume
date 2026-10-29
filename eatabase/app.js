@@ -1,7 +1,7 @@
 import { $, BACK_ICON, escapeHtml, valueMax, number, status, loading, field, fieldError, readNumber, toast, arm, setActionRunner } from './ui.js';
 import {
   NUTRIENTS, MEALS, trackedNutrients, dayTotals, goalStatus, defaultMeal, groupByMeal,
-  localDay, shiftDay, rememberedFoods, makeEntry, withAmount, quickValues,
+  localDay, calendarDay, inDayEndGap, shiftDay, rememberedFoods, makeEntry, withAmount, quickValues,
   scaleValues, multiplyValues, fmt,
 } from './nutrition.js';
 import * as store from './store.js';
@@ -27,10 +27,14 @@ let dayScroll = 0, infoFocus = null;
 const productCache = new Map(), productPending = new Map();
 
 // Normal day navigation logs today; History explicitly selects older days.
-// One exception: between midnight and 5:00 the previous day is still reachable
-// (home after a night out, or adding things to the day you're ending).
+// Two exceptions near midnight, both switchable from the title:
+//  - "gap": past midnight but before your day-end hour (Settings). Today is still the previous calendar
+//    date, so the real calendar date is one tap away.
+//  - "late": once the day has ended, until 5:00 the previous day is still reachable (home after a night
+//    out, or adding things to the day you're ending).
 const LATE_NIGHT_END_HOUR = 5;
-const isLateNight = () => new Date().getHours() < LATE_NIGHT_END_HOUR;
+const isLateNight = () => !inDayEndGap() && new Date().getHours() < LATE_NIGHT_END_HOUR;
+const canSwitchDay = () => !pastDay && (inDayEndGap() || isLateNight());
 
 
 // Full-string parsing: no partial numbers, units, exponents, or non-finite values.
@@ -90,6 +94,7 @@ function dayAction() {
   }
   $('bottom-actions').replaceChildren(row); $('bottom-actions').hidden = false;
 }
+const titleDate = d => new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
 function titleForDay(d = day) {
   if (pastDay) return new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
   if (d === localDay()) return 'Today'; if (d === shiftDay(localDay(), -1)) return 'Yesterday';
@@ -97,14 +102,17 @@ function titleForDay(d = day) {
 }
 async function loadDay() {
   if (writeBlocked) { status('day-status', "Couldn't save on this phone. Reload to return to your saved data.", 'error'); if (view === 'day') dayAction(); return; }
+  if (!canSwitchDay()) explicitDay = pastDay;   // the switch window closed while another day was open
   if (!explicitDay) day = localDay();
   observedToday = localDay();
   const version = ++loadVersion, requestedDay = day; $('day-title').textContent = titleForDay();
-  // Late night (0:00–5:00) only: the title switches between today and yesterday.
+  // In the gap, Today also names the calendar date it still belongs to.
+  if (inDayEndGap() && !pastDay && day === localDay()) $('day-title').insertAdjacentHTML('beforeend', ` <span class="day-date">${escapeHtml(titleDate(day))}</span>`);
+  // Near midnight only (see above): the title switches between days.
   // A small caret marks it as tappable; the rest of the day it's plain text.
-  const canSwitch = !pastDay && isLateNight();
+  const canSwitch = canSwitchDay();
   if (canSwitch) $('day-title').insertAdjacentHTML('beforeend', '<svg class="day-switch-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9 L12 15 L18 9"/></svg>');
-  $('day-title').setAttribute('aria-label', canSwitch ? (day === localDay() ? 'Today. Switch to yesterday' : 'Yesterday. Back to today') : titleForDay());
+  $('day-title').setAttribute('aria-label', canSwitch ? (day !== localDay() ? `${titleForDay()}. Back to today` : inDayEndGap() ? `Today, ${titleDate(day)}. Switch to ${titleDate(calendarDay())}` : 'Today. Switch to yesterday') : titleForDay());
   $('day-navigation').classList.toggle('past-day', pastDay);
   // A day from History is finished, not in progress: no live amber on it (green 'on target' stays).
   $('summary').classList.toggle('finished', pastDay);
@@ -538,8 +546,12 @@ function renderSaveAsFood() {
 function wireDelete() { arm($('delete-entry'), async () => { const row = await mutate(() => store.deleteEntry(editing.id)); closeAdd(); await loadDay(); toast('Deleted', async () => { await mutate(() => store.addEntry(row)); await loadDay(); }); }); }
 
 $('day-title').onclick = () => {
-  if (pastDay || !isLateNight()) return;
-  if (day !== localDay()) { explicitDay = false; day = localDay(); loadDay(); return; }   // yesterday → straight back to today
+  if (!canSwitchDay()) return;
+  if (day !== localDay()) { explicitDay = false; day = localDay(); loadDay(); return; }   // the other day → straight back to today
+  if (inDayEndGap()) {
+    showInfo(`Still logging for ${titleDate(day)}`, '', { label: `Go to ${titleDate(calendarDay())}`, run: () => { explicitDay = true; day = calendarDay(); loadDay(); } });
+    return;
+  }
   showInfo('It’s late', '', { label: 'Go to yesterday', run: () => { explicitDay = true; day = shiftDay(localDay(), -1); loadDay(); } });
 };
 $('add-food').onclick = () => openAdd(); $('quick-log').onclick = () => openQuicklog();

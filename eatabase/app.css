@@ -148,6 +148,9 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 .nutrition-summary.finished > .progress-track:not(.is-hit) .progress-over { --bar-color: var(--accent); }
 
 /* Late-night day switch: a small muted caret after "Today"/"Yesterday" marks the title as tappable. */
+.day-end-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-2); }
+.day-end-grid .chip { font-family: var(--font-body); }
+#day-title .day-date { font-size: var(--fs-sm); font-weight: 400; color: var(--muted); letter-spacing: 0; }
 #day-title .day-switch-caret { margin-left: 6px; vertical-align: 2px; color: var(--muted); }
 #info-action { margin-top: var(--space-5); }
 

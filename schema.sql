@@ -1766,6 +1766,11 @@ create table if not exists public.cal_settings (
   updated_at  timestamptz not null default now()
 );
 
+-- When the tracking day ends, as a local clock hour (0 = midnight, up to 5 am).
+alter table public.cal_settings add column if not exists day_end_hour smallint not null default 0;
+alter table public.cal_settings drop constraint if exists cal_settings_day_end_hour_check;
+alter table public.cal_settings add constraint cal_settings_day_end_hour_check check (day_end_hour between 0 and 5);
+
 -- Goal history: one row per user per day a goal changed (the day's last
 -- change wins), so a past day is judged against the goal it actually had.
 create table if not exists public.cal_goal_history (

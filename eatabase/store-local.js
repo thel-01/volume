@@ -5,7 +5,7 @@ import { cachedDetail } from './food-product.js';
 //   - log entries hard-delete (like sets: cheap to redo); own foods soft-delete
 //     (deleted_at), so a food you remove can't break a logged day
 
-import { normalizeSettings, DEFAULT_SETTINGS, localDay } from './nutrition.js';
+import { normalizeSettings, DEFAULT_SETTINGS, localDay, setDayEndHour } from './nutrition.js';
 
 const KEY = 'eatabase-app-v1';
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -35,12 +35,15 @@ const clone = v => structuredClone(v);
 
 // ---- settings (user_settings-style single row) ------------------------------
 export async function getSettings() {
-  return normalizeSettings(db.settings);
+  const settings = normalizeSettings(db.settings);
+  setDayEndHour(settings.dayEndHour);
+  return settings;
 }
 export async function saveSettings(settings) {
   db.settings = normalizeSettings(settings);
   recordGoals(localDay());
   save();
+  setDayEndHour(db.settings.dayEndHour);
   return clone(db.settings);
 }
 /** One goal record per day (the day's last change wins); see goalsOnDay() in nutrition.js. */

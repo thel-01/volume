@@ -1,7 +1,7 @@
 import { cachedDetail, foodMetadata } from './food-product.js';
 // Production store. Entry nutrition is a snapshot; food edits never touch it.
 import { supabase, fetchAllRows } from '../supabase-client.js';
-import { normalizeSettings, localDay } from './nutrition.js';
+import { normalizeSettings, localDay, setDayEndHour } from './nutrition.js';
 
 const keys = ['kcal', 'protein', 'carbs', 'fat'];
 const duplicate = 'You already have a product with this barcode.';
@@ -72,11 +72,17 @@ async function mutate(table, action, value, id, missing, barcodeMessage, liveOnl
 
 export async function getSettings() {
   const id = await userId();
-  return normalizeSettings(checked(await supabase.from('cal_settings').select('*').eq('user_id', id).maybeSingle()) || {});
+  const row = checked(await supabase.from('cal_settings').select('*').eq('user_id', id).maybeSingle()) || {};
+  const settings = normalizeSettings({ ...row, dayEndHour: row.day_end_hour });
+  // First load on this phone (or changed elsewhere): the page already picked its day with the old hour, so start over once.
+  if (setDayEndHour(settings.dayEndHour) && typeof location !== 'undefined') location.reload();
+  return settings;
 }
 export async function saveSettings(settings) {
   const id = await userId(), next = normalizeSettings(settings);
-  checked(await supabase.from('cal_settings').upsert({ user_id:id, ...next, updated_at:new Date().toISOString() }, { onConflict:'user_id' }));
+  const { dayEndHour, ...columns } = next;
+  checked(await supabase.from('cal_settings').upsert({ user_id:id, ...columns, day_end_hour:dayEndHour, updated_at:new Date().toISOString() }, { onConflict:'user_id' }));
+  setDayEndHour(dayEndHour);
   // Report a partial save explicitly; retrying safely replaces today's record.
   try {
     checked(await supabase.from('cal_goal_history').upsert({ user_id:id, day:localDay(), nutrients:next.nutrients }, { onConflict:'user_id,day' }));
