@@ -119,6 +119,22 @@ export function quickValues(fields) {
 }
 
 /**
+ * Do typed calories and macros agree? Only runs when calories were typed.
+ *  - 'impossible': the macros you typed alone already hold far more calories than the total
+ *    (e.g. 1000 g protein in 1200 kcal). Generous: 1.5× plus a 20 kcal cushion for rounding, fibre and
+ *    sugar alcohols. Holds with any number of macros, since missing ones can only add calories.
+ *  - 'off': all three macros typed and the formula lands far from the calories (same 0.35 log-distance
+ *    as the product-search check). Fine to log; only worth a heads-up.
+ */
+export function macroCheck({ kcal, protein, carbs, fat }) {
+  if (kcal == null) return null;
+  const macroKcal = Math.round(4 * (protein || 0) + 4 * (carbs || 0) + 9 * (fat || 0));
+  if (macroKcal > kcal * 1.5 + 20) return { kind: 'impossible', macroKcal };
+  if (protein != null && carbs != null && fat != null && Math.abs(Math.log((kcal + 5) / (macroKcal + 5))) > 0.35) return { kind: 'off', macroKcal };
+  return null;
+}
+
+/**
  * The day's totals for every nutrient. `missing` counts entries whose value
  * is unknown — the total is then a lower bound ("at least"), shown as such.
  */
