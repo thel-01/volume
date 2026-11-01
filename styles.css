@@ -509,6 +509,18 @@ button.secondary {
 .stepper-value .value { font-family: var(--font-mono); font-size: var(--fs-4xl); font-weight: 500; }
 .stepper-value .value .unit { font-size: var(--fs-md); font-weight: 400; color: var(--muted); font-family: var(--font-body); margin-left: var(--space-1); }
 
+/* Rolling number (odometer.js): one clipped wheel per decimal place, each a tall strip of digits that slides.
+   320ms, starting fast and easing out (cubic-bezier 0,0,.36,1) — a retarget mid-roll then keeps its speed instead
+   of stalling, which is what lets rapid taps chase smoothly. Row height (--h) comes from the element's own line-height. */
+.odo { display: inline-flex; vertical-align: top; height: var(--h); }
+.odo .wheel { display: block; position: relative; width: 1ch; height: var(--h); overflow: hidden; clip-path: inset(0); }
+.odo .dot { display: block; height: var(--h); line-height: var(--h); }
+.odo .col { display: flex; flex-direction: column; will-change: transform; transition: transform 320ms cubic-bezier(0, 0, 0.36, 1); }
+.odo .col i { display: block; flex: 0 0 var(--h); height: var(--h); line-height: var(--h); text-align: center; font-style: normal; }
+/* The real number as text for screen readers, since the wheels are decoration. */
+.odo-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .odo .col { transition: none; } }
+
 .detail-toggle {
   border: 1px dashed var(--line);
   width: 100%;

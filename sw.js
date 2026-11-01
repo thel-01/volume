@@ -36,6 +36,7 @@ const APP_SHELL = [
   './weight-import.js',
   './levels.js',
   './number-input.js',
+  './odometer.js',
   './register-sw.js',
   './manifest.json',
   './vendor/supabase.js',
