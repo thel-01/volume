@@ -2,6 +2,7 @@ import { status as weightStatus } from './ui.js';
 // Cloned from Volume dashboard.html; persistence uses the shared store.
 import * as store from './store.js';
 import { parseKg } from './number-input.js';
+import { mountOdometer, refreshOdometers, tenths } from './odometer.js';
 import { relativeDayLabel } from './date-utils.js';
 import { showToast } from './toast.js';
 import { dailyValues, currentTrend, trendAsOf, hasEnoughHistory, DEFAULT_TREND_METHOD } from './weight-utils.js';
@@ -200,8 +201,12 @@ document.body.insertAdjacentHTML('beforeend', `
     // ---- Quicklog: weight — stepper only, no free text, no date field.
     // Always means "right now"; weight.html's own form covers backdating.
     let weightQuicklogValueKg = 0;
-    function paintWeightQuicklog() {
-      weightQuicklogValue.firstChild.textContent = weightQuicklogValueKg.toFixed(1);
+    // The stepper's digits roll like an odometer (odometer.js). Opening the popup places them instantly;
+    // only a − / + tap rolls. The stepper stops at 0.0 and 999.9, the range the roller has places for.
+    const WEIGHT_STEP_MAX_KG = 999.9;
+    const weightQuicklogOdometer = mountOdometer(weightQuicklogValue, '<span class="unit">kg</span>');
+    function paintWeightQuicklog(roll = false) {
+      weightQuicklogOdometer.set(tenths(weightQuicklogValueKg), { jump: !roll });
     }
     // First-ever weigh-in: no reading to step from, so a made-up starting
     // value would be saved as real data — type it instead. Same range check
@@ -235,15 +240,18 @@ document.body.insertAdjacentHTML('beforeend', `
       weightQuicklogSave.disabled = weightQuicklogTyped;
       weightQuicklogSave.textContent = 'Save';
       openModal(weightQuicklogModal);
+      refreshOdometers();   // the stepper was filled while hidden: re-check its row height now that it's on screen
     });
     document.getElementById('weight-quicklog-close').addEventListener('click', () => closeModal(weightQuicklogModal));
     weightQuicklogMinus.addEventListener('click', () => {
-      weightQuicklogValueKg = Math.round((weightQuicklogValueKg - 0.1) * 10) / 10;
-      paintWeightQuicklog();
+      if (weightQuicklogValueKg <= 0) return;
+      weightQuicklogValueKg = Math.max(0, Math.round((weightQuicklogValueKg - 0.1) * 10) / 10);
+      paintWeightQuicklog(true);
     });
     weightQuicklogPlus.addEventListener('click', () => {
-      weightQuicklogValueKg = Math.round((weightQuicklogValueKg + 0.1) * 10) / 10;
-      paintWeightQuicklog();
+      if (weightQuicklogValueKg >= WEIGHT_STEP_MAX_KG) return;
+      weightQuicklogValueKg = Math.min(WEIGHT_STEP_MAX_KG, Math.round((weightQuicklogValueKg + 0.1) * 10) / 10);
+      paintWeightQuicklog(true);
     });
     weightQuicklogSave.addEventListener('click', async () => {
       hide(weightQuicklogStatus);
