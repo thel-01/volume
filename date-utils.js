@@ -7,9 +7,21 @@ const DAY_MS = 86400000;
 
 /** Midnight local on the Monday of the week containing `date`. */
 export function mondayOf(date) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = d.getDay(); // 0 = Sunday
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  const day = date.getDay(); // 0 = Sunday
+  // Built from y/m/d in one go so a skipped midnight (some zones switch
+  // clocks at 00:00) lands on the same instant for every date in that week.
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + (day === 0 ? -6 : 1 - day));
+}
+
+/**
+ * `date` moved by whole calendar weeks (negative goes back), keeping the same
+ * local clock time. Never add 7 x 24h in milliseconds instead: across a
+ * daylight-saving change that lands an hour off, and a "Monday midnight"
+ * stops matching the keys mondayOf() produces.
+ */
+export function addWeeks(date, weeks) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + weeks * 7);
   return d;
 }
 

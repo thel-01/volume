@@ -99,13 +99,11 @@
   <script type="module">
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderBarChart, renderDonutChart, renderGaugeChart, renderIntensityBarChart, createRowReadout } from './chart.js';
-    import { mondayOf } from './date-utils.js';
+    import { mondayOf, addWeeks } from './date-utils.js';
     import { colorForIndex, OTHER_COLOR, EXTRA_COLOR } from './session-type-colors.js';
 
     const AVERAGE_WEEKS = 4;
     const MAX_CHART_WEEKS = 26;
-    const DAY_MS = 86400000;
-    const WEEK_MS = 7 * DAY_MS;
 
     // A logged set covers the work itself as well as the rest before it, so
     // the raw gap between two set logs overstates the rest. Knocking off a
@@ -233,6 +231,19 @@
     // Rendering
     // ------------------------------------------------------------------
     /**
+     * Every Monday-midnight from `firstMonday` to `thisMonday`, capped at the
+     * last MAX_CHART_WEEKS. Steps by calendar week (addWeeks), never by fixed hours.
+     */
+    function weekStartsBetween(firstMonday, thisMonday) {
+      const starts = [];
+      for (let i = 0; i < MAX_CHART_WEEKS; i++) {
+        const d = mondayOf(addWeeks(thisMonday, -i));
+        if (d < firstMonday) break;
+        starts.unshift(d.getTime());
+      }
+      return starts;
+    }
+    /**
      * One bar per week, counting sets. Weeks with nothing logged still get a
      * zero-value bar (drawn as a thin visible sliver, not an empty gap) — a
      * rest week is part of the picture, not missing data.
@@ -245,8 +256,7 @@
       }
 
       const points = [];
-      const earliest = Math.max(firstMonday.getTime(), thisMonday.getTime() - (MAX_CHART_WEEKS - 1) * WEEK_MS);
-      for (let t = earliest; t <= thisMonday.getTime(); t += WEEK_MS) {
+      for (const t of weekStartsBetween(firstMonday, thisMonday)) {
         points.push({ date: new Date(t).toISOString(), value: counts.get(t) || 0 });
       }
 
@@ -300,8 +310,7 @@
       }
 
       const points = [];
-      const earliest = Math.max(firstMonday.getTime(), thisMonday.getTime() - (MAX_CHART_WEEKS - 1) * WEEK_MS);
-      for (let t = earliest; t <= thisMonday.getTime(); t += WEEK_MS) {
+      for (const t of weekStartsBetween(firstMonday, thisMonday)) {
         const entry = totals.get(t);
         points.push({ date: new Date(t).toISOString(), value: entry ? entry.sum / entry.count : 0 });
       }
@@ -633,8 +642,8 @@
       // belongs to the week just gone, not this one. mondayOf() already draws
       // the line there, and the whole page agrees on it.
       const thisMonday = mondayOf(new Date());
-      const thisWeekEnd = new Date(thisMonday.getTime() + WEEK_MS);
-      const averageStart = new Date(thisMonday.getTime() - AVERAGE_WEEKS * WEEK_MS);
+      const thisWeekEnd = mondayOf(addWeeks(thisMonday, 1));
+      const averageStart = mondayOf(addWeeks(thisMonday, -AVERAGE_WEEKS));
 
       let earliest = null;
       const thisWeekSets = [];
