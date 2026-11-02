@@ -68,7 +68,7 @@ export function renderNutrientCharts(container, nutrients, { entries, history, f
     renderDayBarChart(svg, { days, goalLine: true, scrub: { onChange(info) {
       if (!info) { readout.hide(); return; }
       const point = info.point;
-      const value = !point.logged ? 'Not logged' : `${point.quality === 'partial' ? '≥ ' : ''}${fmt(nutrient.key, point.value)} ${nutrient.unit}${point.quality === 'partial' ? ' · incomplete' : ''}`;
+      const value = !point.logged ? 'Not logged' : `${point.quality === 'partial' ? '≥ ' : ''}${fmt(nutrient.key, point.value)} ${nutrient.unit}${point.quality === 'partial' ? ' (incomplete)' : ''}`;
       readout.show([{ value, date: dateLabel(point.day, true) }, { value, date: dateLabel(point.day) }]);
     } } });
     // No honest 4-week average yet → no sentence at all, like Volume's averages paragraph.

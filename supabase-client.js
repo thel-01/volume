@@ -157,7 +157,7 @@ function showDemoBanner(loginPage) {
   banner.className = 'status info demo-banner';
 
   const text = document.createElement('span');
-  text.textContent = 'Demo · fake data, deleted after 2h';
+  text.textContent = 'Demo data, deleted after 2 hours';
 
   const exit = document.createElement('button');
   exit.type = 'button';

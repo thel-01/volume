@@ -15,7 +15,7 @@ async function load() {
     const rows = days.map(d => {
       const total = dayTotals(d.entries)[nutrient.key];
       const value = total.missing === total.count ? '—' : `${total.missing ? '≥ ' : ''}${fmt(nutrient.key,total.value)} ${nutrient.unit}`;
-      return navRow(dateLabel(d.day),`${value} · ${d.count} ${d.count === 1 ? 'entry' : 'entries'}`,`./index.html?day=${d.day}`);
+      return navRow(dateLabel(d.day),`${value}, ${d.count} ${d.count === 1 ? 'entry' : 'entries'}`,`./index.html?day=${d.day}`);
     });
     $('history-list').innerHTML = rows.length ? rows.join('') : '<li class="empty-state">No past days yet.</li>';
     $('history-list').hidden = false; status('page-status');

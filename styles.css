@@ -75,7 +75,7 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
   --accent: #ffffff;       /* primary buttons, selected chip, focus ring, default chart line */
   --accent-ink: #000000;   /* text/icon color ON --accent */
 
-  --live: #ffc107;         /* reserved for genuine "in-progress" moments: rest-timer gauge, "Resume · elapsed" */
+  --live: #ffc107;         /* reserved for genuine "in-progress" moments: rest-timer gauge, "Resume (elapsed)" */
   --danger: #c0392b;
   --ok: #4caf50;
 
@@ -1041,7 +1041,7 @@ button.danger.secondary {
    reads as a dashed, muted outline rather than another selectable chip. */
 .chip.chip-add { color: var(--muted); border-style: dashed; }
 
-/* Level ladder rows in exercises.html: rank · name · move up/down · remove.
+/* Level ladder rows in exercises.html: rank, name, move up/down, remove.
    Buttons, not drag-to-reorder — nothing in the app is a drag. */
 .level-row { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
 .level-rank { flex: 0 0 20px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }

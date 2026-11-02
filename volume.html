@@ -44,7 +44,7 @@
 
     <div id="content" hidden>
 
-      <p class="section-label">Volume split · this week</p>
+      <p class="section-label">Volume split this week</p>
       <div class="chart-card donut-card">
         <svg id="split-chart" viewBox="0 0 120 120" role="img" aria-label="Sets this week by session type"></svg>
         <div id="split-legend" class="legend"></div>
@@ -55,7 +55,7 @@
         <span class="reference-value" id="v-top-exercise"></span>
       </div>
 
-      <p class="section-label">Intensity · this week</p>
+      <p class="section-label">Intensity this week</p>
       <div class="chart-card gauge-card">
         <svg id="intensity-gauge" viewBox="0 0 200 118" role="img" aria-label="Intensity this week"></svg>
       </div>
@@ -429,7 +429,7 @@
       }
 
       const name = exerciseNames.get(best.id);
-      vTopExercise.textContent = name ? `${name} · ${setsLabel(best.count)}` : '—';
+      vTopExercise.textContent = name ? `${name}, ${setsLabel(best.count)}` : '—';
     }
 
     /** Mean tag weight across the week's sets — see INTENSITY_WEIGHT above for the reasoning. */

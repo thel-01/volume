@@ -151,7 +151,7 @@
              saves immediately, like the Log screen's inline "+ Level" —
              it doesn't wait for the form's own Save button. -->
         <div class="field" id="ex-levels-field" hidden>
-          <label>Levels <span style="color:var(--text-tertiary);">· easiest first</span></label>
+          <label>Levels <span style="color:var(--text-tertiary);">(easiest first)</span></label>
           <p id="ex-levels-new-note" class="muted" hidden style="margin:0;">Save the exercise first, then add levels here or straight from the Log screen.</p>
           <div id="ex-levels-body">
             <div id="ex-levels-list"></div>
@@ -425,7 +425,7 @@
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
       // Count is plain text, not a badge — matches log.html's "3 sets" and
-      // history.html's "4 exercises · 12 sets", the only other places a
+      // history.html's "4 exercises, 12 sets", the only other places a
       // count sits next to a real badge in a meta row.
       const countEl = document.createElement('span');
       countEl.textContent = count === 1 ? '1 exercise' : `${count} exercises`;

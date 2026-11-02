@@ -564,7 +564,7 @@
       body.className = 'list-item-body';
       const name = document.createElement('div');
       name.className = 'list-item-name';
-      name.textContent = s.category ? `${s.category} · ${formatDate(s.start_time)}` : formatDate(s.start_time);
+      name.textContent = s.category ? `${s.category}, ${formatDate(s.start_time)}` : formatDate(s.start_time);
       body.appendChild(name);
 
       const meta = document.createElement('div');
@@ -671,7 +671,7 @@
         body.className = 'list-item-body';
         body.innerHTML = `
           <div class="list-item-name">${b.count} reading${b.count === 1 ? '' : 's'}</div>
-          <div class="list-item-meta">${range} · imported ${new Date(b.importedAt).toLocaleString()}</div>
+          <div class="list-item-meta">${range}, imported ${new Date(b.importedAt).toLocaleString()}</div>
         `;
         li.appendChild(body);
         li.appendChild(buildImportUndoButton(b));

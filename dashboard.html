@@ -925,7 +925,7 @@
     function renderWorkoutButton(openSession) {
       currentOpenSession = openSession;
       workoutBtn.textContent = openSession
-        ? `Resume · ${elapsedSince(openSession.start_time)}`
+        ? `Resume (${elapsedSince(openSession.start_time).replace(/(\d+)m\b/g, '$1 min')})`
         : 'Start workout';
       // A genuine "in progress" moment — the one other place --live means
       // exactly this, alongside the log screen's own running clock.
@@ -1481,8 +1481,8 @@
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
       meta.textContent = latest
-        ? `Day ${dayCount(injury.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`
-        : `Day ${dayCount(injury.started_at)} · No check-ins yet`;
+        ? `Day ${dayCount(injury.started_at)}, checked in ${relativeHoursLabel(latest.created_at)}`
+        : `Day ${dayCount(injury.started_at)}, no check-ins yet`;
       body.appendChild(meta);
       row.appendChild(body);
 

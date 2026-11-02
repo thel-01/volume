@@ -1434,7 +1434,7 @@ Here's my data:
         return li;
       }
 
-      const dateLabel = row.dateStr + (row.timeStr ? ` · ${row.timeStr}` : ' · no time');
+      const dateLabel = row.dateStr + (row.timeStr ? `, ${row.timeStr}` : ', no time');
       const badgeInfo = row.overlap ? IMPORT_OVERLAP_BADGE[row.overlap.kind] : null;
 
       const body = document.createElement('div');

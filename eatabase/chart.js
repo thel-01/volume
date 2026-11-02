@@ -445,7 +445,7 @@ function attachScrub(svg, cfg) {
 
 /**
  * Show a scrub readout in a chart's section-label row (the chart has no
- * hero stat of its own). The row reads right-aligned, `value · date`.
+ * hero stat of its own). The row reads right-aligned, `value, date`.
  *
  * `show` takes one `{ value, date }` or a list of progressively shorter
  * variants; the first that fits the row on one line wins, and if none does
@@ -464,7 +464,7 @@ export function createRowReadout(el) {
         const value = document.createElement('span');
         value.className = 'v';
         value.textContent = v.value;
-        el.append(value, document.createTextNode(` · ${v.date}`));
+        el.append(value, document.createTextNode(`, ${v.date}`));
         if (el.scrollWidth <= el.clientWidth) return;
       }
     },

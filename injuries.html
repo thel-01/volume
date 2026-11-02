@@ -48,7 +48,7 @@
          injuries" card. Active cases first (everywhere quicklog reach: each
          gets its own Same/Update, same 24h quiet-hours rule as the dashboard
          slot), resolved cases behind a reveal (relocated from settings.html,
-         not redesigned — same "Resolved {date} · lasted {n} days" format). -->
+         not redesigned — same "Resolved {date} after {n} days" format). -->
     <div id="index-view" hidden>
       <div class="page-header">
         <a href="./dashboard.html" class="icon-link" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></a>
@@ -566,7 +566,7 @@
         body.appendChild(name);
         const meta = document.createElement('div');
         meta.className = 'list-item-meta';
-        meta.textContent = c.note ? `${relativeWhen(c.created_at)} · "${c.note}"` : relativeWhen(c.created_at);
+        meta.textContent = c.note ? `${relativeWhen(c.created_at)}, "${c.note}"` : relativeWhen(c.created_at);
         body.appendChild(meta);
         li.appendChild(body);
 
@@ -725,8 +725,8 @@
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
       meta.textContent = latest
-        ? `Day ${dayCount(injuryObj.started_at)} · checked in ${relativeHoursLabel(latest.created_at)}`
-        : `Day ${dayCount(injuryObj.started_at)} · No check-ins yet`;
+        ? `Day ${dayCount(injuryObj.started_at)}, checked in ${relativeHoursLabel(latest.created_at)}`
+        : `Day ${dayCount(injuryObj.started_at)}, no check-ins yet`;
       body.appendChild(meta);
       row.appendChild(body);
 
@@ -775,7 +775,7 @@
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
       const lasted = Math.floor((new Date(inj.resolved_at) - new Date(inj.started_at)) / 86400000) + 1;
-      meta.textContent = `Resolved ${formatFullDate(inj.resolved_at)} · lasted ${lasted === 1 ? '1 day' : `${lasted} days`}`;
+      meta.textContent = `Resolved ${formatFullDate(inj.resolved_at)} after ${lasted === 1 ? '1 day' : `${lasted} days`}`;
       body.appendChild(meta);
       li.appendChild(body);
 

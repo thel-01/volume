@@ -876,7 +876,7 @@
         .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       const elapsed = hrs > 0 ? `${hrs}h ${mins % 60}m` : `${mins}m`;
       const totalSets = entries.reduce((sum, e) => sum + e.sets.length, 0);
-      sessionClock.textContent = `Started ${started} · ${elapsed} · ${totalSets} ${totalSets === 1 ? 'set' : 'sets'}`;
+      sessionClock.textContent = `Started ${started}, ${elapsed} elapsed, ${totalSets} ${totalSets === 1 ? 'set' : 'sets'}`;
     }
 
     function startClock() {
@@ -2426,8 +2426,8 @@
 
       endAtIso = lastSetIso;
       const options = [
-        { iso: lastSetIso, label: `At last set · ${formatClockTime(lastSetIso)}` },
-        { iso: null, label: `Now · ${formatClockTime(new Date().toISOString())}` },
+        { iso: lastSetIso, label: `At last set (${formatClockTime(lastSetIso)})` },
+        { iso: null, label: `Now (${formatClockTime(new Date().toISOString())})` },
       ];
       const draw = () => {
         endTimeChips.innerHTML = '';

@@ -388,7 +388,7 @@
 
       const meta = document.createElement('div');
       meta.className = 'list-item-meta';
-      meta.appendChild(document.createTextNode(`${row.level.toFixed(1)} · `));
+      meta.appendChild(document.createTextNode(`${row.level.toFixed(1)}, `));
       const change = document.createElement('span');
       if (row.changePct === null) {
         change.className = 'muted';
@@ -399,7 +399,7 @@
         change.textContent = `${sign}${Math.abs(row.changePct).toFixed(1)}%`;
       }
       meta.appendChild(change);
-      meta.appendChild(document.createTextNode(` · ${timeAgo(row.lastDate)}`));
+      meta.appendChild(document.createTextNode(`, ${timeAgo(row.lastDate)}`));
       body.appendChild(meta);
 
       li.appendChild(body);
@@ -494,7 +494,7 @@
       meta.className = 'list-item-meta';
       const value = document.createElement('span');
       if (stat.pr) {
-        value.textContent = `${stat.pr.description} · ${timeAgo(stat.pr.date)}`;
+        value.textContent = `${stat.pr.description}, ${timeAgo(stat.pr.date)}`;
       } else {
         value.className = 'muted';
         value.textContent = 'Never logged';

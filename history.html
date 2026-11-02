@@ -486,7 +486,7 @@
       const summary = document.createElement('span');
       summary.textContent = exerciseCount === 0
         ? 'Nothing logged'
-        : `${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'} · ${setCount} set${setCount === 1 ? '' : 's'}`;
+        : `${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}, ${setCount} set${setCount === 1 ? '' : 's'}`;
       meta.appendChild(summary);
       if (s.category) {
         const badge = document.createElement('span');
@@ -551,7 +551,7 @@
         formatDate(session.start_time),
         session.category || null,
         duration,
-      ].filter(Boolean).join(' · ');
+      ].filter(Boolean).join(', ');
 
       sessionCommentInput.value = session.comment || '';
       sessionCommentState.textContent = '';
