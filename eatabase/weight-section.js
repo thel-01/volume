@@ -31,7 +31,7 @@ document.getElementById('weight-section').innerHTML = `
           <div class="list-item-name" id="weight-log-value">—</div>
           <div class="list-item-meta" id="weight-log-meta"></div>
         </div>
-        <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
+        <span class="list-item-chevron"><svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg></span>
       </div>
 
       <button type="button" id="weight-quicklog-open">+ Log weight</button>

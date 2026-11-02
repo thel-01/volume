@@ -375,7 +375,7 @@
     }
 
     // Index-list rows only — same chevron dashboard.html's own list-items use.
-    const CHEVRON_SVG = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
+    const CHEVRON_SVG = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
     function dayCount(startedAt) {
       return Math.floor((Date.now() - new Date(startedAt).getTime()) / 86400000) + 1;
     }
@@ -572,7 +572,7 @@
 
         const chevron = document.createElement('span');
         chevron.className = 'list-item-chevron';
-        chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="var(--text)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
+        chevron.innerHTML = '<svg width="14" height="22" viewBox="0 0 14 22" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3 L11 11 L3 19"/></svg>';
         li.appendChild(chevron);
 
         checkinListEl.appendChild(li);
