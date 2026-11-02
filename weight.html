@@ -116,10 +116,50 @@
     }
 
     /* ---- Import weight data ---- */
+    #import-view { margin-inline: calc(-1 * var(--space-1)); }
+    #import-step1 .page-header h1 { white-space: nowrap; }
+    #import-paste { min-height: 128px; }
+    .import-section-heading {
+      font-size: var(--fs-md); font-weight: 400; color: var(--muted);
+      margin: 0 0 var(--space-2);
+    }
     pre.spec {
       background: var(--surface); border: 1px solid var(--line);
-      padding: var(--space-3) var(--space-4); font-family: var(--font-mono);
-      font-size: 13px; color: var(--muted); overflow-x: auto; white-space: pre; margin: 0;
+      padding: var(--space-3) var(--space-4); font: 13px/1.5 var(--font-mono);
+      color: var(--muted); white-space: pre-wrap; margin: 0 0 var(--space-6);
+    }
+    .import-prompt-box {
+      display: flow-root; padding: var(--space-3) var(--space-4);
+      border: 1px solid var(--line); background: var(--surface);
+    }
+    .import-copy-button {
+      float: right; margin: 0 0 var(--space-2) var(--space-3);
+      position: relative; overflow: hidden; isolation: isolate;
+      user-select: none; -webkit-user-select: none;
+      transition: transform var(--motion-fast);
+    }
+    .import-copy-button svg {
+      position: absolute; inset: 0; margin: auto; z-index: 2; pointer-events: none;
+    }
+    .import-copy-fill {
+      position: absolute; inset: 0; background: var(--accent);
+      opacity: 0; pointer-events: none; z-index: 1;
+    }
+    .import-copy-check { color: var(--accent-ink); opacity: 0; }
+    .import-copy-check path { stroke-dasharray: 1; stroke-dashoffset: 0; }
+    .import-prompt-text {
+      white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
+      font: var(--fs-xs)/1.5 var(--font-body); color: var(--muted);
+    }
+    .import-prompt-note {
+      font-size: var(--fs-sm); color: var(--muted); margin: var(--space-2) 0 0;
+    }
+    .import-copy-announcement {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .import-copy-button { transition: none; }
     }
     /* A fixed height, not a min-height — row 1's tallest natural element is
        the plain weight text itself (24px line box), taller than both the
@@ -283,17 +323,22 @@
         </div>
 
         <div class="field">
-          <label for="import-paste">Paste your data</label>
-          <textarea id="import-paste" placeholder="Date,Time,Weight&#10;2026-06-01,07:15,82.4&#10;2026-06-02,,81.9"></textarea>
+          <textarea id="import-paste" aria-label="Paste your data" placeholder="Paste your data"></textarea>
         </div>
 
-        <button type="button" class="link-button" id="import-spec-toggle" style="display:block;">+ How should my data look?</button>
+        <button type="button" class="link-button" id="import-spec-toggle" aria-expanded="false" aria-controls="import-spec-reveal" style="display:block;">+ How should my data look?</button>
         <div id="import-spec-reveal" hidden style="margin-top:var(--space-3);">
+          <h2 class="import-section-heading">Example</h2>
           <pre class="spec">Date,Time,Weight (kg)
 2026-06-01,07:15,82.4
 2026-06-02,,81.9</pre>
-          <p class="muted" style="margin:var(--space-2) 0 var(--space-3);">Date as YYYY-MM-DD, time as 24-hour HH:MM (or blank), weight in kg. Comma or semicolon-separated both work, and pasting straight from a spreadsheet works too.</p>
-          <button type="button" class="link-button" id="import-copy-prompt-btn" style="display:block;">Copy a prompt to reformat your data with AI</button>
+          <h2 id="import-prompt-heading" class="import-section-heading">Copy a prompt to reformat your data with AI</h2>
+          <div class="import-prompt-box">
+            <button id="import-copy-prompt-btn" class="icon-link import-copy-button" type="button" aria-label="Copy prompt" title="Copy prompt"><span class="import-copy-fill" aria-hidden="true"></span><svg class="import-copy-original" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="1.5"/><path d="M16 8V3H3v13h5"/></svg><svg class="import-copy-check" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M5 12.5 9.5 17 19 7"/></svg></button>
+            <div id="import-ai-prompt" class="import-prompt-text" role="region" aria-labelledby="import-prompt-heading" tabindex="0"></div>
+          </div>
+          <p id="import-copy-prompt-status" class="import-prompt-note" role="status" aria-live="polite">Paste it into your AI chat, then add your weight data.</p>
+          <span id="import-copy-announcement" class="import-copy-announcement" role="status" aria-live="polite"></span>
         </div>
 
         <div class="btn-row" style="margin-top:var(--space-5);">
@@ -506,6 +551,9 @@
     const importSpecToggle = document.getElementById('import-spec-toggle');
     const importSpecReveal = document.getElementById('import-spec-reveal');
     const importCopyPromptBtn = document.getElementById('import-copy-prompt-btn');
+    const importAiPrompt = document.getElementById('import-ai-prompt');
+    const importCopyPromptStatus = document.getElementById('import-copy-prompt-status');
+    const importCopyAnnouncement = document.getElementById('import-copy-announcement');
     const importStep1Back = document.getElementById('import-step1-back');
     const importStep1Cancel = document.getElementById('import-step1-cancel');
     const importStep1Continue = document.getElementById('import-step1-continue');
@@ -1259,6 +1307,10 @@
     function openImportView() {
       importPaste.value = '';
       importSpecReveal.hidden = true;
+      importSpecToggle.textContent = '+ How should my data look?';
+      importSpecToggle.setAttribute('aria-expanded', 'false');
+      resetImportCopyFeedback();
+      importCopyPromptStatus.textContent = 'Paste it into your AI chat, then add your weight data.';
       hide(importStep1Status);
       showImportStep(1);
       homeView.hidden = true;
@@ -1271,6 +1323,7 @@
     importSpecToggle.addEventListener('click', () => {
       importSpecReveal.hidden = !importSpecReveal.hidden;
       importSpecToggle.textContent = importSpecReveal.hidden ? '+ How should my data look?' : '− Hide';
+      importSpecToggle.setAttribute('aria-expanded', String(!importSpecReveal.hidden));
     });
 
     const IMPORT_AI_PROMPT = `Please reformat my bodyweight log into CSV with exactly these columns and nothing else: Date,Time,Weight
@@ -1286,15 +1339,93 @@ Date,Time,Weight
 
 Here's my data:
 `;
-    importCopyPromptBtn.addEventListener('click', async () => {
-      const original = importCopyPromptBtn.textContent;
+    importAiPrompt.textContent = IMPORT_AI_PROMPT;
+    let importCopyPending = false;
+    let importCopyAnimations = [];
+    let importCopyRun = 0;
+    function resetImportCopyFeedback() {
+      importCopyRun++;
+      importCopyAnimations.forEach(animation => animation.cancel());
+      importCopyAnimations = [];
+      importCopyPromptBtn.setAttribute('aria-label', 'Copy prompt');
+      importCopyAnnouncement.textContent = '';
+    }
+    function playImportCopyFeedback() {
+      resetImportCopyFeedback();
+      const run = importCopyRun;
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      // Approved draft: Pop / Draw / Snappy, 180ms in, 900ms hold, 260ms out.
+      const enter = reduced ? 1 : 180;
+      const exit = reduced ? 1 : 260;
+      const duration = enter + 900 + exit;
+      const at = enter / duration, until = (enter + 900) / duration;
+      const easing = 'cubic-bezier(0.16,1,0.3,1)';
+      const frames = (initial, shown, final = initial) => [
+        { ...initial, offset: 0, easing }, { ...shown, offset: at },
+        { ...shown, offset: until, easing }, { ...final, offset: 1 },
+      ];
+      const animate = (selector, keyframes) => {
+        const animation = importCopyPromptBtn.querySelector(selector)
+          .animate(keyframes, { duration, fill: 'both' });
+        importCopyAnimations.push(animation);
+      };
+      animate('.import-copy-fill', frames({ opacity: 0 }, { opacity: 1 }));
+      animate('.import-copy-original', frames({ opacity: 1 }, { opacity: 0 }));
+      animate('.import-copy-check', reduced
+        ? frames({ opacity: 0 }, { opacity: 1 })
+        : [
+          { opacity: 0, transform: 'scale(0.65)', offset: 0, easing },
+          { opacity: 1, transform: 'scale(1.13)', offset: at * 0.7 },
+          { opacity: 1, transform: 'scale(1)', offset: at },
+          { opacity: 1, transform: 'scale(1)', offset: until, easing },
+          { opacity: 0, transform: 'scale(0.9)', offset: 1 },
+        ]);
+      if (!reduced) animate('.import-copy-check path',
+        frames({ strokeDashoffset: 1 }, { strokeDashoffset: 0 }, { strokeDashoffset: 0 }));
+      importCopyPromptBtn.setAttribute('aria-label', 'Copied');
+      importCopyAnnouncement.textContent = 'Copied';
+      Promise.all(importCopyAnimations.map(animation => animation.finished)).then(() => {
+        if (run === importCopyRun) resetImportCopyFeedback();
+      }).catch(() => {}); // Repeated copying cancels the previous animation.
+    }
+    // Keep the compatibility copy target off-screen; never select the visible prompt.
+    async function copyImportPromptText(value) {
+      try { await navigator.clipboard.writeText(value); return true; } catch {}
+      const active = document.activeElement;
+      const selection = window.getSelection();
+      const ranges = selection ? Array.from({length:selection.rangeCount}, (_,i) => selection.getRangeAt(i).cloneRange()) : [];
+      const target = Object.assign(document.createElement('textarea'), {value, readOnly:true, tabIndex:-1});
+      target.setAttribute('aria-hidden','true');
+      target.style.cssText = 'position:fixed;top:0;left:-9999px;width:1px;height:1px;opacity:0;font-size:16px;pointer-events:none';
+      document.body.appendChild(target);
+      let copied = false;
       try {
-        await navigator.clipboard.writeText(IMPORT_AI_PROMPT);
-        importCopyPromptBtn.textContent = 'Copied!';
-      } catch {
-        importCopyPromptBtn.textContent = 'Could not copy automatically. Select the text above.';
+        target.focus({preventScroll:true});
+        target.select();
+        target.setSelectionRange(0,value.length);
+        copied = document.execCommand('copy');
+      } catch {} finally {
+        target.remove();
+        if (active && active.isConnected) active.focus({preventScroll:true});
+        if (selection) {
+          selection.removeAllRanges();
+          ranges.forEach(range => selection.addRange(range));
+        }
       }
-      setTimeout(() => { importCopyPromptBtn.textContent = original; }, 2000);
+      return copied;
+    }
+
+    importCopyPromptBtn.addEventListener('click', async () => {
+      if (importCopyPending) return;
+      importCopyPending = true;
+      importCopyPromptBtn.setAttribute('aria-busy', 'true');
+      const copied = await copyImportPromptText(IMPORT_AI_PROMPT);
+      importCopyPending = false;
+      importCopyPromptBtn.removeAttribute('aria-busy');
+      if (copied && !importView.hidden && !importSpecReveal.hidden) playImportCopyFeedback();
+      importCopyPromptStatus.textContent = copied
+        ? 'Paste it into your AI chat, then add your weight data.'
+        : 'Could not copy automatically. Select the prompt text and choose Copy, then paste it into your AI chat.';
     });
 
     // If most rows come back "wrong number of columns," that's not a pile
