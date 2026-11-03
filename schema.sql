@@ -1,7 +1,7 @@
 -- ===========================================================================
 -- Volume — workout tracker
 -- SOURCE OF TRUTH for the database. Change this file FIRST, then paste the
--- changed part into the Supabase SQL editor and run it.
+-- whole file into the Supabase SQL editor and run it.
 --
 -- Packet 2: core schema (sessions, movement_patterns, exercises,
 -- session_exercises, sets).
@@ -26,6 +26,19 @@
 --     for live data must say `where deleted_at is null`.
 --   * `sets` has no soft delete — deleting a set really deletes it.
 -- ---------------------------------------------------------------------------
+
+
+-- OAuth tokens only get the Eatabase operations exposed by the connector.
+create or replace function public.is_oauth_client()
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select (auth.jwt() ->> 'client_id') is not null;
+$$;
+revoke all on function public.is_oauth_client() from public, anon;
+grant execute on function public.is_oauth_client() to authenticated;
 
 
 -- ===========================================================================
@@ -996,6 +1009,8 @@ create policy session_exercises_delete_own on public.session_exercises
 -- --- sets -------------------------------------------------------------------
 -- Same idea: ownership comes from the parent session. Writes also check the
 -- exercise, so a set can't be logged against an exercise you don't own.
+-- A linked exercise block must match both parents; null remains valid for
+-- legacy sets and when a block is deleted.
 
 drop policy if exists sets_select_own on public.sets;
 create policy sets_select_own on public.sets
@@ -1022,6 +1037,14 @@ create policy sets_insert_own on public.sets
       where e.id = sets.exercise_id
         and e.user_id = (select auth.uid())
     )
+    and (
+      sets.session_exercise_id is null or exists (
+        select 1 from public.session_exercises se
+        where se.id = sets.session_exercise_id
+          and se.session_id = sets.session_id
+          and se.exercise_id = sets.exercise_id
+      )
+    )
   );
 
 drop policy if exists sets_update_own on public.sets;
@@ -1044,6 +1067,14 @@ create policy sets_update_own on public.sets
       select 1 from public.exercises e
       where e.id = sets.exercise_id
         and e.user_id = (select auth.uid())
+    )
+    and (
+      sets.session_exercise_id is null or exists (
+        select 1 from public.session_exercises se
+        where se.id = sets.session_exercise_id
+          and se.session_id = sets.session_id
+          and se.exercise_id = sets.exercise_id
+      )
     )
   );
 
@@ -1418,6 +1449,9 @@ declare
   tag        text;
   roll       double precision;
 begin
+  if public.is_oauth_client() then
+    raise exception 'OAuth clients cannot manage demo accounts.' using errcode = '42501';
+  end if;
   if uid is null or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) is not true then
     raise exception 'Demo data can only be added to a demo account.';
   end if;
@@ -1659,6 +1693,9 @@ as $$
 declare
   uid uuid := auth.uid();
 begin
+  if public.is_oauth_client() then
+    raise exception 'OAuth clients cannot manage demo accounts.' using errcode = '42501';
+  end if;
   if uid is null or not exists (
     select 1 from auth.users where id = uid and is_anonymous
   ) then
@@ -1741,6 +1778,55 @@ $$;
 grant usage on schema public to supabase_auth_admin;
 grant execute on function public.hook_only_anonymous_signups(jsonb) to supabase_auth_admin;
 revoke execute on function public.hook_only_anonymous_signups(jsonb) from authenticated, anon, public;
+
+
+-- --- prevent_demo_conversion ---------------------------------------------------
+-- Demo accounts must stay anonymous so cleanup can always find them.
+-- Reject new contact details as well as the final permanent-account flag.
+-- Empty and missing values count as the same, so Auth's own housekeeping passes.
+create or replace function public.prevent_demo_conversion()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  -- Auth's soft delete overwrites contact fields with placeholders; let it
+  -- through as long as the account stays anonymous.
+  if old.is_anonymous is true and new.is_anonymous is true
+    and old.deleted_at is null and new.deleted_at is not null then
+    return new;
+  end if;
+  if old.is_anonymous is true and (
+    new.is_anonymous is not true
+    or (nullif(new.email, '') is not null and nullif(new.email, '') is distinct from nullif(old.email, ''))
+    or (nullif(new.phone, '') is not null and nullif(new.phone, '') is distinct from nullif(old.phone, ''))
+    or (nullif(new.email_change, '') is not null and nullif(new.email_change, '') is distinct from nullif(old.email_change, ''))
+    or (nullif(new.phone_change, '') is not null and nullif(new.phone_change, '') is distinct from nullif(old.phone_change, ''))
+  ) then
+    raise exception 'Demo accounts cannot become permanent or add an email or phone.'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.prevent_demo_conversion() from public, anon, authenticated;
+grant execute on function public.prevent_demo_conversion() to supabase_auth_admin;
+
+-- Created only when missing (re-runs just refresh the function above), so a
+-- re-run never needs permission to drop a trigger on Auth's own table.
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger
+    where tgname = 'prevent_demo_conversion' and tgrelid = 'auth.users'::regclass
+  ) then
+    create trigger prevent_demo_conversion
+      before update on auth.users
+      for each row execute function public.prevent_demo_conversion();
+  end if;
+end;
+$$;
 
 
 -- ===========================================================================
@@ -2018,3 +2104,221 @@ alter table public.cal_entries add constraint cal_entries_amount_matches_basis c
   (basis = 'portion' and grams is null and millilitres is null and portions is not null) or
   (basis = 'once' and grams is null and millilitres is null and portions is null)
 );
+
+
+-- Shared rolling-minute budgets for the food relay. Only the Edge Function's
+-- service role can spend a budget; browser callers cannot exhaust another
+-- user's allowance by calling this RPC directly. No food or session data here.
+create table if not exists public.food_api_budgets (
+  bucket text primary key,
+  hits timestamptz[] not null default '{}'
+);
+alter table public.food_api_budgets enable row level security;
+revoke all on public.food_api_budgets from public, anon, authenticated, service_role;
+
+create or replace function public.take_food_api_budget(p_user_id uuid, p_kind text)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  global_key text;
+  user_key text;
+  global_limit integer;
+  user_limit integer;
+  global_hits timestamptz[];
+  user_hits timestamptz[];
+  at_time timestamptz;
+  retry integer := 0;
+begin
+  if p_user_id is null or not exists (
+    select 1 from public.cal_access where user_id = p_user_id
+  ) then
+    raise exception 'Food API access denied' using errcode = '42501';
+  end if;
+  if p_kind is null or p_kind not in ('search', 'product') then
+    raise exception 'Invalid food API budget' using errcode = '22023';
+  end if;
+  global_key := p_kind || ':global';
+  user_key := p_kind || ':user:' || p_user_id::text;
+  -- Products match Open Food Facts' own cap (15 reads/minute per server).
+  global_limit := case p_kind when 'search' then 30 else 15 end;
+  user_limit := case p_kind when 'search' then 20 else 15 end;
+
+  -- Always lock global before user. One transaction checks and consumes both
+  -- budgets, even when requests arrive at different Edge Function instances.
+  insert into public.food_api_budgets (bucket) values (global_key)
+    on conflict do nothing;
+  select hits into global_hits from public.food_api_budgets
+    where bucket = global_key for update;
+  insert into public.food_api_budgets (bucket) values (user_key)
+    on conflict do nothing;
+  select hits into user_hits from public.food_api_budgets
+    where bucket = user_key for update;
+  at_time := clock_timestamp();
+  select coalesce(array_agg(t order by t), '{}'::timestamptz[])
+    into global_hits from unnest(global_hits) t
+    where t > at_time - interval '60 seconds';
+  select coalesce(array_agg(t order by t), '{}'::timestamptz[])
+    into user_hits from unnest(user_hits) t
+    where t > at_time - interval '60 seconds';
+  if cardinality(global_hits) >= global_limit then
+    retry := greatest(1, ceil(extract(epoch from
+      (global_hits[1] + interval '60 seconds' - at_time)))::integer);
+  end if;
+  if cardinality(user_hits) >= user_limit then
+    retry := greatest(retry, 1, ceil(extract(epoch from
+      (user_hits[1] + interval '60 seconds' - at_time)))::integer);
+  end if;
+  if retry > 0 then return retry; end if;
+  update public.food_api_budgets set hits = array_append(global_hits, at_time)
+    where bucket = global_key;
+  update public.food_api_budgets set hits = array_append(user_hits, at_time)
+    where bucket = user_key;
+  return 0;
+end;
+$$;
+revoke all on function public.take_food_api_budget(uuid, text) from public, anon, authenticated;
+grant execute on function public.take_food_api_budget(uuid, text) to service_role;
+
+-- OAuth clients cannot access workouts, shared settings or saved foods.
+drop policy if exists sessions_no_oauth on public.sessions;
+create policy sessions_no_oauth on public.sessions
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists movement_patterns_no_oauth on public.movement_patterns;
+create policy movement_patterns_no_oauth on public.movement_patterns
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists session_types_no_oauth on public.session_types;
+create policy session_types_no_oauth on public.session_types
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists exercises_no_oauth on public.exercises;
+create policy exercises_no_oauth on public.exercises
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists exercise_levels_no_oauth on public.exercise_levels;
+create policy exercise_levels_no_oauth on public.exercise_levels
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists session_exercises_no_oauth on public.session_exercises;
+create policy session_exercises_no_oauth on public.session_exercises
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists sets_no_oauth on public.sets;
+create policy sets_no_oauth on public.sets
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists body_weights_no_oauth on public.body_weights;
+create policy body_weights_no_oauth on public.body_weights
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists injuries_no_oauth on public.injuries;
+create policy injuries_no_oauth on public.injuries
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists injury_checkins_no_oauth on public.injury_checkins;
+create policy injury_checkins_no_oauth on public.injury_checkins
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists user_settings_no_oauth on public.user_settings;
+create policy user_settings_no_oauth on public.user_settings
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists cal_goal_history_no_oauth on public.cal_goal_history;
+create policy cal_goal_history_no_oauth on public.cal_goal_history
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists cal_foods_no_oauth on public.cal_foods;
+create policy cal_foods_no_oauth on public.cal_foods
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+-- Membership checks go through cal_allowed(), which runs as the owner.
+drop policy if exists cal_access_no_oauth on public.cal_access;
+create policy cal_access_no_oauth on public.cal_access
+  as restrictive for all to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+-- The connector reads settings and reads, adds and removes log entries.
+drop policy if exists cal_entries_no_oauth_update on public.cal_entries;
+create policy cal_entries_no_oauth_update on public.cal_entries
+  as restrictive for update to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists cal_settings_no_oauth_insert on public.cal_settings;
+create policy cal_settings_no_oauth_insert on public.cal_settings
+  as restrictive for insert to authenticated
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists cal_settings_no_oauth_update on public.cal_settings;
+create policy cal_settings_no_oauth_update on public.cal_settings
+  as restrictive for update to authenticated
+  using (not (select public.is_oauth_client()))
+  with check (not (select public.is_oauth_client()));
+
+drop policy if exists cal_settings_no_oauth_delete on public.cal_settings;
+create policy cal_settings_no_oauth_delete on public.cal_settings
+  as restrictive for delete to authenticated
+  using (not (select public.is_oauth_client()));
+
+
+-- ---------------------------------------------------------------------------
+-- Eatabase MCP: resource-bound OAuth access tokens. Install first, then select
+-- this function under Authentication > Hooks > Custom Access Token. Merely
+-- defining it does not enable the hook. Non-OAuth app sessions stay unchanged.
+-- OAuth clients authorized through this project's consent page target Eatabase.
+-- Preserve every other claim, including client_id, role and is_anonymous.
+-- ---------------------------------------------------------------------------
+create or replace function public.eatabase_mcp_access_token_hook(event jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  claims jsonb := event->'claims';
+begin
+  if coalesce(claims->>'client_id', '') <> ''
+     and claims->>'role' = 'authenticated'
+     and claims->>'is_anonymous' = 'false' then
+    -- Keep 'authenticated' alongside the MCP URL so the database API still
+    -- accepts the token whatever audience it is configured to expect.
+    claims := jsonb_set(claims, '{aud}', jsonb_build_array('authenticated',
+      'https://zhrlrgzpstipojaopnbo.supabase.co/functions/v1/eatabase-mcp'));
+  end if;
+  return jsonb_build_object('claims', claims);
+end;
+$$;
+revoke all on function public.eatabase_mcp_access_token_hook(jsonb) from public, anon, authenticated;
+grant usage on schema public to supabase_auth_admin;
+grant execute on function public.eatabase_mcp_access_token_hook(jsonb) to supabase_auth_admin;

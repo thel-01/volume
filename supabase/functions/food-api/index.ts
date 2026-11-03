@@ -39,9 +39,8 @@ function json(status: number, body: unknown, retryAfter?: string | null): Respon
   });
 }
 
-/** True only for a request carrying a valid Supabase login (the user's JWT). */
-/** 'ok', 'anon' (no valid login) or 'denied' (logged in, but not on Eatabase's access list). */
-async function access(req: Request): Promise<'ok' | 'anon' | 'denied'> {
+// Return the verified user ID only after both authentication and membership checks.
+async function access(req: Request): Promise<{ userId: string } | 'anon' | 'denied'> {
   const authorization = req.headers.get('Authorization');
   if (!authorization || !/^Bearer\s+\S+/i.test(authorization)) return 'anon';
   // Same client setup as a normal app page, but with the caller's token, so
@@ -58,7 +57,7 @@ async function access(req: Request): Promise<'ok' | 'anon' | 'denied'> {
   if (error || !data.user) return 'anon';
   // Same list the cal_* tables enforce (public.cal_access, schema.sql).
   const allowed = await supabase.rpc('cal_allowed');
-  return !allowed.error && allowed.data === true ? 'ok' : 'denied';
+  return !allowed.error && allowed.data === true ? { userId: data.user.id } : 'denied';
 }
 
 async function fetchJson(url: string, allowMissing = false): Promise<unknown> {
@@ -121,6 +120,23 @@ Deno.serve(async (req) => {
     const who = await access(req);
     if (who === 'anon') return json(401, { error: 'log in to use food search' });
     if (who === 'denied') return json(403, { error: 'Eatabase isn’t open for this account yet' });
+    // A separate server-only client: never forward the caller's Authorization
+    // header here. The RPC is deliberately inaccessible to browser roles.
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    const budget = await admin.rpc('take_food_api_budget', {
+      p_user_id: who.userId,
+      p_kind: route === offSearch ? 'search' : 'product',
+    });
+    // Fail closed if the schema is missing or the budget service is unavailable.
+    if (budget.error || !Number.isInteger(budget.data) || budget.data < 0) {
+      return json(503, { error: 'Food search is temporarily unavailable.', kind: 'unavailable' });
+    }
+    if (budget.data > 0) {
+      return json(429, { error: 'Too many requests. Try again in a minute.', kind: 'throttled' }, String(budget.data));
+    }
     return json(200, await route(searchParams));
   } catch (e) {
     // Surface upstream failures to the page, never hang.
