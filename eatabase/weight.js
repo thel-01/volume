@@ -315,6 +315,27 @@ import { status as weightStatus } from './ui.js';
       fitNoiseLine();
     }
 
+    // Reserve space for every possible scrub label before the first gesture.
+    // Measure the real fonts, rather than guessing a width from character count.
+    function reserveWeightHeroSpace() {
+      const context = document.createElement('canvas').getContext('2d');
+      const measure = (element, text) => {
+        context.font = getComputedStyle(element).font;
+        return context.measureText(text).width;
+      };
+      const labelWidths = ['latest reading', ...entries.map(formatEntryWhen)]
+        .map(text => measure(currentLabel, text));
+      const unitStyle = getComputedStyle(currentWeight.querySelector('.unit') || currentLabel);
+      context.font = unitStyle.font;
+      const unitWidth = context.measureText('kg').width + 3;
+      const valueWidths = entries.map(entry => measure(currentWeight, fmtKg(entry.weight_kg)) + unitWidth);
+      const whenWidth = entries.length ? measure(currentWhen, relativeWhen(entries[0])) : 0;
+      currentWeight.closest('.stat-row').style.setProperty('--reading-width',
+        `${Math.ceil(Math.max(...labelWidths, ...valueWidths, whenWidth))}px`);
+    }
+    // Recalculate after webfonts replace their loading fallbacks.
+    document.fonts.ready.then(reserveWeightHeroSpace);
+
     // Scrubbing the chart swaps the latest-reading stat for that reading (its
     // label line becomes the date and time) and the trend stat for the trend
     // that day; the two "vs / ago" lines hide (visibility, not display, so the
@@ -380,6 +401,7 @@ import { status as weightStatus } from './ui.js';
 
       currentWeight.innerHTML = `${fmtKg(entries[0].weight_kg)}<span class="unit">kg</span>`;
       currentWhen.textContent = relativeWhen(entries[0]);
+      reserveWeightHeroSpace();
       renderStaleNotice(entries[0]);
 
       // Compare like with like: the current trend against the trend as it

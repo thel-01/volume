@@ -17,13 +17,15 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
+    /* Reserve the longest reading/date before scrubbing so both hero columns
+       stay anchored. The trend label can wrap within the remaining space. */
     .stat-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: var(--reading-width, 150px) minmax(0, 1fr);
       gap: 22px;
       margin-bottom: var(--space-3);
-      flex-wrap: wrap;
     }
-    .stat { display: flex; flex-direction: column; gap: 3px; }
+    .stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
     .stat-value {
       font-family: var(--font-mono);
       font-size: var(--fs-3xl);
@@ -101,18 +103,6 @@
        either way. */
     @media (max-width: 380px) {
       #chart-window-row.chips .chip { padding: 0 10px; }
-    }
-    /* The EWMA label spelled out in full ("Exponential moving average")
-       plus its "?" button is wide enough that, on the narrowest phones, its
-       own unwrapped width — not the row's actual available space — is what
-       the browser uses to decide whether the two stat columns fit side by
-       side, so they stack instead of the label just wrapping (measured:
-       stacks at 350, clears at 360). flex-basis:0 makes the row-fit decision
-       ignore that unwrapped width and shrink the column instead — same
-       columns, same "7-day average" wording untouched, just lets the long
-       EWMA label wrap under itself rather than pushing the whole row. */
-    @media (max-width: 359px) {
-      .stat-row .stat { flex: 1 1 0%; min-width: 0; }
     }
 
     /* ---- Import weight data ---- */
@@ -791,6 +781,27 @@
       fitNoiseLine();
     }
 
+    // Reserve space for every possible scrub label before the first gesture.
+    // Measure the real fonts, rather than guessing a width from character count.
+    function reserveWeightHeroSpace() {
+      const context = document.createElement('canvas').getContext('2d');
+      const measure = (element, text) => {
+        context.font = getComputedStyle(element).font;
+        return context.measureText(text).width;
+      };
+      const labelWidths = ['latest reading', ...entries.map(formatEntryWhen)]
+        .map(text => measure(currentLabel, text));
+      const unitStyle = getComputedStyle(currentWeight.querySelector('.unit') || currentLabel);
+      context.font = unitStyle.font;
+      const unitWidth = context.measureText('kg').width + 3;
+      const valueWidths = entries.map(entry => measure(currentWeight, fmtKg(entry.weight_kg)) + unitWidth);
+      const whenWidth = entries.length ? measure(currentWhen, relativeWhen(entries[0])) : 0;
+      currentWeight.closest('.stat-row').style.setProperty('--reading-width',
+        `${Math.ceil(Math.max(...labelWidths, ...valueWidths, whenWidth))}px`);
+    }
+    // Recalculate after webfonts replace their loading fallbacks.
+    document.fonts.ready.then(reserveWeightHeroSpace);
+
     // Scrubbing the chart swaps the latest-reading stat for that reading (its
     // label line becomes the date and time) and the trend stat for the trend
     // that day; the two "vs / ago" lines hide (visibility, not display, so the
@@ -856,6 +867,7 @@
 
       currentWeight.innerHTML = `${fmtKg(entries[0].weight_kg)}<span class="unit">kg</span>`;
       currentWhen.textContent = relativeWhen(entries[0]);
+      reserveWeightHeroSpace();
       renderStaleNotice(entries[0]);
 
       // Compare like with like: the current trend against the trend as it

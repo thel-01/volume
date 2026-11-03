@@ -1,11 +1,13 @@
 
+    /* Reserve the longest reading/date before scrubbing so both hero columns
+       stay anchored. The trend label can wrap within the remaining space. */
     .stat-row {
-      display: flex;
+      display: grid;
+      grid-template-columns: var(--reading-width, 150px) minmax(0, 1fr);
       gap: 22px;
       margin-bottom: var(--space-3);
-      flex-wrap: wrap;
     }
-    .stat { display: flex; flex-direction: column; gap: 3px; }
+    .stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
     .stat-value {
       font-family: var(--font-mono);
       font-size: var(--fs-3xl);
@@ -83,16 +85,4 @@
        either way. */
     @media (max-width: 380px) {
       #chart-window-row.chips .chip { padding: 0 10px; }
-    }
-    /* The EWMA label spelled out in full ("Exponential moving average")
-       plus its "?" button is wide enough that, on the narrowest phones, its
-       own unwrapped width — not the row's actual available space — is what
-       the browser uses to decide whether the two stat columns fit side by
-       side, so they stack instead of the label just wrapping (measured:
-       stacks at 350, clears at 360). flex-basis:0 makes the row-fit decision
-       ignore that unwrapped width and shrink the column instead — same
-       columns, same "7-day average" wording untouched, just lets the long
-       EWMA label wrap under itself rather than pushing the whole row. */
-    @media (max-width: 359px) {
-      .stat-row .stat { flex: 1 1 0%; min-width: 0; }
     }
