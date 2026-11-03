@@ -1,4 +1,4 @@
-// Shared setup also runs on the login and legacy redirect pages.
+// Shared setup also runs on the login, consent and legacy redirect pages.
 import { BACKEND } from './config.js';
 
 // Logged in, but this account isn't on Eatabase's access list yet.
@@ -32,7 +32,7 @@ if (typeof document !== 'undefined') {
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show, { once:true }); else show();
     });
   }
-  if (BACKEND === 'supabase' && !location.pathname.endsWith('/login.html')) {
+  if (BACKEND === 'supabase' && !['/login.html', '/connect.html'].some(path => location.pathname.endsWith(path))) {
     try {
       const { requireSession, supabase } = await import('../supabase-client.js');
       if (!await requireSession('./login.html')) await new Promise(() => {});
