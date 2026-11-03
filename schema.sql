@@ -1857,6 +1857,11 @@ alter table public.cal_settings add column if not exists day_end_hour smallint n
 alter table public.cal_settings drop constraint if exists cal_settings_day_end_hour_check;
 alter table public.cal_settings add constraint cal_settings_day_end_hour_check check (day_end_hour between 0 and 5);
 
+-- Device time zone for the connector's tracking day.
+alter table public.cal_settings add column if not exists time_zone text;
+alter table public.cal_settings drop constraint if exists cal_settings_time_zone_check;
+alter table public.cal_settings add constraint cal_settings_time_zone_check check (time_zone is null or char_length(time_zone) between 1 and 64);
+
 -- Goal history: one row per user per day a goal changed (the day's last
 -- change wins), so a past day is judged against the goal it actually had.
 create table if not exists public.cal_goal_history (

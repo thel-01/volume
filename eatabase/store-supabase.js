@@ -70,16 +70,29 @@ async function mutate(table, action, value, id, missing, barcodeMessage, liveOnl
   return checked(await q.select('*').maybeSingle(), missing, barcodeMessage);
 }
 
+// Keep opening the app fast even if this optional update fails.
+async function syncTimeZone(id, row) {
+  if (!row) return;
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone && timeZone !== row.time_zone) {
+      checked(await supabase.from('cal_settings').update({ time_zone:timeZone }).eq('user_id', id));
+    }
+  } catch (error) { console.error('Could not save Eatabase time zone.', error); }
+}
+
 export async function getSettings() {
   const id = await userId();
-  const row = checked(await supabase.from('cal_settings').select('*').eq('user_id', id).maybeSingle()) || {};
-  const settings = normalizeSettings({ ...row, dayEndHour: row.day_end_hour });
+  const row = checked(await supabase.from('cal_settings').select('*').eq('user_id', id).maybeSingle());
+  void syncTimeZone(id, row);
+  const settings = normalizeSettings({ ...row, dayEndHour: row?.day_end_hour });
   // First load on this phone (or changed elsewhere): the page already picked its day with the old hour, so start over once.
   if (setDayEndHour(settings.dayEndHour) && typeof location !== 'undefined') location.reload();
   return settings;
 }
 export async function saveSettings(settings) {
   const id = await userId(), next = normalizeSettings(settings);
+  // normalizeSettings keeps only app fields; omitting time_zone preserves it on conflict.
   const { dayEndHour, ...columns } = next;
   checked(await supabase.from('cal_settings').upsert({ user_id:id, ...columns, day_end_hour:dayEndHour, updated_at:new Date().toISOString() }, { onConflict:'user_id' }));
   setDayEndHour(dayEndHour);

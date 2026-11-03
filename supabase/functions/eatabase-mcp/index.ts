@@ -31,18 +31,23 @@ type Entry = { id: string; name: string; meal: string | null; day: string; logge
 const ENTRY_COLUMNS = 'id,day,name,meal,kcal,protein,carbs,fat,logged_at';
 const daySchema = {
   type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-  description: 'The user’s local date, YYYY-MM-DD. Ask if unsure; never infer today from the server’s UTC clock. Respect a tracking-day cutoff the user specifies.',
+  description: 'Only pass day (YYYY-MM-DD) for a specific date the user names. Omit it for today; use days_back for yesterday or earlier tracking days. Do not combine with days_back.',
 };
+const daysBackSchema = {
+  type: 'integer', minimum: 0, maximum: 30,
+  description: 'Tracking days before today: 0 = today, 1 = yesterday, up to 30. Omit day when using this.',
+};
+const relativeDayDescription = ' Omit day when the user means today; use days_back for yesterday or earlier. The user’s tracking day can end after midnight and differ from the calendar date. Only pass day for a specific date the user names.';
 // Match quicklog's input bounds, which also fit cal_entries numeric precision.
 const LIMITS = { kcal: 10000, protein: 1000, carbs: 1000, fat: 1000 };
 const TOOLS = [
   {
     name: 'log_food',
-    description: 'Add one meal or food to the user’s Eatabase log. Use a short descriptive name and the supplied or agreed nutrition estimates. A call creates a new entry: do not repeat after a successful save. Omit unknown macros; never use zero for unknown values. If meal is omitted, it stays unassigned (Other in the app).',
+    description: 'Add one meal or food to the user’s Eatabase log. Use a short descriptive name and the supplied or agreed nutrition estimates. A call creates a new entry: do not repeat after a successful save. Omit unknown macros; never use zero for unknown values. If meal is omitted, it stays unassigned (Other in the app).' + relativeDayDescription,
     inputSchema: {
-      type: 'object' as const, additionalProperties: false, required: ['day', 'name', 'kcal'],
+      type: 'object' as const, additionalProperties: false, required: ['name', 'kcal'],
       properties: {
-        day: daySchema,
+        day: daySchema, days_back: daysBackSchema,
         name: { type: 'string', minLength: 1, maxLength: 160, description: 'A name the user will see, for example Restaurant: ribeye, fries, salad.' },
         kcal: { type: 'number', minimum: 0, maximum: LIMITS.kcal, description: 'Total calories for this entry, not per 100 g.' },
         ...Object.fromEntries(KEYS.slice(1).map(key => [key, { type: 'number', minimum: 0, maximum: LIMITS[key], description: `Total ${key} in grams. Omit if unknown; zero means known to be zero.` }])),
@@ -53,8 +58,8 @@ const TOOLS = [
   },
   {
     name: 'get_day',
-    description: 'Read the user’s entries and totals for a local date, plus current configured goals. Each nutrient total includes value, missing and count: missing values make it a lower bound. Goals are current settings, not historical goals.',
-    inputSchema: { type: 'object' as const, additionalProperties: false, required: ['day'], properties: { day: daySchema } },
+    description: 'Read the user’s entries and totals for a local date, plus current configured goals. Each nutrient total includes value, missing and count: missing values make it a lower bound. Goals are current settings, not historical goals.' + relativeDayDescription,
+    inputSchema: { type: 'object' as const, additionalProperties: false, properties: { day: daySchema, days_back: daysBackSchema } },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
@@ -116,6 +121,28 @@ function day(value: unknown): string {
     throw new ToolInputError('day must be a real local date in YYYY-MM-DD form. Ask the user if unsure.');
   }
   return value;
+}
+// Read the caller's settings through the same RLS-scoped client as entries.
+async function trackingDay(client: Client, userId: string, daysBack: number): Promise<string> {
+  const settings = await client.from('cal_settings').select('day_end_hour,time_zone').eq('user_id', userId).maybeSingle();
+  if (settings.error) throw new DatabaseError();
+  if (!settings.data?.time_zone) throw new ToolInputError("Eatabase doesn't know your time zone yet. Open Eatabase once, then try again — or tell me the date.");
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: settings.data.time_zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date());
+  } catch { throw new ToolInputError('Eatabase could not use your saved time zone. Open Eatabase once, then try again — or tell me the date.'); }
+  const local = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  // UTC is only a calendar arithmetic container, never the user's local instant.
+  const date = new Date(`${local.year}-${local.month}-${local.day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - (Number(local.hour) < (settings.data.day_end_hour ?? 0) ? 1 : 0) - daysBack);
+  return date.toISOString().slice(0, 10);
+}
+function dayLabel(date: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' }).formatToParts(new Date(`${date}T00:00:00Z`));
+  const label = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${label.weekday}, ${label.day} ${label.month}`;
 }
 function nutrition(args: Record<string, unknown>): Record<Nutrient, number | null> {
   return Object.fromEntries(KEYS.map(key => {
@@ -192,8 +219,12 @@ async function callTool(client: Client, userId: string, name: string, value: unk
       if (!removed.data) return result({ id: args.id, deleted: false, message: 'No matching entry exists in your log. It may already have been deleted.' });
       return result({ id: args.id, deleted: true, entry: entry(removed.data as Entry) });
     }
-    only(args, name === 'log_food' ? ['day', 'name', ...KEYS, 'meal'] : ['day']);
-    const date = day(args.day);
+    only(args, name === 'log_food' ? ['day', 'days_back', 'name', ...KEYS, 'meal'] : ['day', 'days_back']);
+    if (args.day !== undefined && args.days_back !== undefined) throw new ToolInputError('Use either day or days_back, not both.');
+    if (args.days_back !== undefined && (typeof args.days_back !== 'number' || !Number.isInteger(args.days_back) || args.days_back < 0 || args.days_back > 30)) {
+      throw new ToolInputError('days_back must be an integer from 0 to 30.');
+    }
+    const date = args.day === undefined ? await trackingDay(client, userId, (args.days_back as number | undefined) ?? 0) : day(args.day);
     if (name === 'log_food') {
       if (typeof args.name !== 'string' || !args.name.trim() || Array.from(args.name).length > 160) throw new ToolInputError('name must contain 1–160 characters and describe the food or meal.');
       if (args.meal !== undefined && !['breakfast', 'lunch', 'dinner', 'snack'].includes(args.meal as string)) throw new ToolInputError('meal must be breakfast, lunch, dinner or snack, or omit it.');
@@ -211,7 +242,7 @@ async function callTool(client: Client, userId: string, name: string, value: unk
       saved = entry(inserted.data as Entry);
       // Do not let a failed follow-up read encourage duplicate insertion.
       const entries = await entriesForDay(client, userId, date);
-      return result({ saved: true, entry: saved, totals: totals(entries) });
+      return result({ saved: true, day: saved.day, day_label: dayLabel(saved.day), entry: saved, totals: totals(entries) });
     }
     const [entries, settings] = await Promise.all([
       entriesForDay(client, userId, date),
@@ -220,10 +251,10 @@ async function callTool(client: Client, userId: string, name: string, value: unk
     if (settings.error) throw new DatabaseError();
     const nutrients = settings.data?.nutrients as Record<string, { on?: boolean; goal?: number; type?: string }> | undefined;
     const goals = Object.fromEntries(KEYS.filter(key => nutrients?.[key]?.goal != null).map(key => [key, nutrients![key]]));
-    return result({ day: date, entries, totals: totals(entries), goals: Object.keys(goals).length ? goals : null,
+    return result({ day: date, day_label: dayLabel(date), entries, totals: totals(entries), goals: Object.keys(goals).length ? goals : null,
       meals: settings.data?.meals ?? true, day_end_hour: settings.data?.day_end_hour ?? 0 });
   } catch (error) {
-    if (saved) return result({ saved: true, entry: saved, totals: null, message: 'Entry saved. Totals are temporarily unavailable. Use get_day to refresh; do not log this entry again.' });
+    if (saved) return result({ saved: true, day: saved.day, day_label: dayLabel(saved.day), entry: saved, totals: null, message: 'Entry saved. Totals are temporarily unavailable. Use get_day to refresh; do not log this entry again.' });
     return result({ error: error instanceof ToolInputError ? error.message : name === 'log_food'
       ? 'Could not confirm the save. Check get_day before retrying to avoid a duplicate.'
       : 'Could not read or delete your data. Try again shortly.' }, true);
