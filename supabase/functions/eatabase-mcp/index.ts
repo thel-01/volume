@@ -108,6 +108,20 @@ async function access(req: Request): Promise<{ client: Client; userId: string } 
 
 class ToolInputError extends Error {}
 class DatabaseError extends Error {}
+async function takeBudget(userId: string, name: string) {
+  try {
+    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const budget = await admin.rpc('take_eatabase_mcp_budget', { p_user_id: userId, p_tool: name });
+    const retry = budget.data;
+    if (budget.error || !Number.isInteger(retry) || retry < 0 || retry > 86400) throw new DatabaseError();
+    if (retry > 0) throw new ToolInputError(`Eatabase's ${name} limit was reached. No action was taken. Wait ${retry} seconds before another call. Stop retrying now and tell the user about the limit and wait time.`);
+  } catch (error) {
+    if (error instanceof ToolInputError) throw error;
+    throw new ToolInputError('Eatabase could not check your limit. No action was taken. Wait 60 seconds before another call. Stop retrying now and tell the user that Eatabase is temporarily unavailable.');
+  }
+}
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ToolInputError('Provide an object containing the tool inputs.');
   return value as Record<string, unknown>;
@@ -126,7 +140,7 @@ function day(value: unknown): string {
 async function trackingDay(client: Client, userId: string, daysBack: number): Promise<string> {
   const settings = await client.from('cal_settings').select('day_end_hour,time_zone').eq('user_id', userId).maybeSingle();
   if (settings.error) throw new DatabaseError();
-  if (!settings.data?.time_zone) throw new ToolInputError("Eatabase doesn't know your time zone yet. Open Eatabase once, then try again — or tell me the date.");
+  if (!settings.data?.time_zone) throw new ToolInputError("Eatabase has no saved time zone for your account. Open Eatabase while signed in and connected, then try again — or tell me the date.");
   let parts: Intl.DateTimeFormatPart[];
   try {
     parts = new Intl.DateTimeFormat('en-GB', {
@@ -211,6 +225,7 @@ async function callTool(client: Client, userId: string, name: string, value: unk
   let saved: Entry | undefined;
   try {
     const args = object(value ?? {});
+    await takeBudget(userId, name);
     if (name === 'delete_entry') {
       only(args, ['id']);
       if (typeof args.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.id)) throw new ToolInputError('id must be the entry UUID returned by get_day or log_food.');

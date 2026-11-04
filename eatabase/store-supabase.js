@@ -70,12 +70,15 @@ async function mutate(table, action, value, id, missing, barcodeMessage, liveOnl
   return checked(await q.select('*').maybeSingle(), missing, barcodeMessage);
 }
 
-// Keep opening the app fast even if this optional update fails.
+// A failed time zone sync must not prevent opening the app.
 async function syncTimeZone(id, row) {
-  if (!row) return;
   try {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (timeZone && timeZone !== row.time_zone) {
+    if (typeof timeZone !== 'string' || timeZone.length < 1 || timeZone.length > 64) return;
+    if (!row) {
+      // Database defaults match normalizeSettings. Another tab or a goal save wins.
+      checked(await supabase.from('cal_settings').upsert({ user_id:id, time_zone:timeZone }, { onConflict:'user_id', ignoreDuplicates:true }));
+    } else if (timeZone !== row.time_zone) {
       checked(await supabase.from('cal_settings').update({ time_zone:timeZone }).eq('user_id', id));
     }
   } catch (error) { console.error('Could not save Eatabase time zone.', error); }
@@ -84,7 +87,8 @@ async function syncTimeZone(id, row) {
 export async function getSettings() {
   const id = await userId();
   const row = checked(await supabase.from('cal_settings').select('*').eq('user_id', id).maybeSingle());
-  void syncTimeZone(id, row);
+  if (row) void syncTimeZone(id, row);
+  else await syncTimeZone(id, row);
   const settings = normalizeSettings({ ...row, dayEndHour: row?.day_end_hour });
   // First load on this phone (or changed elsewhere): the page already picked its day with the old hour, so start over once.
   if (setDayEndHour(settings.dayEndHour) && typeof location !== 'undefined') location.reload();

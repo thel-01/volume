@@ -115,12 +115,13 @@ export async function fetchProduct(code, { base = '', fetchFn = fetch } = {}) {
   const request = (async () => {
     let response;
     try { response = await fetchFn(`${base}/api/off-product?code=${encodeURIComponent(code)}`, { signal:AbortSignal.timeout(15000) }); }
-    catch (error) { if (error.kind) throw error; throw new ProductError('Product details couldn’t load. Check your connection and try again.'); }
+    catch (error) { if (error?.kind) throw error; throw new ProductError('Product details couldn’t load. Check your connection and try again.'); }
+    if (response.status === 429) throw new ProductError('Product lookups are busy. Wait a minute, then try again.', 'throttled');
     let body;
     try { body = await response.json(); } catch { throw new ProductError('Product details are temporarily unavailable. Try again.'); }
-    if (response.status === 429 || body.kind === 'throttled') throw new ProductError('Product lookups are busy. Wait a moment, then try again.', 'throttled');
-    if (body.result?.id === 'product_not_found' && (response.status === 404 || response.ok)) return null;
-    if (!response.ok || !['success','success_with_warnings'].includes(body.status) || body.result?.id !== 'product_found' || !body.product) {
+    if (body?.kind === 'throttled') throw new ProductError('Product lookups are busy. Wait a minute, then try again.', 'throttled');
+    if (body?.result?.id === 'product_not_found' && (response.status === 404 || response.ok)) return null;
+    if (!response.ok || body?.kind === 'unavailable' || !['success','success_with_warnings'].includes(body?.status) || body?.result?.id !== 'product_found' || !body?.product) {
       throw new ProductError('Product details couldn’t load. Try again or enter the label values.');
     }
     const product = parseProduct(body.product);

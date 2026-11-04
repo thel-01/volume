@@ -345,9 +345,21 @@ export async function searchOff(q, { base = '', limit = 10, fetchFn = fetch } = 
   const n = Math.max(limit * 5, 50);
   const get = async (query, brand) => {
     const url = `${base}/api/off-search?q=${encodeURIComponent(query)}&n=${n}` + (brand ? `&brand=${encodeURIComponent(brand)}` : '');
-    const res = await fetchFn(url);
-    if (!res.ok) throw new Error(`OFF search ${res.status}`);
-    return res.json();
+    try {
+      const res = await fetchFn(url, { signal:AbortSignal.timeout(15000) });
+      if (res.status === 429) {
+        const error = new Error('Product search is busy. Wait a minute, then try again.'); error.kind = 'throttled'; throw error;
+      }
+      const body = await res.json();
+      if (body?.kind === 'throttled') {
+        const error = new Error('Product search is busy. Wait a minute, then try again.'); error.kind = 'throttled'; throw error;
+      }
+      if (!res.ok || body?.kind === 'unavailable' || body?.error || !Array.isArray(body?.hits)) throw new Error();
+      return body;
+    } catch (error) {
+      if (error?.kind === 'throttled') throw error;
+      throw new Error('Product search couldn’t load. Try again shortly.');
+    }
   };
   const body = await get(q);
   let results = (body.hits || []).map(parseOffProduct);

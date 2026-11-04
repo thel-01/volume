@@ -24,7 +24,7 @@ let selectedMeal = null, portions = 1, searchQuery = '', searchRows = [], search
 let bls = null, blsError = false, blsPromise, cameraPending, cameraRun = 0;
 let cameraMessage = '', scanCode = null, lookupVersion = 0, loadVersion = 0, writeBlocked = false;
 let dayScroll = 0, infoFocus = null;
-const productCache = new Map(), productPending = new Map();
+const productCache = new Map(), productPending = new Map(), productErrors = new Map();
 
 // Normal day navigation logs today; History explicitly selects older days.
 // Two exceptions near midnight, both switchable from the title:
@@ -306,13 +306,13 @@ function renderSearch() {
   $('create-own').onclick = () => openOwn({ name: searchQuery });
   search(searchQuery); requestAnimationFrame(() => { if (view === 'add' && !step && tab === 'search') $('food-query')?.focus(); });
 }
-function searchList(rows, { recent = false, pending = false, error = false } = {}) {
+function searchList(rows, { recent = false, pending = false, error = '' } = {}) {
   if (view !== 'add' || step || tab !== 'search') return;
   searchRows = rows; const el = $('search-results');
   el.innerHTML = `${recent ? '<p class="section-label">Recent</p>' : ''}<ul class="list">${rows.map((r, i) => {
     const v = foodValues(r), kcal = v?.kcal;
     return `<li class="list-item" role="button" tabindex="0" data-result="${i}">${listRow(r.name, foodMeta(r), kcal == null ? '—' : `${fmt('kcal', kcal)} kcal`, r.check?.flag ? '<span class="badge">Check</span>' : '')}</li>`;
-  }).join('')}</ul>${!rows.length && recent ? '<p class="muted">Foods you log show up here.</p>' : !rows.length && !pending && !blsError && bls ? '<p class="muted">No matching foods.</p>' : ''}${!bls && !blsError ? '<p class="muted" role="status">Loading foods…</p>' : ''}${blsError ? '<div class="status error">The food database couldn’t load. <button type="button" class="link-button" id="retry-bls">Retry</button></div>' : ''}${pending ? '<p class="muted" role="status">Searching products…</p>' : ''}${error ? '<div class="status info">Product search didn’t work — showing basic foods only. <button type="button" class="link-button" id="retry-search">Retry</button></div>' : ''}`;
+  }).join('')}</ul>${!rows.length && recent ? '<p class="muted">Foods you log show up here.</p>' : !rows.length && !pending && !error && !blsError && bls ? '<p class="muted">No matching foods.</p>' : ''}${!bls && !blsError ? '<p class="muted" role="status">Loading foods…</p>' : ''}${blsError ? '<div class="status error">The food database couldn’t load. <button type="button" class="link-button" id="retry-bls">Retry</button></div>' : ''}${pending ? '<p class="muted" role="status">Searching products…</p>' : ''}${error ? `<div class="status info" role="status">${escapeHtml(error)} Showing basic foods only. <button type="button" class="link-button" id="retry-search">Retry</button></div>` : ''}`;
   el.querySelectorAll('[data-result]').forEach(b => { const open = () => selectFood(searchRows[Number(b.dataset.result)]); b.onclick = open; b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }; });
   $('retry-search')?.addEventListener('click', () => search(searchQuery, true)); $('retry-bls')?.addEventListener('click', () => { loadBls(); search(searchQuery); });
 }
@@ -323,8 +323,8 @@ function search(q, retry = false) {
   const pinned = mergeResults({ mine, bls: generic.filter(r => r.strength === 'strong').slice(0, 2) });
   if (q.length < 3) { searchList(mergeResults({ mine, bls: generic, pinned })); return; }
   const display = data => searchList(mergeResults({ mine, bls: generic, off: data.ranked.slice(0, 20), brand: data.brand, pinned }));
-  if (productCache.has(q) && !retry) { display(productCache.get(q)); return; }
-  if (!retry) { searchList(mergeResults({ mine, bls: generic, pinned })); return; }
+  if (productCache.has(q) && !retry && !productErrors.has(q) && !productPending.has(q)) { display(productCache.get(q)); return; }
+  if (!retry && !productPending.has(q)) { searchList(mergeResults({ mine, bls: generic, pinned }), { error:productErrors.get(q) || '' }); return; }
   searchList(pinned, { pending: true });
   const products = async () => {
     try {
@@ -333,11 +333,15 @@ function search(q, retry = false) {
         promise = searchOff(q, { base: API_BASE, fetchFn: (url, options) => foodFetch(url, { ...options, signal: AbortSignal.timeout(15000) }) }).then(({ results, brand }) => ({ ranked: rerankOff(results, q, brand), brand })); productPending.set(q, promise);
         promise.finally(() => productPending.delete(q)).catch(() => {});
       }
-      const data = await promise; productCache.set(q, data);
+      const data = await promise; productCache.set(q, data); productErrors.delete(q);
       if (version === searchVersion) display(data);
-    } catch { if (version === searchVersion) searchList(mergeResults({ mine, bls: generic, pinned }), { error: true }); }
+    } catch (error) {
+      const message = error.message || 'Product search couldn’t load. Try again shortly.';
+      productErrors.set(q, message);
+      if (version === searchVersion) searchList(mergeResults({ mine, bls: generic, pinned }), { error:message });
+    }
   };
-  if (retry) products(); else searchTimer = setTimeout(products, 450);
+  products();
 }
 
 function renderScan() {

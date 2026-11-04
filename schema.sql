@@ -1753,9 +1753,24 @@ select cron.schedule(
 -- This hook closes that gap: wired up as the "Before User Created" auth hook
 -- (Authentication → Hooks → Before User Created → Postgres →
 -- public.hook_only_anonymous_signups), it lets demo accounts through and
--- refuses every other sign-up. Turn the hook on BEFORE enabling sign-ups.
--- (If it ever blocks adding a user by hand in the dashboard, switch the hook
--- off for that moment and back on afterwards.)
+-- refuses every other sign-up, except emails listed in invited_emails.
+-- Turn the hook on BEFORE enabling sign-ups.
+--
+-- Adding a real account by hand:
+--   1. insert into public.invited_emails (email) values ('friend@example.com');
+--   2. Authentication → Users → Add user → Create new user (Auto Confirm on).
+--   3. Optional: delete from public.invited_emails where email = 'friend@example.com';
+-- The list is managed by hand in the SQL editor: no grants for the app.
+
+create table if not exists public.invited_emails (
+  email     text primary key check (email = lower(email)),
+  added_at  timestamptz not null default now()
+);
+alter table public.invited_emails enable row level security;
+drop policy if exists invited_emails_auth_admin_select on public.invited_emails;
+create policy invited_emails_auth_admin_select on public.invited_emails
+  for select to supabase_auth_admin using (true);
+grant select on public.invited_emails to supabase_auth_admin;
 
 create or replace function public.hook_only_anonymous_signups(event jsonb)
 returns jsonb
@@ -1764,6 +1779,12 @@ stable
 as $$
 begin
   if coalesce((event -> 'user' ->> 'is_anonymous')::boolean, false) then
+    return '{}'::jsonb;
+  end if;
+  if exists (
+    select 1 from public.invited_emails
+    where email = lower(event -> 'user' ->> 'email')
+  ) then
     return '{}'::jsonb;
   end if;
   return jsonb_build_object(
@@ -2186,6 +2207,75 @@ end;
 $$;
 revoke all on function public.take_food_api_budget(uuid, text) from public, anon, authenticated;
 grant execute on function public.take_food_api_budget(uuid, text) to service_role;
+
+-- Connector budgets survive worker restarts. Accepted log calls reserve a daily
+-- slot before writing; failed writes still count, and deletion never refunds it.
+create table if not exists public.eatabase_mcp_budgets (
+  user_id uuid not null references auth.users (id) on delete cascade,
+  tool text not null check (tool in ('log_food', 'get_day', 'delete_entry')),
+  hits timestamptz[] not null default '{}',
+  budget_day date not null default (now() at time zone 'UTC')::date,
+  day_hits integer not null default 0 check (day_hits >= 0),
+  primary key (user_id, tool)
+);
+alter table public.eatabase_mcp_budgets enable row level security;
+revoke all on public.eatabase_mcp_budgets from public, anon, authenticated, service_role;
+
+create or replace function public.take_eatabase_mcp_budget(p_user_id uuid, p_tool text)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  log_calls_per_minute constant integer := 30;
+  log_entries_per_day constant integer := 300;
+  other_calls_per_minute constant integer := 60;
+  minute_limit integer;
+  recent_hits timestamptz[];
+  saved_day date;
+  daily_hits integer;
+  at_time timestamptz;
+  utc_day date;
+  retry integer := 0;
+begin
+  if p_user_id is null or not exists (
+    select 1 from public.cal_access where user_id = p_user_id
+  ) then
+    raise exception 'Eatabase access denied' using errcode = '42501';
+  end if;
+  if p_tool is null or p_tool not in ('log_food', 'get_day', 'delete_entry') then
+    raise exception 'Invalid Eatabase budget' using errcode = '22023';
+  end if;
+  minute_limit := case p_tool when 'log_food' then log_calls_per_minute else other_calls_per_minute end;
+  insert into public.eatabase_mcp_budgets (user_id, tool) values (p_user_id, p_tool)
+    on conflict do nothing;
+  select hits, budget_day, day_hits into recent_hits, saved_day, daily_hits
+    from public.eatabase_mcp_budgets where user_id = p_user_id and tool = p_tool for update;
+  at_time := clock_timestamp();
+  utc_day := (at_time at time zone 'UTC')::date;
+  if saved_day <> utc_day then daily_hits := 0; end if;
+  select coalesce(array_agg(t order by t), '{}'::timestamptz[]) into recent_hits
+    from unnest(recent_hits) t where t > at_time - interval '60 seconds';
+  if cardinality(recent_hits) >= minute_limit then
+    retry := greatest(1, ceil(extract(epoch from
+      (recent_hits[1] + interval '60 seconds' - at_time)))::integer);
+  end if;
+  -- Creation-day allowance, independent of the entry's requested tracking date.
+  if p_tool = 'log_food' and daily_hits >= log_entries_per_day then
+    retry := greatest(retry, 1, ceil(extract(epoch from
+      ((utc_day + 1)::timestamp at time zone 'UTC') - at_time))::integer);
+  end if;
+  if retry > 0 then return retry; end if;
+  update public.eatabase_mcp_budgets
+    set hits = array_append(recent_hits, at_time), budget_day = utc_day,
+      day_hits = case p_tool when 'log_food' then daily_hits + 1 else 0 end
+    where user_id = p_user_id and tool = p_tool;
+  return 0;
+end;
+$$;
+revoke all on function public.take_eatabase_mcp_budget(uuid, text) from public, anon, authenticated;
+grant execute on function public.take_eatabase_mcp_budget(uuid, text) to service_role;
 
 -- OAuth clients cannot access workouts, shared settings or saved foods.
 drop policy if exists sessions_no_oauth on public.sessions;
