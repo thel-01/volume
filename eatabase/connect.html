@@ -14,25 +14,31 @@
   <meta name="apple-mobile-web-app-title" content="Eatabase">
   <script type="module" src="./page-init.js"></script>
   <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="./app.css">
 </head>
 <body>
-  <main class="screen">
-    <div class="brand"><img src="./icons/icon-192.png" alt=""><div><h1>Eatabase</h1></div></div>
-    <div class="spacer"></div>
-    <form id="login-form" novalidate hidden>
-      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></div>
-      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
-      <button id="submit" type="submit" class="uppercase">Log in</button>
-    </form>
-    <div id="consent" hidden>
-      <p id="request-text"></p>
-      <p><small id="callback-host"></small></p>
-      <p><small id="account-email"></small></p>
-      <button id="allow" type="button" class="uppercase">Allow</button>
-      <button id="cancel" type="button" class="secondary">Cancel</button>
+  <main class="screen allow-group">
+    <div class="allow-top"></div>
+    <div class="pair" aria-hidden="true"><div class="pair-tile"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3"/><circle cx="12" cy="2.6" r="0.9" fill="var(--text)" stroke="none"/><rect x="4" y="6" width="16" height="13" rx="2.5"/><circle cx="9" cy="12" r="1.4" fill="var(--text)" stroke="none"/><circle cx="15" cy="12" r="1.4" fill="var(--text)" stroke="none"/><path d="M9.5 16h5"/><path d="M2 11v4M22 11v4"/></svg></div><div class="pair-line dotted"></div><div class="pair-tile logo"><img src="./icons/icon-192.png" alt=""></div></div>
+    <div id="login-group" class="allow-content" hidden>
+      <p id="login-text" class="consent-text">Log in to connect this app.</p>
+      <div class="spacer"></div>
+      <form id="login-form" novalidate hidden>
+        <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></div>
+        <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+        <button id="submit" type="submit" class="uppercase">Log in</button>
+      </form>
+    </div>
+    <div id="consent" class="allow-content" hidden>
+      <p id="request-text" class="consent-text"></p>
+      <p id="callback-host" class="consent-meta"></p>
+      <p id="account-email" class="consent-meta"></p>
+      <div class="spacer"></div>
+      <div class="btn-row"><button id="cancel" type="button" class="secondary">Cancel</button><button id="allow" type="button" class="uppercase">Allow</button></div>
     </div>
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
-    <div class="spacer"></div>
+    <div id="blocked-spacer" class="spacer" hidden></div>
+    <div class="allow-bottom"></div>
   </main>
   <script type="module" src="./connect.js"></script>
 </body>

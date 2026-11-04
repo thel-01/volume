@@ -3,7 +3,7 @@ import { BACKEND } from './config.js';
 
 const $ = id => document.getElementById(id);
 const authorizationId = new URLSearchParams(location.search).get('authorization_id');
-function show(kind, message) { const el = $('status'); el.className = `status ${kind}`; el.textContent = message; el.hidden = false; }
+function show(kind, message) { const el = $('status'); el.className = kind === 'blocked' ? 'consent-text' : `status ${kind}`; $('blocked-spacer').hidden = kind !== 'blocked'; el.textContent = message; el.hidden = false; }
 function loginBusy(on, label) { for (const id of ['email', 'password', 'submit']) $(id).disabled = on; $('submit').textContent = label; }
 function consentBusy(on) { $('allow').disabled = on; $('cancel').disabled = on; }
 
@@ -18,18 +18,19 @@ if (window.top !== window.self) {
     const { supabase, describeAuthError } = await import('../supabase-client.js');
 
     async function loadConsent(user) {
+      $('login-group').hidden = true;
       $('login-form').hidden = true;
       $('consent').hidden = true;
       $('status').hidden = true;
       if (user.is_anonymous) {
-        show('error', "Demo accounts can't connect apps.");
+        show('blocked', 'Demo accounts can’t connect apps.');
         return;
       }
       try {
         const { data: allowed, error: accessError } = await supabase.rpc('cal_allowed');
         if (accessError) throw accessError;
         if (allowed !== true) {
-          show('error', "Eatabase isn't open for this account yet.");
+          show('blocked', 'Eatabase isn’t open for this account yet.');
           return;
         }
         const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
@@ -40,9 +41,9 @@ if (window.top !== window.self) {
         const name = typeof data.client?.name === 'string' && data.client.name.trim() || 'An app';
         const callback = new URL(data.redirect_uri);
         if (!callback.hostname) throw new Error('Authorization callback has no hostname');
-        $('request-text').textContent = `${name} wants to read, add and remove food in your Eatabase log.`;
+        $('request-text').textContent = `${name} wants your permission to read, add and remove entries in Eatabase.`;
         $('callback-host').textContent = `Returns to ${callback.hostname}`;
-        $('account-email').textContent = user.email || '';
+        $('account-email').textContent = `Signed in as ${user.email || ''}`;
         $('consent').hidden = false;
       } catch (error) {
         console.error('Could not load authorization details:', error);
@@ -88,7 +89,7 @@ if (window.top !== window.self) {
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
     if (data.session?.user) await loadConsent(data.session.user);
-    else $('login-form').hidden = false;
+    else { $('login-group').hidden = false; $('login-form').hidden = false; }
   } catch (error) {
     console.error('Could not load connection page:', error);
     show('error', "Couldn't load this page. Please reload and try again.");

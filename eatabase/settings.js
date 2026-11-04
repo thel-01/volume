@@ -2,6 +2,7 @@ import { $, escapeHtml, CHEVRON, pageHeader, navRow, loading, status, toast, run
 import { trackedNutrients, fmt, localDay, MAX_DAY_END_HOUR } from './nutrition.js';
 import * as store from './store.js';
 import { BACKEND } from './config.js';
+import { listClaudeGrants } from './oauth-grants.js';
 pageHeader('Settings', './home.html', 'Back to home');
 // Goals card: the day's tracking card reduced to just the goal numbers (types are detail, on the Goals page).
 function goalText(n, g) { return g.goal ? `${fmt(n.key, g.goal)}<span class="unit">${n.unit}</span>` : '—'; }
@@ -14,7 +15,7 @@ const hourLabel = h => h === 0 ? 'Midnight' : `${h} am`;
 let dayEndFocus = null;
 function closeDayEnd() { if ($('day-end-modal').hidden) return; $('day-end-modal').hidden = true; dayEndFocus?.focus(); }
 function renderDayEnd(hour) {
-  $('day-end-setting').innerHTML = `<ul class="list"><li><button type="button" class="list-item" id="day-end-row" aria-haspopup="dialog"><div class="list-item-body"><div class="list-item-name">Day ends at</div><div class="list-item-meta">${hourLabel(hour)}</div></div><span class="list-item-chevron">${CHEVRON}</span></button></li></ul><p class="caption" style="margin-top:0;">Before this time, food is logged to the previous day.</p>`;
+  $('day-end-setting').innerHTML = `<ul class="list"><li><button type="button" class="list-item" id="day-end-row" aria-haspopup="dialog"><div class="list-item-body"><div class="list-item-name">Day ends at</div><div class="list-item-meta">${hourLabel(hour)}</div></div><span class="list-item-chevron">${CHEVRON}</span></button></li></ul>`;
   $('day-end-grid').innerHTML = Array.from({ length: MAX_DAY_END_HOUR + 1 }, (_, h) => `<button type="button" class="chip${h ? ' chip-num' : ' chip-nopain'}${h === hour ? ' selected' : ''}" data-hour="${h}" aria-pressed="${h === hour}">${hourLabel(h)}</button>`).join('');
   $('day-end-row').onclick = () => { dayEndFocus = $('day-end-row'); $('day-end-modal').hidden = false; $('day-end-grid').querySelector('.selected').focus(); };
   $('day-end-grid').querySelectorAll('button').forEach(b => b.onclick = async () => {
@@ -37,8 +38,21 @@ async function loadSettings() {
   $('settings-content').hidden = true; loading('page-status');
   try {
     const [settings, foods] = await Promise.all([store.getSettings(), store.listFoods()]);
-    await renderAccount();
+    const user = await renderAccount();
     $('settings-menu').innerHTML = `<li>${goalsCard(settings)}</li>` + navRow('Your foods', foods.length ? `${foods.length} saved` : 'None yet', './foods.html') + navRow('History', '', './history.html');
+    if (BACKEND === 'supabase' && user && !user.is_anonymous) {
+      // A blank meta line holds the row's height until the grants arrive, so nothing below jumps.
+      $('settings-menu').insertAdjacentHTML('beforeend', navRow('AI connectors', '\u00a0', './connectors.html'));
+      // Grants are optional metadata: don't hold up Settings for their request.
+      const meta = $('settings-menu').querySelector('a[href="./connectors.html"] .list-item-meta');
+      void (async () => {
+        try {
+          const { supabase } = await import('../supabase-client.js');
+          const grants = await listClaudeGrants(supabase);
+          meta.textContent = grants.length ? 'Claude' : 'None';
+        } catch (error) { console.error('Could not load connector metadata:', error); }
+      })();
+    }
     renderDayEnd(settings.dayEndHour);
     $('meal-setting').innerHTML = toggleMarkup('group-meals', 'Group by meal', settings.meals);
     $('group-meals').onclick = async () => {
@@ -70,6 +84,7 @@ async function renderAccount() {
       button.disabled = false; button.textContent = 'Log out';
     }
   };
+  return data?.session?.user;
 }
 function csvCell(value) {
   let text = String(value ?? '');

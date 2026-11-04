@@ -170,3 +170,42 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 .amount-choices { margin-bottom: var(--space-3); }
 .amount-choices .chip { min-height: var(--tap); }
 #search-products { margin-bottom: var(--space-4); }
+
+/* AI connector catalogue: Goals-card shape, with compact spacing. */
+.connector-card { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-3); color: var(--text); text-decoration: none; }
+.connector-card .list-item-body { flex: 1; min-width: 0; }
+.empty-line { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: 15px; margin: 0 0 var(--space-4); }
+.connector-view { display: flex; flex-direction: column; flex: 1; }
+.connector-settings-link { padding-left: 0; }
+/* Remove sits right under the details, without the danger-zone divider. */
+.connector-remove { margin-top: var(--space-6); }
+
+/* All setup steps remain visible; plain numbers belong to the title line. */
+.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+.steps.plain li { counter-increment: step; padding: 0 0 var(--space-5); }
+.steps.plain .step-title::before { content: counter(step) '. '; font-weight: 600; }
+.step-title { margin: 2px 0 var(--space-2); }
+
+/* Weight's import prompt box and exact copy-button treatment. */
+.import-prompt-box { display: flow-root; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); background: var(--surface); }
+.import-copy-button { float: right; margin: 0 0 var(--space-2) var(--space-3); position: relative; overflow: hidden; isolation: isolate; user-select: none; -webkit-user-select: none; transition: transform var(--motion-fast); }
+.import-copy-button svg { position: absolute; inset: 0; margin: auto; z-index: 2; pointer-events: none; }
+.import-copy-fill { position: absolute; inset: 0; background: var(--accent); opacity: 0; pointer-events: none; z-index: 1; }
+.import-copy-check { color: var(--accent-ink); opacity: 0; }
+.import-copy-check path { stroke-dasharray: 1; stroke-dashoffset: 0; }
+.import-prompt-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font: var(--fs-xs)/1.5 var(--font-body); color: var(--muted); }
+.import-copy-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .import-copy-button { transition: none; } }
+
+/* Allow: robot and Eatabase, joined by a white dotted line. */
+.pair { display: flex; align-items: center; justify-content: center; gap: var(--space-3); margin: 0 0 var(--space-6); }
+.pair-tile { width: 64px; height: 64px; flex: 0 0 auto; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.pair-tile img { width: 64px; height: 64px; display: block; border-radius: 22.37%; }
+.pair-tile.logo { border: 0; background: none; }
+.pair-line.dotted { flex: 0 1 80px; height: 4px; background: repeating-linear-gradient(90deg, var(--text) 0 4px, transparent 4px 10px); }
+.allow-top { flex: 1 1 0; min-height: var(--space-7); }
+.allow-group .spacer { flex: 0 0 var(--space-8); min-height: 0; }
+.allow-bottom { flex: 1 1 0; min-height: var(--space-6); }
+.allow-content { display: contents; }
+.consent-text { font-size: var(--fs-lg); line-height: 1.4; text-align: center; margin: 0 0 var(--space-3); }
+.consent-meta { text-align: center; color: var(--muted); font-size: var(--fs-sm); margin: 0; }

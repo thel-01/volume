@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.53.13';
+const VERSION = 'v1.53.14';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -34,6 +34,7 @@ const APP_SHELL = [
   './chip-tag.js',
   './session-type-colors.js',
   './weight-import.js',
+  './copy-feedback.js',
   './levels.js',
   './number-input.js',
   './odometer.js',

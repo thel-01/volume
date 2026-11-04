@@ -1,12 +1,13 @@
 // Bump on EVERY push, together with APP_VERSION in version.js (the number the
 // About popup shows). Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v27';
+const VERSION = 'v28';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
   "./index.html",
   "./analytics.html",
   "./settings.html",
+  "./connectors.html",
   "./goals.html",
   "./foods.html",
   "./history.html",
@@ -33,6 +34,8 @@ const APP_SHELL = [
   "./quicklog.js",
   "./scanner.js",
   "./settings.js",
+  "./connectors.js",
+  "./oauth-grants.js",
   "./store-local.js",
   "./store-supabase.js",
   "./store.js",
@@ -58,6 +61,7 @@ const APP_SHELL = [
   "./vendor/zxing_reader.js",
   "./vendor/zxing_reader.wasm",
   "../styles.css",
+  "../copy-feedback.js",
   "../supabase-client.js",
   "../vendor/supabase.js",
   "../fonts/bebas-neue-400.woff2",

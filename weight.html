@@ -425,6 +425,7 @@
     import { parseKg } from './number-input.js';
     import { mondayOf, relativeDayLabel } from './date-utils.js';
     import { showToast } from './toast.js';
+    import { createCopyFeedback, copyText as copyImportPromptText } from './copy-feedback.js';
     import {
       dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
       personalizedNoiseBand, genericNoiseBand,
@@ -1353,79 +1354,8 @@ Here's my data:
 `;
     importAiPrompt.textContent = IMPORT_AI_PROMPT;
     let importCopyPending = false;
-    let importCopyAnimations = [];
-    let importCopyRun = 0;
-    function resetImportCopyFeedback() {
-      importCopyRun++;
-      importCopyAnimations.forEach(animation => animation.cancel());
-      importCopyAnimations = [];
-      importCopyPromptBtn.setAttribute('aria-label', 'Copy prompt');
-      importCopyAnnouncement.textContent = '';
-    }
-    function playImportCopyFeedback() {
-      resetImportCopyFeedback();
-      const run = importCopyRun;
-      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-      // Approved draft: Pop / Draw / Snappy, 180ms in, 900ms hold, 260ms out.
-      const enter = reduced ? 1 : 180;
-      const exit = reduced ? 1 : 260;
-      const duration = enter + 900 + exit;
-      const at = enter / duration, until = (enter + 900) / duration;
-      const easing = 'cubic-bezier(0.16,1,0.3,1)';
-      const frames = (initial, shown, final = initial) => [
-        { ...initial, offset: 0, easing }, { ...shown, offset: at },
-        { ...shown, offset: until, easing }, { ...final, offset: 1 },
-      ];
-      const animate = (selector, keyframes) => {
-        const animation = importCopyPromptBtn.querySelector(selector)
-          .animate(keyframes, { duration, fill: 'both' });
-        importCopyAnimations.push(animation);
-      };
-      animate('.import-copy-fill', frames({ opacity: 0 }, { opacity: 1 }));
-      animate('.import-copy-original', frames({ opacity: 1 }, { opacity: 0 }));
-      animate('.import-copy-check', reduced
-        ? frames({ opacity: 0 }, { opacity: 1 })
-        : [
-          { opacity: 0, transform: 'scale(0.65)', offset: 0, easing },
-          { opacity: 1, transform: 'scale(1.13)', offset: at * 0.7 },
-          { opacity: 1, transform: 'scale(1)', offset: at },
-          { opacity: 1, transform: 'scale(1)', offset: until, easing },
-          { opacity: 0, transform: 'scale(0.9)', offset: 1 },
-        ]);
-      if (!reduced) animate('.import-copy-check path',
-        frames({ strokeDashoffset: 1 }, { strokeDashoffset: 0 }, { strokeDashoffset: 0 }));
-      importCopyPromptBtn.setAttribute('aria-label', 'Copied');
-      importCopyAnnouncement.textContent = 'Copied';
-      Promise.all(importCopyAnimations.map(animation => animation.finished)).then(() => {
-        if (run === importCopyRun) resetImportCopyFeedback();
-      }).catch(() => {}); // Repeated copying cancels the previous animation.
-    }
-    // Keep the compatibility copy target off-screen; never select the visible prompt.
-    async function copyImportPromptText(value) {
-      try { await navigator.clipboard.writeText(value); return true; } catch {}
-      const active = document.activeElement;
-      const selection = window.getSelection();
-      const ranges = selection ? Array.from({length:selection.rangeCount}, (_,i) => selection.getRangeAt(i).cloneRange()) : [];
-      const target = Object.assign(document.createElement('textarea'), {value, readOnly:true, tabIndex:-1});
-      target.setAttribute('aria-hidden','true');
-      target.style.cssText = 'position:fixed;top:0;left:-9999px;width:1px;height:1px;opacity:0;font-size:16px;pointer-events:none';
-      document.body.appendChild(target);
-      let copied = false;
-      try {
-        target.focus({preventScroll:true});
-        target.select();
-        target.setSelectionRange(0,value.length);
-        copied = document.execCommand('copy');
-      } catch {} finally {
-        target.remove();
-        if (active && active.isConnected) active.focus({preventScroll:true});
-        if (selection) {
-          selection.removeAllRanges();
-          ranges.forEach(range => selection.addRange(range));
-        }
-      }
-      return copied;
-    }
+    const { play: playImportCopyFeedback, reset: resetImportCopyFeedback } =
+      createCopyFeedback(importCopyPromptBtn, importCopyAnnouncement, 'Copy prompt');
 
     importCopyPromptBtn.addEventListener('click', async () => {
       if (importCopyPending) return;

@@ -809,6 +809,7 @@ button.danger.secondary {
   white-space: nowrap;
 }
 .list-item-meta {
+  font-weight: 400;
   margin-top: 2px;
   display: flex;
   align-items: center;
@@ -874,6 +875,8 @@ button.danger.secondary {
   background: var(--live);
   color: var(--accent-ink);
 }
+
+.badge-live { background: var(--live); color: var(--accent-ink); }
 
 /* Same solid-fill treatment as .badge-warning, --danger instead of --live
    — a flag serious enough that it's excluded by default (a near-duplicate

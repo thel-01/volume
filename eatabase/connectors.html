@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Eatabase">
+  <script type="module" src="./page-init.js"></script>
+  <title>Eatabase — AI connectors</title>
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="./app.css">
+  <script>/* No zooming at all: iOS ignores user-scalable=no, so cancel its pinch gestures too. */
+    for (const t of ['gesturestart', 'gesturechange']) document.addEventListener(t, e => e.preventDefault(), { passive: false });</script>
+</head>
+<body>
+  <main><section class="screen connectors-page">
+    <header id="page-header" class="page-header"></header>
+    <div id="page-status" class="status" role="status" aria-live="polite" hidden></div>
+    <div id="connectors-content" class="connector-view"></div>
+  </section></main>
+  <div id="info-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="info-title" hidden>
+    <div class="modal-card">
+      <div class="modal-header"><h2 id="info-title">What is an AI connector?</h2><button type="button" id="close-info" class="modal-close" aria-label="Close information">×</button></div>
+      <p id="info-text" class="muted">You can connect your AI chatbot to have it enter logs for you.</p>
+      <button type="button" id="info-action" hidden></button>
+    </div>
+  </div>
+  <div id="toast-layer" aria-live="polite"></div>
+  <script type="module" src="./connectors.js"></script>
+</body>
+</html>
