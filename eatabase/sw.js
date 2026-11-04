@@ -1,6 +1,6 @@
 // Bump on EVERY push, together with APP_VERSION in version.js (the number the
 // About popup shows). Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v33';
+const VERSION = 'v34';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -65,9 +65,9 @@ const APP_SHELL = [
   "../supabase-client.js",
   "../vendor/supabase.js",
   "../fonts/bebas-neue-400.woff2",
-  "../fonts/inter-variable.woff2",
-  "../fonts/dm-mono-400.woff2",
-  "../fonts/dm-mono-500.woff2"
+  "../fonts/inter-variable-v2.woff2",
+  "../fonts/dm-mono-400-v2.woff2",
+  "../fonts/dm-mono-500-v2.woff2"
 ];
 const assets = new Set(APP_SHELL.map(path => new URL(path, self.location).href));
 self.addEventListener('install', event => {

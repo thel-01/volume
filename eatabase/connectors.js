@@ -55,14 +55,14 @@ function render() {
     header(`Connect ${selected.name}`, true);
     const copyStep = `<li><p class="step-title">${selected.id === 'chatgpt' ? 'In the form, name it Eatabase and paste this address into <b>Connection</b>:' : 'Add a <b>custom connector</b>. Name it Eatabase and paste this address:'}</p><div class="import-prompt-box">${copyButtonMarkup('Copy address')}<div class="import-prompt-text">${MCP_URL}</div></div><span id="copy-announcement" class="import-copy-announcement" role="status" aria-live="polite"></span></li>`;
     content.innerHTML = selected.id === 'chatgpt' ? `<ol class="steps plain">
-      <li><p class="step-title">On a computer, open ChatGPT’s plugin page.</p><a class="link-button connector-settings-link" href="https://chatgpt.com/plugins" target="_blank" rel="noopener noreferrer">chatgpt.com/plugins ↗</a></li>
+      <li><p class="step-title">On a computer, open ChatGPT’s plugin page.</p><a class="link-button connector-settings-link" href="https://chatgpt.com/plugins" target="_blank" rel="noopener noreferrer">chatgpt.com/plugins<svg class="ext-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 L17 7 M8 7 H17 V16"/></svg></a></li>
       <li><p class="step-title">Click <b>Add</b> at the top right, then <b>Add custom MCP server</b>.</p></li>
       ${copyStep}
       <li><p class="step-title">Tick the box at the bottom and click <b>Create as a plugin</b>.</p></li>
       <li><p class="step-title">Click <b>Connect Eatabase</b>. An Eatabase page opens: tap <b>Allow</b>.</p></li>
       <li><p class="step-title">Done. ChatGPT can now log food for you.</p></li>
     </ol>` : `<ol class="steps plain">
-      <li><p class="step-title">Open Claude’s connector settings.</p><a class="link-button connector-settings-link" href="https://claude.ai/settings/connectors" target="_blank" rel="noopener noreferrer">claude.ai/settings/connectors ↗</a></li>
+      <li><p class="step-title">Open Claude’s connector settings.</p><a class="link-button connector-settings-link" href="https://claude.ai/settings/connectors" target="_blank" rel="noopener noreferrer">claude.ai/settings/connectors<svg class="ext-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 L17 7 M8 7 H17 V16"/></svg></a></li>
       ${copyStep}
       <li><p class="step-title">Click <b>Continue</b>, then <b>Add</b>, then <b>Connect</b>. An Eatabase page opens: tap <b>Allow</b>.</p></li>
       <li><p class="step-title">Done. Claude can now log food for you.</p></li>

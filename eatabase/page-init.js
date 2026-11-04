@@ -77,7 +77,7 @@ function showClosed(supabase) {
   const render = () => {
     document.body.innerHTML = `<main><section class="screen"><header class="page-header"><span class="icon-link header-blank" aria-hidden="true"></span><h1>Eatabase</h1><span class="icon-link header-blank" aria-hidden="true"></span></header>
       <p class="empty-state">Eatabase isn’t open for this account yet.</p>
-      <a class="link-button nav-link closed-link" href="https://thel-01.github.io/volume/dashboard.html">Go to Volume ↗</a>
+      <a class="link-button nav-link closed-link" href="https://thel-01.github.io/volume/dashboard.html">Go to Volume<svg class="ext-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 L17 7 M8 7 H17 V16"/></svg></a>
       <button type="button" id="closed-log-out" class="link-button closed-link">Log out</button>
       <div id="closed-status" class="status error" role="alert" hidden></div></section></main>`;
     const out = document.getElementById('closed-log-out');
