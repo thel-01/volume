@@ -75,6 +75,13 @@
         registration.addEventListener('updatefound', watch);
         watch();
         showUpdate();
+        // Look for a new version when the app comes back to the foreground (at most every 10 minutes).
+        let lastCheck = -Infinity;
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState !== 'visible' || Date.now() - lastCheck < 10 * 60 * 1000) return;
+          lastCheck = Date.now();
+          registration.update().catch(() => {});
+        });
       })
       .catch((error) => {
         console.error('[sw] Registration failed:', error);
