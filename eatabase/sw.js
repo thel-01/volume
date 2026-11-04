@@ -1,6 +1,6 @@
 // Bump on EVERY push, together with APP_VERSION in version.js (the number the
 // About popup shows). Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v30';
+const VERSION = 'v31';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -73,7 +73,10 @@ const assets = new Set(APP_SHELL.map(path => new URL(path, self.location).href))
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL.map(path => new Request(new URL(path, self.location), { cache: 'reload' })))));
 });
-// Let existing tabs finish using the previous version before activation.
+// Let existing tabs finish using the previous version unless the user chooses Reload.
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') event.waitUntil(self.skipWaiting());
+});
 self.addEventListener('activate', event => {
   event.waitUntil(caches.keys().then(names => Promise.all(names.filter(name => name.startsWith('eatabase-') && name !== CACHE).map(name => caches.delete(name)))).then(() => self.clients.claim()));
 });

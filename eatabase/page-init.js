@@ -1,8 +1,54 @@
 // Shared setup also runs on the login, consent and legacy redirect pages.
 import { BACKEND } from './config.js';
 import { clearDayEndHour } from './nutrition.js';
+import { toast } from './ui.js';
 
 export let accountUserId = null;
+let updateReloading = false;
+
+function watchUpdates(registration, hadController) {
+  let prompted = false, lastUpdateCheck = -Infinity;
+  const showUpdate = () => {
+    if (prompted || !registration.waiting || !navigator.serviceWorker.controller) return;
+    prompted = true;
+    const show = () => {
+      if (!document.getElementById('toast-layer')) {
+        const layer = document.createElement('div'); layer.id = 'toast-layer';
+        layer.setAttribute('aria-live', 'polite'); document.body.append(layer);
+      }
+      toast('New version available. Reload to update.', null, true, 'info', {
+        label: 'Reload',
+        run: async () => {
+          const waiting = registration.waiting;
+          if (!waiting) return;
+          waiting.postMessage({ type: 'SKIP_WAITING' });
+          await new Promise(() => {}); // Keep the action busy until controllerchange reloads the page.
+        },
+      });
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show, { once: true }); else show();
+  };
+  const watchInstalling = () => {
+    const worker = registration.installing;
+    if (worker) worker.addEventListener('statechange', () => {
+      if (worker.state === 'installed') showUpdate();
+    });
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) { hadController = !!navigator.serviceWorker.controller; return; }
+    if (updateReloading) return;
+    updateReloading = true;
+    location.reload();
+  });
+  registration.addEventListener('updatefound', watchInstalling);
+  watchInstalling();
+  showUpdate();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || Date.now() - lastUpdateCheck < 10 * 60 * 1000) return;
+    lastUpdateCheck = Date.now();
+    registration.update().catch(() => {});
+  });
+}
 
 function watchAccount(supabase, user) {
   if (user.is_anonymous) return;
@@ -47,7 +93,10 @@ function showClosed(supabase) {
 }
 if (typeof document !== 'undefined') {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js', { scope:'./' }).catch(error => {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('./sw.js', { scope:'./' }).then(registration => {
+      if (!location.pathname.endsWith('/connect.html')) watchUpdates(registration, hadController);
+    }).catch(error => {
       console.error('Eatabase offline setup failed:', error);
       const show = () => {
         const el = document.createElement('p'); el.className = 'status error';
