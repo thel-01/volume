@@ -35,6 +35,11 @@ if (window.top !== window.self) {
           show('blocked', 'Eatabase isn’t open for this account yet.');
           return;
         }
+        // A brand-new account may connect before it ever opens the app; give it a settings row with its time zone.
+        try {
+          const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (zone) await supabase.from('cal_settings').upsert({ user_id: user.id, time_zone: zone }, { onConflict: 'user_id', ignoreDuplicates: true });
+        } catch (error) { console.error('Could not create settings:', error); }
         const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
         if (error) throw error;
         if (!data) throw new Error('Authorization details were empty');

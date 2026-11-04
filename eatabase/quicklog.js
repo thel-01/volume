@@ -56,7 +56,13 @@ export function openQuicklog({ settings, day, today = day === localDay(), onLogg
 }
 export function closeQuicklog() { if ($('quicklog-modal')) $('quicklog-modal').hidden = true; }
 
+let logging = false;
 async function logQuicklog() {
+  if (logging) return;
+  logging = true;
+  try { await logQuicklogNow(); } finally { logging = false; }
+}
+async function logQuicklogNow() {
   const r = readFields(true), q = r.valid ? quickValues(r.values) : null;
   if (!r.valid || !q) { $('quicklog-fields').querySelector('[aria-invalid="true"]')?.focus(); return; }
   if (q.values.kcal > valueMax.kcal) { fieldError('ql-kcal', `Enter calories or macros totaling no more than ${valueMax.kcal} kcal.`); return; }

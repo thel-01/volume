@@ -469,7 +469,13 @@ function renderAmount() {
   }
   update(); wireMeals(); if (editing) { wireDelete(); wireSaveAsFood(); }
 }
+let amountSaving = false;
 async function saveAmount() {
+  if (amountSaving) return;
+  amountSaving = true;
+  try { await saveAmountNow(); } finally { amountSaving = false; }
+}
+async function saveAmountNow() {
   const portion = currentFood.basis === 'portion';
   const r = portion ? number(String(portions), { required:true, min:0.5, max:50 }) : canonicalAmount();
   if (r.error) { status('sheet-status', r.error, 'error'); $('amount-grams')?.focus(); return; }
