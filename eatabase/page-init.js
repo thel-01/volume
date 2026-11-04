@@ -1,5 +1,30 @@
 // Shared setup also runs on the login, consent and legacy redirect pages.
 import { BACKEND } from './config.js';
+import { clearDayEndHour } from './nutrition.js';
+
+export let accountUserId = null;
+
+function watchAccount(supabase, user) {
+  if (user.is_anonymous) return;
+  accountUserId = user.id;
+  let leaving = false;
+  const changed = (event, session) => {
+    if (event === 'INITIAL_SESSION' || leaving || session?.user?.id === accountUserId) return;
+    leaving = true;
+    document.documentElement.inert = true;
+    document.documentElement.hidden = true;
+    clearDayEndHour();
+    if (!session?.user) location.replace('./login.html');
+    else location.reload();
+  };
+  supabase.auth.onAuthStateChange(changed);
+  // Close the gap between the startup guard and subscribing. Keep auth calls out of the callback.
+  return supabase.auth.getSession().then(({ data, error }) => {
+    if (error) throw error;
+    changed('SESSION_CHECK', data?.session);
+    return leaving;
+  });
+}
 
 // Logged in, but this account isn't on Eatabase's access list yet.
 function showClosed(supabase) {
@@ -13,7 +38,7 @@ function showClosed(supabase) {
     out.onclick = async () => {
       out.disabled = true; out.textContent = 'Logging out…';
       const { error } = await supabase.auth.signOut({ scope: 'local' });
-      if (!error) { location.replace('./login.html'); return; }
+      if (!error) { clearDayEndHour(); location.replace('./login.html'); return; }
       out.disabled = false; out.textContent = 'Log out';
       const st = document.getElementById('closed-status'); st.textContent = `Couldn't log out. ${error.message}`; st.hidden = false;
     };
@@ -35,7 +60,9 @@ if (typeof document !== 'undefined') {
   if (BACKEND === 'supabase' && !['/login.html', '/connect.html'].some(path => location.pathname.endsWith(path))) {
     try {
       const { requireSession, supabase } = await import('../supabase-client.js');
-      if (!await requireSession('./login.html')) await new Promise(() => {});
+      const user = await requireSession('./login.html');
+      if (!user) { clearDayEndHour(); await new Promise(() => {}); }
+      if (await watchAccount(supabase, user)) await new Promise(() => {});
       // Alpha: only accounts on public.cal_access get in (the tables and food search enforce
       // the same list; this just shows a clear page instead of a broken one).
       const { data: allowed, error } = await supabase.rpc('cal_allowed');

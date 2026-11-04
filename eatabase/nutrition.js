@@ -401,6 +401,10 @@ export function setDayEndHour(hour) {
   memoryHour = next;
   try { localStorage.setItem(HOUR_KEY, String(next)); return changed; } catch { return false; }
 }
+export function clearDayEndHour() {
+  memoryHour = 0;
+  try { localStorage.removeItem(HOUR_KEY); } catch { /* storage may be unavailable */ }
+}
 
 /** Plain calendar date 'YYYY-MM-DD' of a local Date — no day-end shift. */
 export function calendarDay(date = new Date()) {

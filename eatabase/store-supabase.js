@@ -1,6 +1,7 @@
 import { cachedDetail, foodMetadata } from './food-product.js';
 // Production store. Entry nutrition is a snapshot; food edits never touch it.
 import { supabase, fetchAllRows } from '../supabase-client.js';
+import { accountUserId } from './page-init.js';
 import { normalizeSettings, localDay, setDayEndHour } from './nutrition.js';
 
 const keys = ['kcal', 'protein', 'carbs', 'fat'];
@@ -14,6 +15,7 @@ const iso = value => value == null ? null : new Date(value).toISOString();
 async function userId() {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
+  if (accountUserId && data?.session?.user?.id !== accountUserId) throw new Error('Your account changed. Please reload before saving.');
   if (!data?.session) throw new Error('Please log in again.');
   return data.session.user.id;
 }
@@ -75,6 +77,7 @@ async function syncTimeZone(id, row) {
   try {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (typeof timeZone !== 'string' || timeZone.length < 1 || timeZone.length > 64) return;
+    await userId();
     if (!row) {
       // Database defaults match normalizeSettings. Another tab or a goal save wins.
       checked(await supabase.from('cal_settings').upsert({ user_id:id, time_zone:timeZone }, { onConflict:'user_id', ignoreDuplicates:true }));
@@ -90,6 +93,7 @@ export async function getSettings() {
   if (row) void syncTimeZone(id, row);
   else await syncTimeZone(id, row);
   const settings = normalizeSettings({ ...row, dayEndHour: row?.day_end_hour });
+  await userId();
   // First load on this phone (or changed elsewhere): the page already picked its day with the old hour, so start over once.
   if (setDayEndHour(settings.dayEndHour) && typeof location !== 'undefined') location.reload();
   return settings;
@@ -99,9 +103,10 @@ export async function saveSettings(settings) {
   // normalizeSettings keeps only app fields; omitting time_zone preserves it on conflict.
   const { dayEndHour, ...columns } = next;
   checked(await supabase.from('cal_settings').upsert({ user_id:id, ...columns, day_end_hour:dayEndHour, updated_at:new Date().toISOString() }, { onConflict:'user_id' }));
-  setDayEndHour(dayEndHour);
   // Report a partial save explicitly; retrying safely replaces today's record.
   try {
+    await userId();
+    setDayEndHour(dayEndHour);
     checked(await supabase.from('cal_goal_history').upsert({ user_id:id, day:localDay(), nutrients:next.nutrients }, { onConflict:'user_id,day' }));
   } catch (error) { throw new Error(`Settings saved, but goal history could not be saved. Please retry. ${error.message}`); }
   return clone(next);

@@ -26,9 +26,20 @@ async function allGrants(supabase) {
   if (!Array.isArray(data)) throw new Error('OAuth grants response was not an array');
   return data;
 }
-// Every grant that belongs to a known AI app, so one request serves all cards.
-export async function listConnectorGrants(supabase) {
-  return (await allGrants(supabase)).filter(grant => PROVIDERS.some(provider => isProviderGrant(provider, grant)));
+// Every grant, so apps that match no known card still show up (and can be removed).
+export const listConnectorGrants = allGrants;
+export const isKnownGrant = grant => PROVIDERS.some(provider => isProviderGrant(provider, grant));
+// Unrecognised apps, one entry per client.
+export function otherClients(grants) {
+  const clients = new Map();
+  for (const grant of grants.filter(item => !isKnownGrant(item))) {
+    const id = grant.client?.id;
+    const at = Date.parse(grant.granted_at);
+    const known = clients.get(id);
+    if (known) { if (at < known.at) known.at = at; continue; }
+    clients.set(id, { id, name: grant.client?.name || 'Unnamed app', host: grantHost(grant), at });
+  }
+  return [...clients.values()];
 }
 export async function listClaudeGrants(supabase) {
   return (await allGrants(supabase)).filter(isClaudeGrant);
@@ -46,5 +57,10 @@ export async function revokeProviderGrants(supabase, provider) {
     } catch (error) { failure ||= error; }
   }
   if (failure) throw failure;
+}
+export async function revokeClientGrants(supabase, clientId) {
+  if (typeof clientId !== 'string' || !clientId) throw new Error('OAuth grant has no client ID');
+  const { error } = await supabase.auth.oauth.revokeGrant({ clientId });
+  if (error) throw error;
 }
 export const revokeClaudeGrants = supabase => revokeProviderGrants(supabase, PROVIDERS[0]);

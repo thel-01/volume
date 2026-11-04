@@ -1,8 +1,8 @@
 import { $, escapeHtml, CHEVRON, pageHeader, navRow, loading, status, toast, run, toggleMarkup, setToggle } from './ui.js';
-import { trackedNutrients, fmt, localDay, MAX_DAY_END_HOUR } from './nutrition.js';
+import { trackedNutrients, fmt, localDay, MAX_DAY_END_HOUR, clearDayEndHour } from './nutrition.js';
 import * as store from './store.js';
 import { BACKEND } from './config.js';
-import { PROVIDERS, isProviderGrant, listConnectorGrants } from './oauth-grants.js';
+import { PROVIDERS, isProviderGrant, isKnownGrant, listConnectorGrants } from './oauth-grants.js';
 pageHeader('Settings', './home.html', 'Back to home');
 // Goals card: the day's tracking card reduced to just the goal numbers (types are detail, on the Goals page).
 function goalText(n, g) { return g.goal ? `${fmt(n.key, g.goal)}<span class="unit">${n.unit}</span>` : '—'; }
@@ -50,6 +50,7 @@ async function loadSettings() {
           const { supabase } = await import('../supabase-client.js');
           const grants = await listConnectorGrants(supabase);
           const names = PROVIDERS.filter(provider => grants.some(grant => isProviderGrant(provider, grant))).map(provider => provider.name);
+          if (grants.some(grant => !isKnownGrant(grant))) names.push('Other');
           meta.textContent = names.length ? names.join(', ') : 'None';
         } catch (error) { console.error('Could not load connector metadata:', error); }
       })();
@@ -79,6 +80,7 @@ async function renderAccount() {
     try {
       const { error } = await supabase.auth.signOut({ scope: 'local' });
       if (error) throw error;
+      clearDayEndHour();
       location.replace('./login.html');
     } catch(error) {
       toast(`Could not log out: ${messageFor(error)}`, null, false, 'error');

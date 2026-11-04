@@ -210,3 +210,4 @@ html { touch-action: pan-x pan-y; }   /* no pinch or double-tap zoom anywhere */
 .consent-text { font-size: var(--fs-lg); line-height: 1.4; text-align: center; margin: 0 0 var(--space-3); }
 .consent-meta { text-align: center; color: var(--muted); font-size: var(--fs-sm); margin: 0; }
 .steps .import-prompt-text { font-size: var(--fs-md); }
+.connector-plus { display: flex; transform: scale(1.25); transform-origin: right center; }
