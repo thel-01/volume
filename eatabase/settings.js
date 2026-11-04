@@ -2,7 +2,7 @@ import { $, escapeHtml, CHEVRON, pageHeader, navRow, loading, status, toast, run
 import { trackedNutrients, fmt, localDay, MAX_DAY_END_HOUR } from './nutrition.js';
 import * as store from './store.js';
 import { BACKEND } from './config.js';
-import { listClaudeGrants } from './oauth-grants.js';
+import { PROVIDERS, isProviderGrant, listConnectorGrants } from './oauth-grants.js';
 pageHeader('Settings', './home.html', 'Back to home');
 // Goals card: the day's tracking card reduced to just the goal numbers (types are detail, on the Goals page).
 function goalText(n, g) { return g.goal ? `${fmt(n.key, g.goal)}<span class="unit">${n.unit}</span>` : '—'; }
@@ -48,8 +48,9 @@ async function loadSettings() {
       void (async () => {
         try {
           const { supabase } = await import('../supabase-client.js');
-          const grants = await listClaudeGrants(supabase);
-          meta.textContent = grants.length ? 'Claude' : 'None';
+          const grants = await listConnectorGrants(supabase);
+          const names = PROVIDERS.filter(provider => grants.some(grant => isProviderGrant(provider, grant))).map(provider => provider.name);
+          meta.textContent = names.length ? names.join(', ') : 'None';
         } catch (error) { console.error('Could not load connector metadata:', error); }
       })();
     }

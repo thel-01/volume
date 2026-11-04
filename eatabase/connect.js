@@ -10,7 +10,7 @@ function consentBusy(on) { $('allow').disabled = on; $('cancel').disabled = on; 
 if (window.top !== window.self) {
   show('error', 'Open this page directly.');
 } else if (!authorizationId) {
-  show('error', "This link isn't valid. Start connecting again from Claude.");
+  show('error', "This link isn't valid. Start connecting again from your AI app.");
 } else if (BACKEND !== 'supabase') {
   show('error', "Connecting isn't available right now. Please try again later.");
 } else {
