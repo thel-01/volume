@@ -1,7 +1,7 @@
 import './page-init.js';
 import { $, pageHeader, escapeHtml, CHEVRON, status, toast } from './ui.js';
 import { BACKEND } from './config.js';
-import { PROVIDERS, isProviderGrant, listConnectorGrants, otherClients, revokeClientGrants, revokeProviderGrants } from './oauth-grants.js';
+import { PROVIDERS, clientId, isProviderGrant, listConnectorGrants, otherClients, revokeClientGrants, revokeProviderGrants } from './oauth-grants.js';
 import { copyButtonMarkup, createCopyFeedback, copyText } from '../copy-feedback.js';
 
 const MCP_URL = 'https://zhrlrgzpstipojaopnbo.supabase.co/functions/v1/eatabase-mcp';
@@ -131,7 +131,7 @@ async function removeConnection() {
   try {
     if (view === 'other') {
       await revokeClientGrants(supabase, selectedOther);
-      grants = grants.filter(grant => grant.client?.id !== selectedOther);
+      grants = grants.filter(grant => clientId(grant) !== selectedOther);
       showView(othersNow().length ? 'others' : 'list');
     } else {
       await revokeProviderGrants(supabase, selected);

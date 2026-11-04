@@ -3,10 +3,13 @@
 export function hostname(value) {
   try { return new URL(value).hostname; } catch { return ''; }
 }
+// The API has returned client fields as id/name/uri and as client_id/client_name/client_uri; accept both.
+export const clientId = grant => grant?.client?.id ?? grant?.client?.client_id;
+export const clientName = grant => grant?.client?.name ?? grant?.client?.client_name ?? '';
 function clientHosts(grant) {
   const client = grant?.client;
   // Grants currently expose the website URI; accept redirect fields when supplied too.
-  return [grant?.redirect_uri, client?.redirect_uri, ...(Array.isArray(client?.redirect_uris) ? client.redirect_uris : []), client?.uri]
+  return [grant?.redirect_uri, client?.redirect_uri, ...(Array.isArray(client?.redirect_uris) ? client.redirect_uris : []), client?.uri, client?.client_uri]
     .map(hostname).filter(Boolean);
 }
 const inDomains = (domains, host) => domains.some(domain => host === domain || host.endsWith(`.${domain}`));
@@ -16,7 +19,7 @@ export const PROVIDERS = [
   { id: 'chatgpt', name: 'ChatGPT', by: 'OpenAI', nameRe: /chatgpt|openai/i, domains: ['chatgpt.com', 'openai.com'] },
 ];
 export function isProviderGrant(provider, grant) {
-  return provider.nameRe.test(grant?.client?.name || '') || clientHosts(grant).some(host => inDomains(provider.domains, host));
+  return provider.nameRe.test(clientName(grant)) || clientHosts(grant).some(host => inDomains(provider.domains, host));
 }
 export const isClaudeGrant = grant => isProviderGrant(PROVIDERS[0], grant);
 export function grantHost(grant) { return clientHosts(grant)[0] || '—'; }
@@ -33,11 +36,11 @@ export const isKnownGrant = grant => PROVIDERS.some(provider => isProviderGrant(
 export function otherClients(grants) {
   const clients = new Map();
   for (const grant of grants.filter(item => !isKnownGrant(item))) {
-    const id = grant.client?.id;
+    const id = clientId(grant);
     const at = Date.parse(grant.granted_at);
     const known = clients.get(id);
     if (known) { if (at < known.at) known.at = at; continue; }
-    clients.set(id, { id, name: grant.client?.name || 'Unnamed app', host: grantHost(grant), at });
+    clients.set(id, { id, name: clientName(grant) || 'Unnamed app', host: grantHost(grant), at });
   }
   return [...clients.values()];
 }
@@ -47,7 +50,7 @@ export async function listClaudeGrants(supabase) {
 export async function revokeProviderGrants(supabase, provider) {
   // Re-read so every DCR client is included, even if it appeared since opening Details.
   const grants = (await allGrants(supabase)).filter(grant => isProviderGrant(provider, grant));
-  const ids = [...new Set(grants.map(grant => grant.client?.id))];
+  const ids = [...new Set(grants.map(clientId))];
   if (ids.some(id => typeof id !== 'string' || !id)) throw new Error('OAuth grant has no client ID');
   let failure;
   for (const clientId of ids) {
