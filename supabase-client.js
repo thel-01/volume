@@ -94,7 +94,25 @@ export async function requireSession(loginPage = './index.html') {
     showDemoBanner(loginPage);
   }
 
+  if (!user.is_anonymous) watchAccount(user, loginPage);
   return user;
+}
+
+// If this browser signs in as someone else (another tab) or signs out while a page is
+// open, leave at once so nothing on screen can write under the wrong account.
+function watchAccount(user, loginPage) {
+  let leaving = false;
+  const changed = (event, session) => {
+    if (event === 'INITIAL_SESSION' || leaving || session?.user?.id === user.id) return;
+    leaving = true;
+    document.documentElement.inert = true;
+    document.documentElement.hidden = true;
+    if (!session?.user) window.location.replace(loginPage);
+    else window.location.reload();
+  };
+  supabase.auth.onAuthStateChange(changed);
+  // Close the gap between the startup check and subscribing. Keep auth calls out of the callback.
+  supabase.auth.getSession().then(({ data }) => changed('SESSION_CHECK', data?.session));
 }
 
 // ---------------------------------------------------------------------------
