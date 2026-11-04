@@ -1,7 +1,8 @@
 # Volume
 
-A small workout tracker I built for myself. It's the first thing I've made with a real backend.
+A workout tracker I built for myself and my friends.
 
-It's a single-user app: no public sign-up, just my own account. If you want to look around anyway, tap **Try the demo** on the login page.
+No public signup. If you want to look around anyway, tap **Try the demo** on the login page.
 
-Static HTML/CSS/vanilla JS, no framework, no build step.
+[Open the login page](https://thel-01.github.io/volume/)
+
