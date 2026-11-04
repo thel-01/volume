@@ -45,18 +45,36 @@
       .then((registration) => {
         console.info('[sw] Registered, scope:', registration.scope);
 
-        // If a new version is waiting, reload once so it takes over
-        // instead of the phone showing the old build.
-        registration.addEventListener('updatefound', () => {
-          const incoming = registration.installing;
-          if (!incoming) return;
-          incoming.addEventListener('statechange', () => {
-            if (incoming.state === 'activated' && navigator.serviceWorker.controller) {
-              console.info('[sw] New version active — reloading.');
-              window.location.reload();
-            }
+        // A new version waits for the user: show a persistent toast, and
+        // reload once it takes over. Existing pages are never reloaded unasked.
+        let prompted = false, reloading = false;
+        const showUpdate = async () => {
+          if (prompted || !registration.waiting || !navigator.serviceWorker.controller) return;
+          prompted = true;
+          const { showToast } = await import('./toast.js');
+          showToast('New version available. Reload to update.', 'info', {
+            ms: 0,
+            actionLabel: 'Reload',
+            onAction: async () => {
+              registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+              await new Promise(() => {}); // stay busy until the page reloads
+            },
           });
+        };
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!prompted || reloading) return;
+          reloading = true;
+          window.location.reload();
         });
+        const watch = () => {
+          const incoming = registration.installing;
+          if (incoming) incoming.addEventListener('statechange', () => {
+            if (incoming.state === 'installed') showUpdate();
+          });
+        };
+        registration.addEventListener('updatefound', watch);
+        watch();
+        showUpdate();
       })
       .catch((error) => {
         console.error('[sw] Registration failed:', error);

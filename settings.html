@@ -276,6 +276,12 @@
     function flash(message, kind = 'ok', ms = 3000) {
       showToast(message, kind, { ms });
     }
+    // Today in the device's own time zone, as YYYY-MM-DD (for file names).
+    function localDateStamp() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
     function formatDate(iso) {
       return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     }
@@ -997,7 +1003,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `volume-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `volume-backup-${localDateStamp()}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1050,7 +1056,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `volume-weight-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `volume-weight-${localDateStamp()}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

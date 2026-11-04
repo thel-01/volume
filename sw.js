@@ -7,7 +7,7 @@
 // a stale copy of the app forever.
 // ---------------------------------------------------------------------------
 
-const VERSION = 'v1.53.15';
+const VERSION = 'v1.53.16';
 const CACHE = `volume-${VERSION}`;
 
 const APP_SHELL = [
@@ -55,9 +55,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
       .then((cache) => cache.addAll(APP_SHELL))
-      // Don't sit around waiting for every tab to close before activating.
-      .then(() => self.skipWaiting())
   );
+});
+
+// A new version waits until the user taps Reload in the update toast.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', (event) => {
