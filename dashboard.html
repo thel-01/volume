@@ -17,6 +17,11 @@
 
   <link rel="stylesheet" href="styles.css">
   <style>
+    /* The wordmark opens the About popup; it still reads as the title. */
+    .about-title { width: auto; min-height: var(--tap); color: var(--text); font-family: var(--font-display); font-size: var(--fs-2xl); letter-spacing: var(--tracking-tight); text-align: center; }
+    .about-link { display: inline-block; margin-top: var(--space-4); }
+    .about-version { font-size: var(--fs-xs); font-weight: 400; color: var(--muted); }
+    #about-modal .modal-card { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
     /* Value / label+info / change, each its own line — same stacked shape
        .weight-hero below uses; modeled directly off it. */
     .index-hero { margin-bottom: var(--space-4); display: flex; flex-direction: column; gap: 3px; }
@@ -95,7 +100,7 @@
     <div class="page-header">
       <!-- No back arrow: this is the app's root. The blank keeps the title centred. -->
       <span class="icon-link" style="visibility:hidden"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 L7 12 L15 19"/></svg></span>
-      <h1 class="wordmark">Volume</h1>
+      <h1 class="wordmark"><button type="button" id="open-about" class="link-button about-title" aria-haspopup="dialog">Volume</button></h1>
       <a href="./settings.html" class="icon-link" aria-label="Settings"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2.1" fill="var(--surface)"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2.1" fill="var(--surface)"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="11" cy="18" r="2.1" fill="var(--surface)"/></svg></a>
     </div>
 
@@ -203,6 +208,15 @@
     </div>
 
   </main>
+
+  <!-- About popup (tap the Volume title); Eatabase has the same popup on its title. -->
+  <div id="about-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
+    <div class="modal-card">
+      <div class="modal-header"><h2 id="about-title">Volume <span id="about-version" class="about-version"></span></h2><button type="button" id="close-about" class="modal-close" aria-label="Close">&times;</button></div>
+      <p class="muted">I vibecoded this for myself and friends. Also see my calorie tracker, Eatabase.</p>
+      <a class="link-button nav-link about-link" href="./eatabase/home.html" target="_blank" rel="noopener">Go to Eatabase ↗</a>
+    </div>
+  </div>
 
   <!-- Composite strength index info — modeled on weight-trend-info-modal
        below: what the number means, then a .nav-link out to progress.html
@@ -1422,6 +1436,16 @@
     const indexInfoModal = document.getElementById('index-info-modal');
     document.getElementById('index-info-trigger').addEventListener('click', () => openModal(indexInfoModal));
     document.getElementById('index-info-close').addEventListener('click', () => closeModal(indexInfoModal));
+
+    const aboutModal = document.getElementById('about-modal');
+    document.getElementById('open-about').addEventListener('click', () => { openModal(aboutModal); document.getElementById('close-about').focus(); });
+    document.getElementById('close-about').addEventListener('click', () => closeModal(aboutModal));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(aboutModal); });
+    // The version lives in sw.js; show it only if it can be read.
+    fetch('./sw.js').then((r) => r.text()).then((t) => {
+      const v = t.match(/const VERSION = '([^']+)'/);
+      if (v) document.getElementById('about-version').textContent = v[1];
+    }).catch(() => {});
 
     let liveInjuries = [];
 
