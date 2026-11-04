@@ -17,7 +17,9 @@ if (window.top !== window.self) {
   try {
     const { supabase, describeAuthError } = await import('../supabase-client.js');
 
+    let shownUserId = null;
     async function loadConsent(user) {
+      shownUserId = null;
       $('login-group').hidden = true;
       $('login-form').hidden = true;
       $('consent').hidden = true;
@@ -44,6 +46,7 @@ if (window.top !== window.self) {
         $('request-text').textContent = `${name} wants your permission to read, add and remove entries in Eatabase.`;
         $('callback-host').textContent = `Returns to ${callback.hostname}`;
         $('account-email').textContent = `Signed in as ${user.email || ''}`;
+        shownUserId = user.id;
         $('consent').hidden = false;
       } catch (error) {
         console.error('Could not load authorization details:', error);
@@ -70,6 +73,12 @@ if (window.top !== window.self) {
     async function decide(approve) {
       consentBusy(true); $('status').hidden = true;
       try {
+        const { data: current } = await supabase.auth.getSession();
+        if (!shownUserId || current.session?.user?.id !== shownUserId) {
+          show('error', 'Your account changed. Reload this page to continue.');
+          consentBusy(false);
+          return;
+        }
         const options = { skipBrowserRedirect: true };
         const { data, error } = approve
           ? await supabase.auth.oauth.approveAuthorization(authorizationId, options)

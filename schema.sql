@@ -219,9 +219,11 @@ create unique index if not exists session_types_unique_live_color
 update public.session_types st
   set color_index = ranked.rn
   from (
-    select id, row_number() over (partition by user_id order by created_at, id) - 1 as rn
-    from public.session_types
-    where color_index is null
+    select id, row_number() over (partition by user_id order by created_at, id) - 1
+             + coalesce((select max(t.color_index) + 1 from public.session_types t
+                         where t.user_id = n.user_id and t.color_index is not null), 0) as rn
+    from public.session_types n
+    where n.color_index is null
   ) ranked
   where st.id = ranked.id;
 

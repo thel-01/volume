@@ -10,13 +10,13 @@ function clientHosts(grant) {
     .map(hostname).filter(Boolean);
 }
 const inDomains = (domains, host) => domains.some(domain => host === domain || host.endsWith(`.${domain}`));
-// One entry per AI app that can connect. Matching uses the client name or its real host.
+// One entry per AI app that can connect. Matching uses the client's real host only, never its self-chosen name.
 export const PROVIDERS = [
-  { id: 'claude', name: 'Claude', by: 'Anthropic', nameRe: /claude/i, domains: ['claude.ai', 'claude.com'] },
-  { id: 'chatgpt', name: 'ChatGPT', by: 'OpenAI', nameRe: /chatgpt|openai/i, domains: ['chatgpt.com', 'openai.com'] },
+  { id: 'claude', name: 'Claude', by: 'Anthropic', domains: ['claude.ai', 'claude.com'] },
+  { id: 'chatgpt', name: 'ChatGPT', by: 'OpenAI', domains: ['chatgpt.com', 'openai.com'] },
 ];
 export function isProviderGrant(provider, grant) {
-  return provider.nameRe.test(grant?.client?.name || '') || clientHosts(grant).some(host => inDomains(provider.domains, host));
+  return clientHosts(grant).some(host => inDomains(provider.domains, host));
 }
 export const isClaudeGrant = grant => isProviderGrant(PROVIDERS[0], grant);
 export function grantHost(grant) { return clientHosts(grant)[0] || '—'; }
