@@ -1,6 +1,6 @@
 // Bump on EVERY push, together with APP_VERSION in version.js (the number the
 // About popup shows). Eatabase owns only its own caches, alongside Volume.
-const VERSION = 'v37';
+const VERSION = 'v38';
 const CACHE = `eatabase-${VERSION}`;
 const APP_SHELL = [
   "./home.html",
@@ -30,6 +30,8 @@ const APP_SHELL = [
   "./nutrient-charts.js",
   "./nutrition.js",
   "./odometer.js",
+  "./count-odometer.js",
+  "./nutrient-summary.js",
   "./page-init.js",
   "./quicklog.js",
   "./scanner.js",

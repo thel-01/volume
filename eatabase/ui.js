@@ -33,7 +33,7 @@ export function toast(message, undo, persistent = false, kind = 'info', extra = 
   const el = document.createElement('div'); el.className = `toast ${kind}`;
   const actions = (undo ? '<button type="button" class="toast-action">Undo</button>' : '') + (extra ? `<button type="button" class="toast-action toast-extra">${escapeHtml(extra.label)}</button>` : '');
   el.innerHTML = `<div class="toast-body"><div class="toast-title">${escapeHtml(message)}</div>${actions ? `<div class="toast-actions">${actions}</div>` : ''}</div><button type="button" class="toast-close" aria-label="Dismiss">×</button>`;
-  $('toast-layer').append(el); requestAnimationFrame(() => el.classList.add('show'));
+  $('toast-layer').replaceChildren(el); requestAnimationFrame(() => el.classList.add('show'));
   let timer; const dismiss = () => { clearTimeout(timer); el.remove(); };
   el.querySelector('.toast-close').onclick = dismiss;
   if (undo) el.querySelector('.toast-action').onclick = e => run(e.currentTarget, async () => { await undo(); dismiss(); toast('Undone'); });

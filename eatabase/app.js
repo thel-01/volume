@@ -5,6 +5,7 @@ import {
   scaleValues, multiplyValues, fmt, amountPatch, macroCheck,
 } from './nutrition.js';
 import * as store from './store.js';
+import { updateSummary } from './nutrient-summary.js';
 import { createScanner } from './scanner.js';
 import { openQuicklog as showQuicklog, closeQuicklog } from './quicklog.js';
 import { API_BASE } from './config.js';
@@ -101,7 +102,7 @@ function titleForDay(d = day) {
   if (d === localDay()) return 'Today'; if (d === shiftDay(localDay(), -1)) return 'Yesterday';
   return new Date(`${d}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
 }
-async function loadDay() {
+async function loadDay({ animate = false } = {}) {
   if (writeBlocked) { status('day-status', "Couldn't save on this phone. Reload to return to your saved data.", 'error'); if (view === 'day') dayAction(); return; }
   if (!canSwitchDay()) explicitDay = pastDay;   // the switch window closed while another day was open
   if (!explicitDay) day = localDay();
@@ -118,12 +119,12 @@ async function loadDay() {
   // A day from History is finished, not in progress: no live amber on it (green 'on target' stays).
   $('summary').classList.toggle('finished', pastDay);
   $('day-title').disabled = !canSwitch;
-  loading('day-status'); $('summary').hidden = true; $('entries').hidden = true;
+  if ($('summary').dataset.day !== requestedDay) { loading('day-status'); $('summary').hidden = true; $('entries').hidden = true; }
   try {
     const data = await Promise.all([store.getSettings(), store.listEntries(requestedDay), store.recentEntries(), store.listFoods()]);
     if (version !== loadVersion) return;
     [settings, entries, , ownFoods] = data; remembered = rememberedFoods(data[2], ownFoods);
-    status('day-status'); renderDay(); if (view === 'day') dayAction();
+    status('day-status'); renderDay({ animate }); if (view === 'day') dayAction();
     if (pendingAdd && !pastDay) {
       pendingAdd = false;
       history.replaceState(null, '', location.pathname + location.search);
@@ -145,7 +146,7 @@ function nutrientSummary(n, total, hero = false) {
   const cls = `stat-value${hero ? ' lg' : ''}${p?.hit ? ' is-hit' : ''}`;
   // Past the goal reads "over" for a target or limit; past a minimum is just more ("above").
   const side = p ? (p.left > 0 ? `${fmt(n.key, p.left)} left` : p.left < 0 ? `${fmt(n.key, -p.left)} ${g.type === 'min' ? 'above' : 'over'}` : 'Right on it') : '';
-  return `<div><div class="stat-label">${n.label}${hero ? '' : info}</div><div class="nutrient-value"><span class="${cls}">${hero ? value : `<span class="summary-total">${value}</span>`}${!hero && goal ? `<span class="goal"> / ${goalText}</span>` : ''}<span class="unit">${hero && goal ? `/ ${goalText} ` : ''}${hero ? '' : ' '}${n.unit}</span></span>${hero ? info : ''}</div></div>${hero && p ? `<span class="muted">${side}</span>` : ''}`;
+  return `<div><div class="stat-label">${n.label}${hero ? '' : info}</div><div class="nutrient-value"><span class="${cls}"><span class="number${hero ? '' : ' summary-total'}" style="width:${Math.max(hero ? 5 : 4, value.length)}ch">${value}</span>${!hero && goal ? `<span class="goal"> / ${goalText}</span>` : ''}<span class="unit">${hero && goal ? `/ ${goalText} ` : ''}${hero ? '' : ' '}${n.unit}</span></span>${hero ? info : ''}</div></div>${hero && p ? `<span class="muted">${side}</span>` : ''}`;
 }
 /**
  * The goal bar. Up to the goal it fills normally; past it (target/limit
@@ -159,9 +160,9 @@ function progressBar(n, total) {
   const aria = `role="progressbar" aria-label="${n.label} goal" aria-valuemin="0" aria-valuemax="${g.goal}" aria-valuenow="${Math.round(total.value)}"`;
   if (total.value > g.goal && g.type !== 'min') {
     const at = (g.goal / total.value) * 100;
-    return `<div class="progress-track over${state}" ${aria}><div class="progress-fill" style="width:${at}%"></div><div class="progress-over" style="left:${at}%"></div></div>`;
+    return `<div class="progress-track over${state}" ${aria}><div class="progress-fill" style="width:${at}%"></div><div class="progress-over" style="left:${at}%;opacity:1"></div></div>`;
   }
-  return `<div class="progress-track${state}" ${aria}><div class="progress-fill" style="width:${p.share * 100}%"></div></div>`;
+  return `<div class="progress-track${state}" ${aria}><div class="progress-fill" style="width:${p.share * 100}%"></div><div class="progress-over" style="left:100%;opacity:0"></div></div>`;
 }
 function entryMeta(e) {
   if (e.basis === 'once') return ''; if (e.basis === 'portion') return `${e.portions} portion${e.portions === 1 ? '' : 's'}`;
@@ -190,12 +191,12 @@ function entryList(rows) {
   }
   return ul;
 }
-function renderDay() {
+function renderDay({ animate = false } = {}) {
   const tracked = trackedNutrients(settings), totals = dayTotals(entries), hero = tracked[0];
-  $('summary').innerHTML = `<div class="summary-hero">${nutrientSummary(hero, totals[hero.key], true)}</div>${progressBar(hero, totals[hero.key])}${tracked.length > 1 ? `<div class="summary-columns" style="grid-template-columns:repeat(${tracked.length - 1},minmax(0,1fr))">${tracked.slice(1).map(n => `<div>${nutrientSummary(n, totals[n.key])}${progressBar(n, totals[n.key])}</div>`).join('')}</div>` : ''}`;
-  // Every goal on the card met → the whole card turns green.
+  const markup = `<div class="summary-hero">${nutrientSummary(hero, totals[hero.key], true)}</div>${progressBar(hero, totals[hero.key])}${tracked.length > 1 ? `<div class="summary-columns" style="grid-template-columns:repeat(${tracked.length - 1},minmax(0,1fr))">${tracked.slice(1).map(n => `<div>${nutrientSummary(n, totals[n.key])}${progressBar(n, totals[n.key])}</div>`).join('')}</div>` : ''}`;
   const goals = tracked.map(n => statusFor(n, totals[n.key])).filter(Boolean);
-  $('summary').classList.toggle('all-hit', goals.length > 0 && goals.every(p => p.hit));
+  updateSummary($('summary'), markup, { key: JSON.stringify([day, tracked.map(n => [n.key, settings.nutrients[n.key]])]), animate, allHit: goals.length > 0 && goals.every(p => p.hit) });
+  $('summary').dataset.day = day;
   $('summary').hidden = false; $('entries').hidden = false; $('entries').replaceChildren();
   if (!entries.length) $('entries').innerHTML = '<p class="empty-state">Nothing logged yet.</p>';
   else if (settings.meals) for (const group of groupByMeal(entries)) {
@@ -496,8 +497,8 @@ async function saveAmountNow() {
   } else { if (addToday) day = localDay(); const row = await mutate(() => store.addEntry(makeEntry(currentFood, { ...amount, meal:settings.meals ? selectedMeal : null, day }))); await afterLog(row); }
 }
 async function afterLog(row) {
-  closeAdd(); await loadDay();
-  const undo = async () => { await mutate(() => store.deleteEntry(row.id)); await loadDay(); };
+  closeAdd(); await loadDay({ animate: true });
+  const undo = async () => { await mutate(() => store.deleteEntry(row.id)); await loadDay({ animate: true }); };
   if (pastDay) { toast(`Logged to ${titleForDay(row.day)}`, undo); return; }
   if (row.day === localDay()) { toast('Logged', undo); return; }
   // Logged onto another day than today: say so, and offer to put it on today instead.

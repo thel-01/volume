@@ -1,4 +1,4 @@
-// Shared behavior snapshot from Volume.
+// Volume behavior snapshot; Eatabase uses one toast slot shared with ui.js.
 // ---------------------------------------------------------------------------
 // Page-level action-result notifications ("Set logged.", "Session deleted.",
 // "Could not delete the set: ...") as a floating overlay instead of a banner
@@ -70,7 +70,7 @@ export function showToast(message, kind = 'ok', opts = {}) {
   if (detail) el.querySelector('.toast-detail').textContent = detail;
   if (actionLabel) el.querySelector('.toast-action').textContent = actionLabel;
 
-  layer().appendChild(el);
+  layer().replaceChildren(el);
   requestAnimationFrame(() => el.classList.add('show'));
 
   let timer = null;
