@@ -20,7 +20,7 @@ let pendingAdd = location.hash === '#add';
 let observedToday = localDay();
 let day = pastDay ? requestedDay : localDay(), settings, entries = [], remembered = [], ownFoods = [];
 let view = 'day', tab = 'search', step = null, returnStep = null, currentFood = null, editing = null;
-let amountState = null;
+let amountState = null, onceEditDraft = null, saveFoodVersion = 0;
 let selectedMeal = null, portions = 1, searchQuery = '', searchRows = [], searchVersion = 0, searchTimer;
 let bls = null, blsError = false, blsPromise, cameraPending, cameraRun = 0;
 let cameraMessage = '', scanCode = null, lookupVersion = 0, loadVersion = 0, writeBlocked = false;
@@ -287,7 +287,7 @@ function closeAdd() {
 }
 function goBack() {
   ++lookupVersion;
-  if (step === 'save-food') { step = 'amount'; if (editing.basis === 'once') renderOnceEdit(); else renderAmount(); return; }
+  if (step === 'save-food') { resumeEntryEdit(); return; }
   if (editing) { closeAdd(); return; }
   if (step === 'own' && returnStep?.step === 'amount') { currentFood = returnStep.food; step = 'amount'; renderAmount(); return; }
   step = null; scanCode = null; renderTab(); syncCamera(); if (tab === 'scan') warmCamera();
@@ -384,21 +384,23 @@ async function loadProduct(preview, refresh = false) {
     let food = refresh ? undefined : await store.cachedProduct(code);
     if (food === undefined) {
       food = await fetchProduct(code, { base:API_BASE, fetchFn:foodFetch });
-      if (food === null && savedDetail?.usable) {
-        if (active()) { openAmount(savedDetail); status('sheet-status', 'This product is no longer listed. Using saved product details.'); }
-        return;
+      if ((!food || !food.usable) && savedDetail?.usable) {
+        food = { ...savedDetail, savedDetailsNotice: food === null
+          ? 'This product is no longer listed. Using saved product details.'
+          : 'Fresh nutrition details need checking. Using saved product details.' };
       }
       if (!writeBlocked) await store.cacheProduct(code, food);
     }
     if (!active()) return;
-    if (!food) { explain('This product is not available in the database. You can keep it by entering its label values.'); return; }
-    if (!food.usable) { explain('The nutrition details need checking. Enter the label values to use this product.', { product:food }); return; }
+    if (!food) { explain('This product is not available in the database. You can keep it by entering its label values.', { retry:true }); return; }
+    if (!food.usable) { explain('The nutrition details need checking. Enter the label values to use this product.', { product:food, retry:true }); return; }
     openAmount(food);
+    if (food.savedDetailsNotice) status('sheet-status', food.savedDetailsNotice, 'info', () => loadProduct(preview, true));
   } catch (error) {
     if (!active()) return;
     const saved = await store.cachedProduct(code, { stale:true });
     if (!active()) return;
-    if (saved?.usable) { openAmount(saved); status('sheet-status', 'Using saved product details. Fresh details couldn’t load.'); return; }
+    if (saved?.usable) { openAmount(saved); status('sheet-status', 'Using saved product details. Fresh details couldn’t load.', 'info', () => loadProduct(preview, true)); return; }
     explain(error.message || 'Product details couldn’t load. Your selection is still here.', { retry:true });
   }
 }
@@ -474,6 +476,7 @@ function renderAmount() {
     if (selected.id !== 'manual') { const u = $('amount-grams').parentElement.querySelector('.unit'); u.classList.add('set-one'); u.onclick = () => { $('amount-grams').value = '1'; update(); }; }
   }
   update(); wireMeals(); if (editing) { wireDelete(); wireSaveAsFood(); }
+  if (food.savedDetailsNotice && !editing) status('sheet-status', food.savedDetailsNotice, 'info', () => loadProduct(food, true));
 }
 let amountSaving = false;
 async function saveAmount() {
@@ -522,49 +525,81 @@ function openOwn({ name = '', brand = '', barcode = '', amountUnit:unit = 'g' } 
 }
 function openEdit(entry) {
   if (pastDay && !pastEditing) return;
+  onceEditDraft = null;
   dayScroll = window.scrollY; amountState = initialAmount(entry, entry); editing = entry; currentFood = { ...normalizeFood(entry), amountUnit: amountUnit(entry) }; step = 'amount'; selectedMeal = entry.meal; portions = entry.portions || 1; showView('add'); syncCamera();
   if (entry.basis === 'once') renderOnceEdit(); else renderAmount();
 }
 function renderOnceEdit() {
   sheetHeader('Edit entry', true); renderCameraStatus(); status('sheet-status');
-  $('add-content').innerHTML = `${field('edit-name', 'Name (optional)', editing.name, { mode: 'text', placeholder: 'Quicklog' })}${nutrientFields('edit', editing.values)}${mealChips(selectedMeal)}${SAVE_AS_FOOD}<div class="form-delete"><button type="button" id="delete-entry" class="arm-confirm-btn">Delete</button></div>`;
+  $('add-content').innerHTML = `${field('edit-name', 'Name (optional)', onceEditDraft?.name ?? editing.name, { mode: 'text', placeholder: 'Quicklog' })}${nutrientFields('edit', onceEditDraft?.values ?? editing.values)}${mealChips(selectedMeal)}${SAVE_AS_FOOD}<div class="form-delete"><button type="button" id="delete-entry" class="arm-confirm-btn">Delete</button></div>`;
   wireMeals(); wireDelete(); wireSaveAsFood(); bottom('Save', e => run(e.currentTarget, async () => {
-    const r = readNutrients('edit'), q = r.valid ? quickValues(r.values) : null;
-    if (!r.valid) return; if (q?.values.kcal > valueMax.kcal) { fieldError('edit-kcal', `Enter calories or macros totaling no more than ${valueMax.kcal} kcal.`); return; } if (!q) { fieldError('edit-kcal', 'Enter at least one nutrient value.'); return; }
-    const check = !q.kcalDerived ? macroCheck(q.values) : null;
-    if (check?.kind === 'impossible') {
-      fieldError('edit-kcal', `Your macros alone add up to about ${fmt('kcal', check.macroKcal)} kcal, more than the ${fmt('kcal', q.values.kcal)} entered.`);
-      return;
-    }
-    const patch = { name: $('edit-name').value.trim() || 'Quicklog', values: q.values };
-    if (settings.meals && selectedMeal !== editing.meal) patch.meal = selectedMeal;
+    const patch = readOnceEdit(); if (!patch) return;
     await mutate(() => store.updateEntry(editing.id, patch)); closeAdd(); await loadDay(); toast('Saved');
   }));
+}
+// Read the same validated draft for entry Save and Save to your foods.
+function readOnceEdit() {
+  const r = readNutrients('edit'), q = r.valid ? quickValues(r.values) : null;
+  if (!r.valid) return; if (q?.values.kcal > valueMax.kcal) { fieldError('edit-kcal', `Enter calories or macros totaling no more than ${valueMax.kcal} kcal.`); return; } if (!q) { fieldError('edit-kcal', 'Enter at least one nutrient value.'); return; }
+  const check = !q.kcalDerived ? macroCheck(q.values) : null;
+  if (check?.kind === 'impossible') {
+    fieldError('edit-kcal', `Your macros alone add up to about ${fmt('kcal', check.macroKcal)} kcal, more than the ${fmt('kcal', q.values.kcal)} entered.`);
+    return;
+  }
+  const patch = { name: $('edit-name').value.trim() || 'Quicklog', values: q.values };
+  if (settings.meals && selectedMeal !== editing.meal) patch.meal = selectedMeal;
+  return patch;
+}
+function resumeEntryEdit() {
+  step = 'amount';
+  if (editing.basis === 'once') renderOnceEdit(); else renderAmount();
 }
 // Any logged entry can become one of your foods: exactly what was eaten, as one portion
 // (a product at 150 g saves as "that, 150 g"). Saved foods need every macro, so only
 // the ones the entry doesn't know are asked for.
 const SAVE_AS_FOOD = '<button type="button" id="save-as-food" class="link-button">Save to your foods</button>';
-function wireSaveAsFood() { $('save-as-food').onclick = renderSaveAsFood; }
+function wireSaveAsFood() {
+  $('save-as-food').onclick = () => {
+    let draft;
+    if (editing.basis === 'once') {
+      const patch = readOnceEdit(); if (!patch) return;
+      // Preserve raw blanks/decimals too; deriving calories must not rewrite the form.
+      onceEditDraft = { name: $('edit-name').value, values: Object.fromEntries(NUTRIENTS.map(n => [n.key, $(`edit-${n.key}`).value])) };
+      draft = { ...editing, ...patch };
+    } else {
+      const portion = editing.basis === 'portion';
+      const r = portion ? { value: portions } : canonicalAmount();
+      if (r.error) { status('sheet-status', r.error, 'error'); $('amount-grams')?.focus(); return; }
+      const amount = portion ? { portions: r.value } : amountUnit(editing) === 'ml' ? { millilitres: r.value } : { grams: r.value };
+      draft = withAmount(editing, amount);
+    }
+    renderSaveAsFood(draft);
+  };
+}
 function defaultFoodName(entry) {
   const name = entry.basis === 'once' && entry.name === 'Quicklog' ? '' : entry.name || '';
   const amount = entry.basis === 'per100' ? ` ${fmt('grams', entryAmount(entry))} ${amountUnit(entry)}` : entry.basis === 'portion' && entry.portions !== 1 ? ` ×${entry.portions}` : '';
   return name ? (name + amount).slice(0, 120) : '';
 }
-function renderSaveAsFood() {
+function renderSaveAsFood(draft) {
+  const target = editing, version = ++saveFoodVersion;
   step = 'save-food'; sheetHeader('Save to your foods', true); status('sheet-status');
-  const v = editing.values || {}, missing = ALL_NUTRIENTS.filter(k => v[k] == null);
+  const v = draft.values || {}, missing = ALL_NUTRIENTS.filter(k => v[k] == null);
   const known = NUTRIENTS.filter(n => v[n.key] != null);
-  $('add-content').innerHTML = `${field('food-name', 'Name (required)', defaultFoodName(editing), { mode: 'text', required: true, maxlength: 120, placeholder: 'e.g. Evening bowl' })}${known.length ? `<div class="amount-values">${known.map(n => `<div><div class="stat-label">${n.label}</div><span class="stat-value">${fmt(n.key, v[n.key])}<span class="unit">${n.unit}</span></span></div>`).join('')}</div>` : ''}${missing.length ? `<p class="caption">Your foods need every macro. Add the ones this entry doesn’t have.</p>${NUTRIENTS.filter(n => missing.includes(n.key)).map(n => field(`food-${n.key}`, `${n.label} (${n.unit}, required)`, '', { required: true })).join('')}` : ''}<p class="caption">Saved as one portion.</p>`;
+  $('add-content').innerHTML = `${field('food-name', 'Name (required)', defaultFoodName(draft), { mode: 'text', required: true, maxlength: 120, placeholder: 'e.g. Evening bowl' })}${known.length ? `<div class="amount-values">${known.map(n => `<div><div class="stat-label">${n.label}</div><span class="stat-value">${fmt(n.key, v[n.key])}<span class="unit">${n.unit}</span></span></div>`).join('')}</div>` : ''}${missing.length ? `<p class="caption">Your foods need every macro. Add the ones this entry doesn’t have.</p>${NUTRIENTS.filter(n => missing.includes(n.key)).map(n => field(`food-${n.key}`, `${n.label} (${n.unit}, required)`, '', { required: true })).join('')}` : ''}<p class="caption">Saved as one portion.</p>`;
   bottom('Save', e => run(e.currentTarget, async () => {
     const name = $('food-name').value.trim();
     fieldError('food-name', !name ? 'Enter a name.' : name.length > 120 ? 'Use no more than 120 characters.' : '');
     const r = readNutrients('food', { required: missing });
     if (!name || name.length > 120 || !r.valid) { $('add-content').querySelector('[aria-invalid="true"]')?.focus(); return; }
     const portion = Object.fromEntries(ALL_NUTRIENTS.map(k => [k, v[k] ?? r.values[k]]));
-    await mutate(() => store.addFood({ name, basis: 'portion', portion }));
-    ownFoods = await store.listFoods(); remembered = rememberedFoods(await store.recentEntries(), ownFoods);
-    closeAdd(); toast('Saved to your foods');
+    const food = await mutate(() => store.addFood({ name, basis: 'portion', portion }));
+    ownFoods = [...ownFoods.filter(row => row.id !== food.id), food];
+    // A failed follow-up read must not turn a confirmed save into a duplicate retry.
+    try { remembered = rememberedFoods(await store.recentEntries(), ownFoods); }
+    catch (error) { console.error('Could not refresh recent foods:', error); }
+    if (version === saveFoodVersion && view === 'add' && step === 'save-food' && editing === target) resumeEntryEdit();
+    toast('Saved to your foods');
   }));
   window.scrollTo(0, 0);
 }

@@ -37,8 +37,8 @@ function readFields(showErrors) {
 }
 
 /** Open the popup. `day` = the day it logs onto; `onLogged(row)` runs after a successful log. */
-export function openQuicklog({ settings, day, today = day === localDay(), onLogged, mutate = fn => fn() }) {
-  ensureModal(); ctx = { settings, day, today, onLogged, mutate };
+export function openQuicklog({ settings, day, today = day === localDay(), onLogged, onClose, mutate = fn => fn() }) {
+  ensureModal(); ctx = { settings, day, today, onLogged, onClose, mutate };
   const tracked = new Set(['kcal', ...trackedNutrients(settings).map(n => n.key)]);
   $('quicklog-fields').innerHTML = NUTRIENTS.filter(n => tracked.has(n.key)).map(n => field(`ql-${n.key}`, `${n.label} (${n.unit})`, '', {})).join('');
   $('ql-derived').hidden = true; status('ql-status'); $('quicklog-modal').hidden = false; $('ql-log').disabled = true;
@@ -54,7 +54,12 @@ export function openQuicklog({ settings, day, today = day === localDay(), onLogg
   $('quicklog-fields').querySelectorAll('input').forEach(x => x.addEventListener('input', update));
   requestAnimationFrame(() => $('ql-kcal').focus());
 }
-export function closeQuicklog() { if ($('quicklog-modal')) $('quicklog-modal').hidden = true; }
+export function closeQuicklog({ saved = false } = {}) {
+  const modal = $('quicklog-modal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  ctx?.onClose?.({ saved });
+}
 
 let logging = false;
 async function logQuicklog() {
@@ -70,5 +75,5 @@ async function logQuicklogNow() {
   const { settings, onLogged, mutate } = ctx;
   const day = ctx.today ? localDay() : ctx.day;
   const row = await mutate(() => store.addEntry({ day, loggedAt: new Date().toISOString(), meal: settings.meals ? defaultMeal() : null, source: 'quick', sourceRef: null, name: 'Quicklog', basis: 'once', grams: null, portions: null, per100: null, portion: null, values: q.values }));
-  closeQuicklog(); await onLogged?.(row);
+  closeQuicklog({ saved:true }); await onLogged?.(row);
 }

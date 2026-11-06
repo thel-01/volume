@@ -24,8 +24,10 @@ function linkMacrosToCharts(container) {
   }
 }
 
+let loadVersion = 0, loaded = false;
 async function load() {
-  loading('analytics-status'); $('nutrient-charts').hidden = true;
+  const version = ++loadVersion;
+  if (!loaded) { loading('analytics-status'); $('nutrient-charts').hidden = true; }
   try {
     const today = localDay();
     const [settings, history, entries, firstDay] = await Promise.all([
@@ -33,15 +35,21 @@ async function load() {
     ]);
     // Axis labels use SVG text measurement, so lay them out with the loaded font.
     await document.fonts.ready;
+    if (version !== loadVersion) return;
     const container = $('nutrient-charts'); container.replaceChildren(); container.hidden = false;
     const data = { settings, entries, history, firstDay, today }, nutrients = trackedNutrients(settings);
     container.insertAdjacentHTML('beforeend', `<section class="card goals-card analytics-card averages-card" aria-label="7-day average">${averagesBody(nutrients, data)}</section>`);
     renderNutrientCharts(container, nutrients, data);
     linkMacrosToCharts(container);
+    loaded = true;
     status();
   } catch {
-    $('nutrient-charts').hidden = true;
+    if (version !== loadVersion) return;
+    if (!loaded) $('nutrient-charts').hidden = true;
     status("Couldn't load your analytics. Please try again.", 'error', load);
   }
 }
 load();
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+window.addEventListener('pageshow', event => { if (event.persisted) load(); });

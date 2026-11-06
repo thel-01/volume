@@ -7,11 +7,11 @@ import { openQuicklog } from './quicklog.js';
 import { APP_VERSION } from './version.js';
 
 // Same two actions as Your day's footer: Add food opens the add sheet there; Quick logs right here.
-let homeSettings = null, observedToday = localDay(), overviewVersion = 0;
+let homeSettings = null, observedToday = localDay(), overviewVersion = 0, foregroundPending = false, loaded = false;
 function renderActions() {
   $('home-actions').innerHTML = '<button type="button" id="home-add">Add food</button><button type="button" id="home-quick" class="secondary">Quick</button>';
   $('home-add').onclick = () => { location.href = './index.html#add'; };
-  $('home-quick').onclick = () => openQuicklog({ settings: homeSettings, day: localDay(), onLogged: async row => {
+  $('home-quick').onclick = () => openQuicklog({ settings: homeSettings, day: localDay(), onClose: ({ saved }) => { if (foregroundPending) { foregroundPending = false; if (!saved) loadOverview(); } }, onLogged: async row => {
     await loadOverview();
     toast('Logged', async () => { await store.deleteEntry(row.id); await loadOverview(); });
   } });
@@ -33,7 +33,7 @@ function renderAnalytics(data) {
 
 async function loadOverview() {
   const version = ++overviewVersion;
-  loading('overview-status'); $('analytics-preview').hidden = true;
+  if (!loaded) { loading('overview-status'); $('analytics-preview').hidden = true; }
   try {
     const today = localDay(); observedToday = today;
     const [settings, history, entries, firstDay] = await Promise.all([
@@ -53,16 +53,21 @@ async function loadOverview() {
     if (version !== overviewVersion) return;
     const container = $('analytics-preview'); container.replaceChildren(); container.hidden = false;
     renderAnalytics({ settings, history, entries, firstDay, today });
+    loaded = true;
     status();
   } catch {
     if (version !== overviewVersion) return;
-    $('analytics-preview').hidden = true;
+    if (!loaded) $('analytics-preview').hidden = true;
     status("Couldn't load your overview. Please try again.", 'error', loadOverview);
   }
 }
 
 loadOverview();
 
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && observedToday !== localDay()) loadOverview();
-});
+function refreshOnReturn() {
+  if ($('quicklog-modal') && !$('quicklog-modal').hidden) { foregroundPending = true; return; }
+  foregroundPending = false;
+  loadOverview();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOnReturn(); });
+window.addEventListener('pageshow', event => { if (event.persisted) refreshOnReturn(); });
