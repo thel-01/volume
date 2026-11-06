@@ -28,7 +28,7 @@
 -- ---------------------------------------------------------------------------
 
 
--- OAuth tokens only get the Eatabase operations exposed by the connector.
+-- OAuth tokens are accepted only by the MCP server, not the database API.
 create or replace function public.is_oauth_client()
 returns boolean
 language sql
@@ -2027,7 +2027,8 @@ create policy cal_access_select_own on public.cal_access
   for select to authenticated using (user_id = (select auth.uid()));
 grant select on public.cal_access to authenticated;
 
--- "Is the signed-in account on the list?" Security definer so policies can
+-- "Is this a listed app session?" OAuth callers must use MCP instead.
+-- Security definer so policies can
 -- call it cheaply; it only ever answers for the caller's own id.
 create or replace function public.cal_allowed()
 returns boolean
@@ -2036,7 +2037,8 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select exists (select 1 from public.cal_access where user_id = (select auth.uid()));
+  select not public.is_oauth_client()
+    and exists (select 1 from public.cal_access where user_id = (select auth.uid()));
 $$;
 revoke all on function public.cal_allowed() from public;
 grant execute on function public.cal_allowed() to authenticated;
@@ -2365,28 +2367,29 @@ create policy cal_access_no_oauth on public.cal_access
   using (not (select public.is_oauth_client()))
   with check (not (select public.is_oauth_client()));
 
--- The connector reads settings and reads, adds and removes log entries.
+-- The Edge Function's isolated server client verifies OAuth claims and scopes
+-- each operation to that verified user. No server credential reaches clients.
+grant select on public.cal_access, public.cal_settings to service_role;
+grant select, insert, delete on public.cal_entries to service_role;
+
+-- Connector tokens cannot read or write application tables directly. The MCP
+-- server verifies the token, then uses a server-only client scoped to its sub.
+-- Drop the previous command-specific policies when upgrading an existing DB.
 drop policy if exists cal_entries_no_oauth_update on public.cal_entries;
-create policy cal_entries_no_oauth_update on public.cal_entries
-  as restrictive for update to authenticated
+drop policy if exists cal_entries_no_oauth on public.cal_entries;
+create policy cal_entries_no_oauth on public.cal_entries
+  as restrictive for all to authenticated
   using (not (select public.is_oauth_client()))
   with check (not (select public.is_oauth_client()));
 
 drop policy if exists cal_settings_no_oauth_insert on public.cal_settings;
-create policy cal_settings_no_oauth_insert on public.cal_settings
-  as restrictive for insert to authenticated
-  with check (not (select public.is_oauth_client()));
-
 drop policy if exists cal_settings_no_oauth_update on public.cal_settings;
-create policy cal_settings_no_oauth_update on public.cal_settings
-  as restrictive for update to authenticated
+drop policy if exists cal_settings_no_oauth_delete on public.cal_settings;
+drop policy if exists cal_settings_no_oauth on public.cal_settings;
+create policy cal_settings_no_oauth on public.cal_settings
+  as restrictive for all to authenticated
   using (not (select public.is_oauth_client()))
   with check (not (select public.is_oauth_client()));
-
-drop policy if exists cal_settings_no_oauth_delete on public.cal_settings;
-create policy cal_settings_no_oauth_delete on public.cal_settings
-  as restrictive for delete to authenticated
-  using (not (select public.is_oauth_client()));
 
 
 -- ---------------------------------------------------------------------------
@@ -2408,10 +2411,10 @@ begin
   if coalesce(claims->>'client_id', '') <> ''
      and claims->>'role' = 'authenticated'
      and claims->>'is_anonymous' = 'false' then
-    -- Keep 'authenticated' alongside the MCP URL so the database API still
-    -- accepts the token whatever audience it is configured to expect.
-    claims := jsonb_set(claims, '{aud}', jsonb_build_array('authenticated',
-      'https://zhrlrgzpstipojaopnbo.supabase.co/functions/v1/eatabase-mcp'));
+    -- New tokens target only MCP. RLS also blocks previously issued tokens
+    -- whose audience still includes authenticated, so reconnect is optional.
+    claims := jsonb_set(claims, '{aud}', to_jsonb(
+      'https://zhrlrgzpstipojaopnbo.supabase.co/functions/v1/eatabase-mcp'::text));
   end if;
   return jsonb_build_object('claims', claims);
 end;

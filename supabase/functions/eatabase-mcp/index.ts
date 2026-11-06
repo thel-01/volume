@@ -87,6 +87,14 @@ function userClient(token: string) {
   });
 }
 
+// Never attach the caller's token to this server-only client: OAuth database
+// access is denied by RLS. All data queries below explicitly scope to verified sub.
+function serverClient() {
+  return createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}
+
 // A project token alone is not enough: MCP requires resource audience binding.
 // getClaims verifies the signature/expiry through Supabase JWKS. Asymmetric
 // signing keys are required; verification failures return 401.
@@ -98,22 +106,26 @@ async function access(req: Request): Promise<{ client: Client; userId: string } 
     .catch(() => ({ data: null, error: true }));
   const claims = data?.claims;
   if (error || !claims || claims.iss !== ISSUER || typeof claims.sub !== 'string' || !claims.sub ||
-    claims.role !== 'authenticated' || claims.is_anonymous === true ||
+    claims.role !== 'authenticated' || claims.is_anonymous !== false ||
+    typeof claims.client_id !== 'string' || !claims.client_id.trim() ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(claims.sub) ||
     !(Array.isArray(claims.aud) ? claims.aud.includes(RESOURCE) : claims.aud === RESOURCE)) return unauthorized();
-  const allowed = await client.rpc('cal_allowed');
-  if (allowed.error) return json(503, { error: 'Eatabase access could not be checked. Try again shortly.' });
-  if (allowed.data !== true) return json(403, { error: 'Eatabase isn’t open for this account yet.' });
-  return { client, userId: claims.sub };
+  try {
+    const scoped = serverClient();
+    const allowed = await scoped.from('cal_access').select('user_id').eq('user_id', claims.sub).maybeSingle();
+    if (allowed.error) throw new Error('Membership check failed');
+    if (!allowed.data) return json(403, { error: 'Eatabase isn’t open for this account yet.' });
+    return { client: scoped, userId: claims.sub };
+  } catch {
+    return json(503, { error: 'Eatabase access could not be checked. Try again shortly.' });
+  }
 }
 
 class ToolInputError extends Error {}
 class DatabaseError extends Error {}
-async function takeBudget(userId: string, name: string) {
+async function takeBudget(client: Client, userId: string, name: string) {
   try {
-    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const budget = await admin.rpc('take_eatabase_mcp_budget', { p_user_id: userId, p_tool: name });
+    const budget = await client.rpc('take_eatabase_mcp_budget', { p_user_id: userId, p_tool: name });
     const retry = budget.data;
     if (budget.error || !Number.isInteger(retry) || retry < 0 || retry > 86400) throw new DatabaseError();
     if (retry > 0) throw new ToolInputError(`Eatabase's ${name} limit was reached. No action was taken. Wait ${retry} seconds before another call. Stop retrying now and tell the user about the limit and wait time.`);
@@ -136,7 +148,7 @@ function day(value: unknown): string {
   }
   return value;
 }
-// Read the caller's settings through the same RLS-scoped client as entries.
+// Privileged data access must always use the verified caller's userId filter.
 async function trackingDay(client: Client, userId: string, daysBack: number): Promise<string> {
   const settings = await client.from('cal_settings').select('day_end_hour,time_zone').eq('user_id', userId).maybeSingle();
   if (settings.error) throw new DatabaseError();
@@ -228,7 +240,7 @@ async function callTool(client: Client, userId: string, name: string, value: unk
     if (name === 'delete_entry') {
       only(args, ['id']);
       if (typeof args.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.id)) throw new ToolInputError('id must be the entry UUID returned by get_day or log_food.');
-      await takeBudget(userId, name);
+      await takeBudget(client, userId, name);
       const removed = await client.from('cal_entries').delete().eq('user_id', userId).eq('id', args.id).select(ENTRY_COLUMNS).maybeSingle();
       if (removed.error) throw new DatabaseError();
       if (!removed.data) return result({ id: args.id, deleted: false, message: 'No matching entry exists in your log. It may already have been deleted.' });
@@ -246,7 +258,7 @@ async function callTool(client: Client, userId: string, name: string, value: unk
     }
     const values = name === 'log_food' ? nutrition(args) : null;
     // Pure input errors do not consume quota; relative-day reads still do.
-    await takeBudget(userId, name);
+    await takeBudget(client, userId, name);
     const date = explicitDate ?? await trackingDay(client, userId, (args.days_back as number | undefined) ?? 0);
     if (name === 'log_food') {
       // Same snapshot as quicklog.js -> store-supabase.js entryToRow().

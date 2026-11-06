@@ -1,17 +1,20 @@
 # Eatabase MCP
 
 Connect your own Claude account to your Eatabase log. The server offers
-`log_food`, `get_day`, and `delete_entry`, using your account and existing RLS.
+`log_food`, `get_day`, and `delete_entry`, using your verified account through the MCP server only.
 
 ## Owner setup
 
-1. Run the **full repository `schema.sql`** in the Supabase SQL editor. It is
-   the source of truth and safe to paste and re-run in full. It installs the
-   access-token hook and restrictive OAuth policies: connector tokens can only
-   select/insert/delete their own `cal_entries`, select their `cal_settings`,
-   and check membership through `cal_allowed()`. Workout/shared tables, saved
-   foods, goal history, settings writes and demo-management RPCs are blocked.
-   Ordinary app sessions without `client_id` keep their existing access.
+1. For an existing installation, **deploy the updated MCP function first**
+   using the command in step 5, then run the **full repository `schema.sql`**
+   in the Supabase SQL editor. This order keeps the old connector working while
+   the new server is installed. The schema is safe to re-run in full.
+
+   The policies block OAuth connector tokens from direct application-table
+   reads and writes, including calorie entries and settings. `cal_allowed()`
+   also rejects these tokens, blocking food-api use. Normal app sessions without
+   `client_id` retain their access. These restrictions apply to already-issued
+   connector tokens too, even if they still include the old database audience.
 
 2. **Prerequisite: activate asymmetric JWT signing keys.** In the Supabase
    dashboard → **Settings → JWT Keys**, create/activate an **ECC or RSA** signing
@@ -43,15 +46,14 @@ Connect your own Claude account to your Eatabase log. The server offers
 4. Enable **Authentication → Hooks → Custom Access Token**, selecting
    `public.eatabase_mcp_access_token_hook` installed by step 1. If a hook already
    exists, merge this claim transformation into it instead of replacing existing
-   behavior. For non-anonymous OAuth clients, it sets `aud` to the array
-   `['authenticated', 'https://zhrlrgzpstipojaopnbo.supabase.co/functions/v1/eatabase-mcp']`.
+   behavior. For non-anonymous OAuth clients, it sets `aud` to
+   `'https://zhrlrgzpstipojaopnbo.supabase.co/functions/v1/eatabase-mcp'`.
    Ordinary app sessions retain their audience. All OAuth clients using this
-   project's consent page consequently target Eatabase. Reconnect Claude after
-   enabling it so it receives a new token.
+   project's consent page consequently target Eatabase. New tokens target only MCP; existing resource-bound tokens continue to work.
 
    The MCP function requires its own URL in the audience and rejects the generic
-   audience alone; `authenticated` remains alongside it for the database API.
-   Issuance, refresh and PostgREST acceptance have **not** been tested live.
+   audience alone. It also requires `client_id`, a valid user UUID and an explicit
+   non-demo claim. Issuance and refresh have **not** been tested live.
    [Supabase token security](https://supabase.com/docs/guides/auth/oauth-server/token-security),
    [custom token hooks](https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook),
    [MCP audience requirement](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
@@ -63,11 +65,13 @@ Connect your own Claude account to your Eatabase log. The server offers
    ```
 
    `SUPABASE_URL` and `SUPABASE_ANON_KEY` are supplied by Supabase. Every request
-   verifies its JWT through `auth.getClaims`, rejects demo users, then calls
-   `cal_allowed()`. Entry and settings queries carry your bearer token and obey
-   row-level security. A separate client uses `SUPABASE_SERVICE_ROLE_KEY` only
-   for the server-only usage-budget RPC. Supabase supplies this secret to the
-   hosted function; ensure it is available when running locally.
+   verifies the connector JWT through `auth.getClaims`. A separate server-only
+   client uses `SUPABASE_SERVICE_ROLE_KEY` for membership, usage budgets and the
+   three permitted tools. The caller's token is never attached to this client.
+   The service role bypasses RLS: every read/delete explicitly filters by the
+   verified JWT subject, and every insert sets `user_id` from that subject.
+   Tool arguments cannot choose the user or database table. Supabase supplies
+   the server secret to the hosted function; keep it server-side only.
    [Supabase deployment guide](https://supabase.com/docs/guides/getting-started/byo-mcp)
 
 6. Publish the frontend. `eatabase/connect.html`, `eatabase/connect.js` and the
@@ -123,8 +127,9 @@ Connect your own Claude account to your Eatabase log. The server offers
   do not need an Origin header. CORS allows MCP headers and exposes the challenge.
 - Per-user tool limits are 30 log calls per minute and 300 per UTC day;
   reads and deletes each allow 60 calls per minute. Invalid arguments do not
-  consume a slot. These limits apply to this Edge Function, not direct database
-  requests permitted by the caller's token.
+  consume a slot. Connector tokens cannot bypass these limits through direct
+  database access. Ordinary app sessions retain their normal database access;
+  their writes are not charged against connector quotas.
 - Log insertion is not idempotent; deletion is idempotent. Tool annotations
   describe that behavior. Client approval UI remains the client's choice.
   Later ChatGPT OAuth interoperation is untested.
@@ -132,9 +137,9 @@ Connect your own Claude account to your Eatabase log. The server offers
 ## Local verification
 
 ```sh
-deno test -A tests/eatabase-mcp.test.ts
+deno test --no-check -A tests/eatabase-mcp.test.ts
 deno check supabase/functions/eatabase-mcp/index.ts
-deno run -A tests/security-db.test.ts
+deno run --no-check -A tests/security-db.test.ts
 deno run --allow-read tests/food-api.test.ts
 deno test --allow-read tests/eatabase-consent.test.ts
 git diff --check
