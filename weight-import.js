@@ -265,7 +265,7 @@ export function annotateOverlaps(importRows, existingRows) {
     });
   }
 
-  return importRows.map((row) => {
+  return importRows.map((row, rowIndex) => {
     if (!row.ok) return row;
     const k = dayKey(row.measuredAt);
     const candidates = [
@@ -307,7 +307,22 @@ export function annotateOverlaps(importRows, existingRows) {
     // "?" explanation can show the real comparison (what you're entering
     // vs. what's already there) instead of a generic notice.
     const overlap = { kind, diff, other: closest.weightKg };
-    const defaultInclude = kind === 'overlap';
+    const sameReading = c => Math.abs(c.weightKg - row.weightKg) <= DUPLICATE_CLOSE_KG
+      && !(row.timeKnown && c.timeKnown && Math.abs(rowMinutes - c.minutesOfDay) > TIME_AGREEMENT_WIGGLE_MINUTES);
+    const matches = candidates.filter(sameReading);
+    const firstInBatch = kind === 'duplicate' && matches.every(c => c.__selfRow)
+      && matches.every(c => importRows.indexOf(c.__selfRow) > rowIndex);
+    const defaultInclude = kind === 'overlap' || firstInBatch;
     return { ...row, overlap, defaultInclude, include: defaultInclude };
   });
+}
+
+
+/** Retry-safe chunk writes: callers retain the same row and batch IDs on retry. */
+export async function commitImport(client, rows, { chunkSize = 300 } = {}) {
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const { error } = await client.from('body_weights')
+      .upsert(rows.slice(i, i + chunkSize), { onConflict: 'id', ignoreDuplicates: true });
+    if (error) throw error;
+  }
 }

@@ -254,6 +254,7 @@
     import { supabase, requireSession, isAuthError } from './supabase-client.js';
     import { renderLineChart, createRowReadout } from './chart.js';
     import { showToast } from './toast.js';
+    import { isFutureLocalDate } from './date-utils.js';
 
     // ------------------------------------------------------------------
     // Element refs
@@ -505,7 +506,7 @@
       // "Same" only within the quiet window is a no-op tap — hide it, but
       // Update stays available since a real change can happen any time.
       const latest = latestCheckin();
-      sameBtn.hidden = !resolved && !!latest && hoursSince(latest.created_at) < QUIET_HOURS;
+      sameBtn.hidden = !latest || hoursSince(latest.created_at) < QUIET_HOURS;
 
       renderChart();
       renderCheckinList();
@@ -597,15 +598,19 @@
     }
     sameBtn.addEventListener('click', () => {
       const latest = latestCheckin();
-      logSameCheckin(injury, latest ? latest.pain : 0);
+      if (latest) logSameCheckin(injury, latest.pain);
     });
 
     // ---- Update popup — one instance, opened either from the detail
     // view's own button or from an index-card's Update button. ----
     let updateTargetInjury = null;
     let updatePain = 0;
+    let updateCheckinLogged = false;
+    let updateSaving = false;
     function openUpdateModal(injuryObj, currentPain) {
+      if (updateSaving) return;
       updateTargetInjury = injuryObj;
+      updateCheckinLogged = false;
       updatePain = currentPain;
       updateModalTitle.textContent = injuryObj.name;
       buildPainScale(updatePainGrid, updatePain, (v) => {
@@ -633,45 +638,54 @@
       updateNoteToggle.textContent = updateNoteField.hidden ? '+ Add a note' : '− Hide note';
     });
     async function submitCheckin({ resolve }) {
-      hide(updateStatus);
-      updateResolveBtn.disabled = true;
-      updateLogBtn.disabled = true;
-      updateLogBtn.textContent = resolve ? 'Log update' : 'Logging…';
-      if (resolve) updateResolveBtn.textContent = 'Resolving…';
+      if (updateSaving) return;
+      updateSaving = true;
+      try {
+        hide(updateStatus);
+        updateResolveBtn.disabled = true;
+        updateLogBtn.disabled = true;
+        updateLogBtn.textContent = resolve ? 'Log update' : 'Logging…';
+        if (resolve) updateResolveBtn.textContent = 'Resolving…';
 
-      const note = updateNote.value.trim() || null;
-      const { error: checkinErr } = await supabase
-        .from('injury_checkins')
-        .insert({ injury_id: updateTargetInjury.id, pain: updatePain, note });
+        const note = updateNote.value.trim() || null;
+        const { error: checkinErr } = updateCheckinLogged ? { error: null } : await supabase
+          .from('injury_checkins')
+          .insert({ injury_id: updateTargetInjury.id, pain: updatePain, note });
 
-      if (checkinErr) {
-        show(updateStatus, 'error', `Could not log: ${checkinErr.message}`);
-        updateResolveBtn.disabled = false;
-        updateLogBtn.disabled = false;
-        updateLogBtn.textContent = 'Log update';
-        updateResolveBtn.textContent = 'Resolve';
-        return;
-      }
-
-      if (resolve) {
-        const { error: resolveErr } = await supabase
-          .from('injuries')
-          .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-          .eq('id', updateTargetInjury.id);
-        if (resolveErr) {
-          show(updateStatus, 'error', `Logged, but couldn't mark resolved: ${resolveErr.message}`);
+        if (checkinErr) {
+          show(updateStatus, 'error', `Could not log: ${checkinErr.message}`);
           updateResolveBtn.disabled = false;
           updateLogBtn.disabled = false;
           updateLogBtn.textContent = 'Log update';
           updateResolveBtn.textContent = 'Resolve';
-          await reload();
           return;
         }
-      }
 
-      closeModal(updateModal);
-      flash(resolve ? 'Resolved.' : 'Logged.');
-      await reload();
+        updateCheckinLogged = true;
+        if (resolve) {
+          const { error: resolveErr } = await supabase
+            .from('injuries')
+            .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+            .eq('id', updateTargetInjury.id);
+          if (resolveErr) {
+            show(updateStatus, 'error', `Logged, but couldn't mark resolved: ${resolveErr.message}`);
+            updateResolveBtn.disabled = false;
+            updateLogBtn.disabled = false;
+            updateLogBtn.textContent = 'Log update';
+            updateResolveBtn.textContent = 'Resolve';
+            await reload();
+            return;
+          }
+        }
+
+        closeModal(updateModal);
+        flash(resolve ? 'Resolved.' : 'Logged.');
+        await reload();
+      } finally {
+        updateSaving = false;
+        updateLogBtn.disabled = false;
+        updateResolveBtn.disabled = false;
+      }
     }
     updateLogBtn.addEventListener('click', () => submitCheckin({ resolve: false }));
     updateResolveBtn.addEventListener('click', () => submitCheckin({ resolve: true }));
@@ -862,7 +876,10 @@
     // dashboard). Starts with nothing picked — a pre-filled "6" would let
     // someone save a value they never actually chose. ----
     let newCasePain = null;
+    let pendingNewInjuryId = null;
     function openNewCaseModal() {
+      if (newCaseSaveBtn.disabled) return;
+      pendingNewInjuryId = null;
       newCaseName.value = '';
       newCasePain = null;
       newCasePainValue.textContent = '–';
@@ -886,6 +903,7 @@
       newCaseDetailToggle.textContent = newCaseDetailFields.hidden ? '+ Add a note' : '− Hide note';
     });
     newCaseSaveBtn.addEventListener('click', async () => {
+      if (newCaseSaveBtn.disabled) return;
       hide(newCaseStatus);
       const name = newCaseName.value.trim();
       if (!name) {
@@ -900,11 +918,9 @@
       newCaseSaveBtn.disabled = true;
       newCaseSaveBtn.textContent = 'Saving…';
 
-      const { data: newInjury, error: injuryErr } = await supabase
-        .from('injuries')
-        .insert({ user_id: user.id, name })
-        .select()
-        .single();
+      const { data: newInjury, error: injuryErr } = pendingNewInjuryId
+        ? await supabase.from('injuries').update({ name }).eq('id', pendingNewInjuryId).select().single()
+        : await supabase.from('injuries').insert({ user_id: user.id, name }).select().single();
 
       if (injuryErr) {
         show(newCaseStatus, 'error', `Could not save: ${injuryErr.message}`);
@@ -913,6 +929,7 @@
         return;
       }
 
+      pendingNewInjuryId = newInjury.id;
       const note = newCaseNote.value.trim() || null;
       const { error: checkinErr } = await supabase
         .from('injury_checkins')
@@ -929,6 +946,7 @@
         return;
       }
 
+      pendingNewInjuryId = null;
       closeModal(newCaseModal);
       flash(`Tracking "${name}."`);
       await loadIndex();
@@ -939,6 +957,9 @@
     let editCheckinTarget = null;
     let editCheckinPain = 0;
     function openEditCheckinModal(checkin) {
+      if (editCheckinSaveBtn.disabled || editCheckinDeleteBtn.disabled) return;
+      editCheckinDeleteArmed = false;
+      clearTimeout(editCheckinDeleteTimer);
       editCheckinTarget = checkin;
       editCheckinPain = checkin.pain;
       buildPainScale(editCheckinPainGrid, editCheckinPain, (v) => {
@@ -963,6 +984,10 @@
       hide(editCheckinStatus);
       if (!editCheckinDate.value || !editCheckinTime.value) {
         show(editCheckinStatus, 'error', 'A date and time are both needed.');
+        return;
+      }
+      if (isFutureLocalDate(editCheckinDate.value)) {
+        show(editCheckinStatus, 'error', 'That date is in the future.');
         return;
       }
       const createdAt = toInstant(editCheckinDate.value, editCheckinTime.value);
@@ -996,11 +1021,12 @@
     // Two-tap hard delete, same as sets and weight entries elsewhere — a
     // single check-in is a fine-grained record, not worth protecting.
     let editCheckinDeleteArmed = false;
+    let editCheckinDeleteTimer;
     editCheckinDeleteBtn.addEventListener('click', async () => {
       if (!editCheckinDeleteArmed) {
         editCheckinDeleteArmed = true;
         editCheckinDeleteBtn.textContent = 'Tap again to delete';
-        setTimeout(() => {
+        editCheckinDeleteTimer = setTimeout(() => {
           if (editCheckinDeleteArmed) {
             editCheckinDeleteArmed = false;
             editCheckinDeleteBtn.textContent = 'Delete check-in';

@@ -64,8 +64,10 @@ Connect your own Claude account to your Eatabase log. The server offers
 
    `SUPABASE_URL` and `SUPABASE_ANON_KEY` are supplied by Supabase. Every request
    verifies its JWT through `auth.getClaims`, rejects demo users, then calls
-   `cal_allowed()`. The only database client carries your bearer token; no
-   service-role key is used.
+   `cal_allowed()`. Entry and settings queries carry your bearer token and obey
+   row-level security. A separate client uses `SUPABASE_SERVICE_ROLE_KEY` only
+   for the server-only usage-budget RPC. Supabase supplies this secret to the
+   hosted function; ensure it is available when running locally.
    [Supabase deployment guide](https://supabase.com/docs/guides/getting-started/byo-mcp)
 
 6. Publish the frontend. `eatabase/connect.html`, `eatabase/connect.js` and the
@@ -119,9 +121,13 @@ Connect your own Claude account to your Eatabase log. The server offers
   origin are permitted. Add other browser-client/site origins with the optional
   comma-separated `MCP_ALLOWED_ORIGINS` function secret. Server-to-server clients
   do not need an Origin header. CORS allows MCP headers and exposes the challenge.
-- No per-user rate guard is included. Log insertion is not idempotent; deletion
-  is idempotent. Tool annotations describe that behavior. Client approval UI
-  remains the client's choice. Later ChatGPT OAuth interoperation is untested.
+- Per-user tool limits are 30 log calls per minute and 300 per UTC day;
+  reads and deletes each allow 60 calls per minute. Invalid arguments do not
+  consume a slot. These limits apply to this Edge Function, not direct database
+  requests permitted by the caller's token.
+- Log insertion is not idempotent; deletion is idempotent. Tool annotations
+  describe that behavior. Client approval UI remains the client's choice.
+  Later ChatGPT OAuth interoperation is untested.
 
 ## Local verification
 

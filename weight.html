@@ -423,7 +423,7 @@
     import { supabase, requireSession, isAuthError, fetchAllRows } from './supabase-client.js';
     import { renderLineChart } from './chart.js';
     import { parseKg } from './number-input.js';
-    import { mondayOf, relativeDayLabel } from './date-utils.js';
+    import { mondayOf, relativeDayLabel, isFutureLocalDate } from './date-utils.js';
     import { showToast } from './toast.js';
     import { createCopyFeedback, copyText as copyImportPromptText } from './copy-feedback.js';
     import {
@@ -433,7 +433,7 @@
     } from './weight-utils.js';
     import { tagChip, positionHint } from './chip-tag.js';
     import {
-      parseImportText, annotateOverlaps, looksLikeWrongFileShape, REASON_LABEL,
+      parseImportText, annotateOverlaps, looksLikeWrongFileShape, REASON_LABEL, commitImport,
     } from './weight-import.js';
 
     // Spelled out in full, same copy as dashboard.html's hero card — this
@@ -577,6 +577,7 @@
 
     let importParse = null;
     let importAnnotated = null;
+    let importAttempt = null;
     let importLastBulkMode = 'auto';
 
     // ------------------------------------------------------------------
@@ -1115,6 +1116,7 @@
           setTimeout(() => { if (armed) { armed = false; del.textContent = 'Delete'; } }, 3000);
           return;
         }
+        armed = false;
         removeEntry(entry, del, status);
       });
       li.appendChild(del);
@@ -1136,11 +1138,13 @@
     }
 
     async function saveNew() {
+      if (addSave.disabled) return;
       const parsed = parseWeight(newWeight.value);
       if (parsed.error) { show(addStatus, 'error', parsed.error); return; }
 
-      const dateStr = newDate.value;
-      const timeStr = newTime.value;
+      const dateStr = whenFields.hidden ? '' : newDate.value;
+      const timeStr = whenFields.hidden ? '' : newTime.value;
+      if (isFutureLocalDate(dateStr)) { show(addStatus, 'error', 'That date is in the future.'); return; }
       let measuredAt = new Date();
       let timeKnown = true;
       if (timeStr && !dateStr) { show(addStatus, 'error', 'Pick a date for that time.'); return; }
@@ -1176,6 +1180,7 @@
       const parsed = parseWeight(wInput.value);
       if (parsed.error) { show(status, 'error', parsed.error); return; }
       if (!dInput.value) { show(status, 'error', 'A date is needed.'); return; }
+      if (isFutureLocalDate(dInput.value)) { show(status, 'error', 'That date is in the future.'); return; }
 
       const timeKnown = Boolean(tInput.value);
       const measuredAt = toInstant(dInput.value, tInput.value || '12:00');
@@ -1220,6 +1225,7 @@
     // Add form plumbing
     // ------------------------------------------------------------------
     function openAddForm() {
+      if (addSave.disabled) return;
       const now = new Date();
       newWeight.value = '';
       newDate.value = localDateValue(now);
@@ -1318,6 +1324,8 @@
       importStep3.hidden = step !== 3;
     }
     function openImportView() {
+      if (importStep3Commit.disabled) return;
+      importAttempt = null;
       importPaste.value = '';
       importSpecReveal.hidden = true;
       importSpecToggle.textContent = '+ How should my data look?';
@@ -1395,6 +1403,7 @@ Here's my data:
       hide(importStep1Status);
       importParse = parsed;
       importAnnotated = annotateOverlaps(importParse.rows, entries);
+      importAttempt = null;
       importLastBulkMode = 'auto';
       // Show the view BEFORE rendering, not after — renderImportPreview()
       // calls positionHint() on the Auto chip's tag, which measures real
@@ -1649,33 +1658,42 @@ Here's my data:
       importStep3Commit.textContent = 'Importing…';
       hide(importStep3Status);
 
-      const batchId = crypto.randomUUID();
-      const payload = toImport.map((r) => ({
-        user_id: user.id,
-        weight_kg: r.weightKg,
-        measured_at: r.measuredAt.toISOString(),
-        time_known: r.timeKnown,
-        import_batch_id: batchId,
-      }));
-
-      const inserted = [];
-      for (let i = 0; i < payload.length; i += IMPORT_CHUNK_SIZE) {
-        const chunk = payload.slice(i, i + IMPORT_CHUNK_SIZE);
-        const { data, error } = await supabase.from('body_weights').insert(chunk).select();
-        if (error) {
-          importStep3Commit.disabled = false;
-          importStep3Commit.textContent = 'Import';
-          show(importStep3Status, 'error', `Could not import: ${error.message}${inserted.length ? ` (${inserted.length} rows already saved — visible in Settings' "Imported weight data" if you need to undo them)` : ''}`);
-          return;
-        }
-        inserted.push(...(data || []));
+      // Keep the attempt and each row ID stable, including when a response is lost.
+      // Selection changes within this review retain the same IDs and Undo batch.
+      importAttempt ||= { batchId: crypto.randomUUID(), rows: new Map() };
+      const attempt = importAttempt, batchId = attempt.batchId;
+      const payload = toImport.map(r => {
+        if (!attempt.rows.has(r)) attempt.rows.set(r, {
+          id: crypto.randomUUID(), user_id: user.id, weight_kg: r.weightKg,
+          measured_at: r.measuredAt.toISOString(), time_known: r.timeKnown, import_batch_id: batchId,
+        });
+        return attempt.rows.get(r);
+      });
+      importStep3Back.disabled = true;
+      importStep3Back2.disabled = true;
+      let commitError = null, savedRows = [];
+      try {
+        await commitImport(supabase, payload, { chunkSize: IMPORT_CHUNK_SIZE });
+      } catch (error) { commitError = error; }
+      // Reconcile partial or ambiguous writes before allowing another attempt.
+      const saved = await fetchAllRows(() => supabase.from('body_weights').select('*')
+        .eq('import_batch_id', batchId).order('id'));
+      if (!saved.error) {
+        savedRows = saved.data || [];
+        const merged = new Map(entries.map(row => [row.id, row]));
+        for (const row of savedRows) merged.set(row.id, row);
+        entries = [...merged.values()].sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+        render();
       }
-
       importStep3Commit.disabled = false;
       importStep3Commit.textContent = 'Import';
-
-      entries = entries.concat(inserted);
-      entries.sort((a, b) => new Date(b.measured_at) - new Date(a.measured_at));
+      importStep3Back.disabled = false;
+      importStep3Back2.disabled = false;
+      if (commitError || saved.error) {
+        show(importStep3Status, 'error', `Could not finish the import: ${(commitError || saved.error).message} Retry to finish safely; any saved readings are in Settings' "Imported weight data".`);
+        return;
+      }
+      const inserted = savedRows;
       showHomeView();
       render();
 

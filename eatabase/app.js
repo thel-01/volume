@@ -2,7 +2,7 @@ import { $, BACK_ICON, escapeHtml, valueMax, number, status, loading, field, fie
 import {
   NUTRIENTS, MEALS, trackedNutrients, dayTotals, goalStatus, defaultMeal, groupByMeal,
   localDay, calendarDay, inDayEndGap, shiftDay, rememberedFoods, makeEntry, withAmount, quickValues,
-  scaleValues, multiplyValues, fmt,
+  scaleValues, multiplyValues, fmt, amountPatch, macroCheck,
 } from './nutrition.js';
 import * as store from './store.js';
 import { createScanner } from './scanner.js';
@@ -16,6 +16,7 @@ const requestedDay = new URLSearchParams(location.search).get('day');
 const validPastDay = /^\d{4}-\d{2}-\d{2}$/.test(requestedDay || '') && !Number.isNaN(new Date(`${requestedDay}T12:00:00`).getTime()) && localDay(new Date(`${requestedDay}T12:00:00`)) === requestedDay && requestedDay < localDay();
 const pastDay = !!validPastDay;
 let pastEditing = false, explicitDay = pastDay, addToday = false;
+let pendingAdd = location.hash === '#add';
 let observedToday = localDay();
 let day = pastDay ? requestedDay : localDay(), settings, entries = [], remembered = [], ownFoods = [];
 let view = 'day', tab = 'search', step = null, returnStep = null, currentFood = null, editing = null;
@@ -123,6 +124,11 @@ async function loadDay() {
     if (version !== loadVersion) return;
     [settings, entries, , ownFoods] = data; remembered = rememberedFoods(data[2], ownFoods);
     status('day-status'); renderDay(); if (view === 'day') dayAction();
+    if (pendingAdd && !pastDay) {
+      pendingAdd = false;
+      history.replaceState(null, '', location.pathname + location.search);
+      openAdd();
+    }
   } catch { if (version === loadVersion) status('day-status', "Couldn't load your day.", 'error', loadDay); }
 }
 function statusFor(n, total) {
@@ -481,7 +487,9 @@ async function saveAmountNow() {
   if (r.error) { status('sheet-status', r.error, 'error'); $('amount-grams')?.focus(); return; }
   const amount = portion ? { portions:r.value } : amountUnit(currentFood) === 'ml' ? { millilitres:r.value } : { grams:r.value };
   if (editing) {
-    await mutate(() => store.updateEntry(editing.id, { ...withAmount(editing, amount), meal:settings.meals ? selectedMeal : editing.meal })); closeAdd(); await loadDay(); toast('Saved');
+    const patch = amountPatch(editing, amount);
+    if (settings.meals && selectedMeal !== editing.meal) patch.meal = selectedMeal;
+    await mutate(() => store.updateEntry(editing.id, patch)); closeAdd(); await loadDay(); toast('Saved');
   } else { if (addToday) day = localDay(); const row = await mutate(() => store.addEntry(makeEntry(currentFood, { ...amount, meal:settings.meals ? selectedMeal : null, day }))); await afterLog(row); }
 }
 async function afterLog(row) {
@@ -492,7 +500,7 @@ async function afterLog(row) {
   // Logged onto another day than today: say so, and offer to put it on today instead.
   toast(`Logged to ${titleForDay(row.day).replace(/^Yesterday$/, 'yesterday')}`, undo, false, 'info', {
     label: 'Move to today',
-    run: async () => { await mutate(() => store.updateEntry(row.id, { day: localDay() })); day = localDay(); await loadDay(); toast('Moved to today'); },
+    run: async () => { await mutate(() => store.updateEntry(row.id, { day: localDay() })); explicitDay = false; day = localDay(); await loadDay(); toast('Moved to today'); },
   });
 }
 function openOwn({ name = '', brand = '', barcode = '', amountUnit:unit = 'g' } = {}) {
@@ -514,7 +522,7 @@ function openOwn({ name = '', brand = '', barcode = '', amountUnit:unit = 'g' } 
 }
 function openEdit(entry) {
   if (pastDay && !pastEditing) return;
-  dayScroll = window.scrollY; amountState = initialAmount(entry, entry); editing = entry; currentFood = normalizeFood(entry); step = 'amount'; selectedMeal = entry.meal; portions = entry.portions || 1; showView('add'); syncCamera();
+  dayScroll = window.scrollY; amountState = initialAmount(entry, entry); editing = entry; currentFood = { ...normalizeFood(entry), amountUnit: amountUnit(entry) }; step = 'amount'; selectedMeal = entry.meal; portions = entry.portions || 1; showView('add'); syncCamera();
   if (entry.basis === 'once') renderOnceEdit(); else renderAmount();
 }
 function renderOnceEdit() {
@@ -523,7 +531,14 @@ function renderOnceEdit() {
   wireMeals(); wireDelete(); wireSaveAsFood(); bottom('Save', e => run(e.currentTarget, async () => {
     const r = readNutrients('edit'), q = r.valid ? quickValues(r.values) : null;
     if (!r.valid) return; if (q?.values.kcal > valueMax.kcal) { fieldError('edit-kcal', `Enter calories or macros totaling no more than ${valueMax.kcal} kcal.`); return; } if (!q) { fieldError('edit-kcal', 'Enter at least one nutrient value.'); return; }
-    await mutate(() => store.updateEntry(editing.id, { name: $('edit-name').value.trim() || 'Quicklog', values: q.values, meal: settings.meals ? selectedMeal : editing.meal })); closeAdd(); await loadDay(); toast('Saved');
+    const check = !q.kcalDerived ? macroCheck(q.values) : null;
+    if (check?.kind === 'impossible') {
+      fieldError('edit-kcal', `Your macros alone add up to about ${fmt('kcal', check.macroKcal)} kcal, more than the ${fmt('kcal', q.values.kcal)} entered.`);
+      return;
+    }
+    const patch = { name: $('edit-name').value.trim() || 'Quicklog', values: q.values };
+    if (settings.meals && selectedMeal !== editing.meal) patch.meal = selectedMeal;
+    await mutate(() => store.updateEntry(editing.id, patch)); closeAdd(); await loadDay(); toast('Saved');
   }));
 }
 // Any logged entry can become one of your foods: exactly what was eaten, as one portion
@@ -579,7 +594,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && view === 'add') closeAdd();
 });
 // Home's "Add food" lands here with #add: open the add sheet straight away.
-loadDay().then(() => { if (location.hash === '#add') { history.replaceState(null, '', location.pathname + location.search); if (settings && !pastDay) openAdd(); } });
+loadDay();
 
 setActionRunner(run);
 $('day-back').innerHTML = BACK_ICON;

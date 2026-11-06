@@ -5,7 +5,7 @@ import { status as weightStatus } from './ui.js';
     const attempt = async fn => { try { return { data: await fn(), error: null }; } catch (error) { return { data: null, error }; } };
     import { renderLineChart } from './chart.js';
     import { parseKg } from './number-input.js';
-    import { mondayOf, relativeDayLabel } from './date-utils.js';
+    import { mondayOf, relativeDayLabel, isFutureLocalDate } from './date-utils.js';
     import { showToast } from './toast.js';
     import {
       dailyValues, trendSeries, currentTrend, trendAsOf, hasEnoughHistory,
@@ -648,6 +648,7 @@ import { status as weightStatus } from './ui.js';
           setTimeout(() => { if (armed) { armed = false; del.textContent = 'Delete'; } }, 3000);
           return;
         }
+        armed = false;
         removeEntry(entry, del, status);
       });
       li.appendChild(del);
@@ -669,11 +670,13 @@ import { status as weightStatus } from './ui.js';
     }
 
     async function saveNew() {
+      if (addSave.disabled) return;
       const parsed = parseWeight(newWeight.value);
       if (parsed.error) { show(addStatus, 'error', parsed.error); return; }
 
-      const dateStr = newDate.value;
-      const timeStr = newTime.value;
+      const dateStr = whenFields.hidden ? '' : newDate.value;
+      const timeStr = whenFields.hidden ? '' : newTime.value;
+      if (isFutureLocalDate(dateStr)) { show(addStatus, 'error', 'That date is in the future.'); return; }
       let measuredAt = new Date();
       let timeKnown = true;
       if (timeStr && !dateStr) { show(addStatus, 'error', 'Pick a date for that time.'); return; }
@@ -704,6 +707,7 @@ import { status as weightStatus } from './ui.js';
       const parsed = parseWeight(wInput.value);
       if (parsed.error) { show(status, 'error', parsed.error); return; }
       if (!dInput.value) { show(status, 'error', 'A date is needed.'); return; }
+      if (isFutureLocalDate(dInput.value)) { show(status, 'error', 'That date is in the future.'); return; }
 
       const timeKnown = Boolean(tInput.value);
       const measuredAt = toInstant(dInput.value, tInput.value || '12:00');
@@ -744,6 +748,7 @@ import { status as weightStatus } from './ui.js';
     // Add form plumbing
     // ------------------------------------------------------------------
     function openAddForm() {
+      if (addSave.disabled) return;
       const now = new Date();
       newWeight.value = '';
       newDate.value = localDateValue(now);

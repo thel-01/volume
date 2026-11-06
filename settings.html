@@ -365,6 +365,7 @@
 
       const err = dp.error || de.error || ds.error;
       if (err) {
+        lists.hidden = true;
         show(topStatus, 'error', `Could not load recently deleted items: ${err.message}`);
         return;
       }
@@ -503,7 +504,9 @@
       const { error } = await supabase.from('movement_patterns').update({ deleted_at: null }).eq('id', p.id);
 
       if (error) {
-        flash(`Could not restore "${p.name}": ${error.message}`, 'error');
+        flash(error.code === '23505'
+          ? 'An exercise or pattern with the same name already exists. Rename or delete it, then restore.'
+          : `Could not restore "${p.name}": ${error.message}`, 'error');
         btn.disabled = false;
         btn.textContent = 'Restore';
         return;
@@ -536,7 +539,9 @@
       const { error } = await supabase.from('exercises').update({ deleted_at: null }).eq('id', ex.id);
 
       if (error) {
-        flash(`Could not restore "${ex.name}": ${error.message}`, 'error');
+        flash(error.code === '23505'
+          ? `An exercise named "${ex.name}" already exists. Rename or delete it, then restore.`
+          : `Could not restore "${ex.name}": ${error.message}`, 'error');
         btn.disabled = false;
         btn.textContent = 'Restore';
         return;
@@ -865,6 +870,7 @@
       renderSessionTypes();
       show(stStatus, 'ok', `Added "${name}".`);
       setTimeout(() => hide(stStatus), 2500);
+      return true;
     }
 
     async function deleteSessionType(t, btn) {
@@ -892,9 +898,9 @@
       stAddToggle.textContent = stAddPanel.hidden ? '+ Add session type' : '− Hide';
       if (!stAddPanel.hidden) stCustomInput.focus();
     });
-    stCustomAddBtn.addEventListener('click', () => {
-      addSessionType(stCustomInput.value, stCustomAddBtn);
-      stCustomInput.value = '';
+    stCustomAddBtn.addEventListener('click', async () => {
+      const name = stCustomInput.value;
+      if (await addSessionType(name, stCustomAddBtn) && stCustomInput.value === name) stCustomInput.value = '';
     });
     stCustomInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); stCustomAddBtn.click(); }
@@ -1095,7 +1101,7 @@
         .select('weight_trend_method')
         .eq('user_id', user.id)
         .maybeSingle();
-      renderTrendMethodChips(error || !data ? DEFAULT_TREND_METHOD : data.weight_trend_method);
+      renderTrendMethodChips(error ? null : !data ? DEFAULT_TREND_METHOD : data.weight_trend_method);
     }
 
     trendMethodChips.addEventListener('click', async (e) => {

@@ -40,7 +40,7 @@ function json(status: number, body: unknown, retryAfter?: string | null): Respon
 }
 
 // Return the verified user ID only after both authentication and membership checks.
-async function access(req: Request): Promise<{ userId: string } | 'anon' | 'denied'> {
+async function access(req: Request): Promise<{ userId: string } | 'anon' | 'denied' | 'unavailable'> {
   const authorization = req.headers.get('Authorization');
   if (!authorization || !/^Bearer\s+\S+/i.test(authorization)) return 'anon';
   // Same client setup as a normal app page, but with the caller's token, so
@@ -54,10 +54,12 @@ async function access(req: Request): Promise<{ userId: string } | 'anon' | 'deni
     },
   );
   const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return 'anon';
+  if (error) return error.status && error.status < 500 ? 'anon' : 'unavailable';
+  if (!data.user) return 'anon';
   // Same list the cal_* tables enforce (public.cal_access, schema.sql).
   const allowed = await supabase.rpc('cal_allowed');
-  return !allowed.error && allowed.data === true ? { userId: data.user.id } : 'denied';
+  if (allowed.error) return 'unavailable';
+  return allowed.data === true ? { userId: data.user.id } : 'denied';
 }
 
 async function fetchJson(url: string, allowMissing = false): Promise<unknown> {
@@ -118,6 +120,7 @@ Deno.serve(async (req) => {
 
   try {
     const who = await access(req);
+    if (who === 'unavailable') return json(503, { error: 'Food search is temporarily unavailable.', kind: 'unavailable' });
     if (who === 'anon') return json(401, { error: 'log in to use food search' });
     if (who === 'denied') return json(403, { error: 'Eatabase isn’t open for this account yet' });
     // A separate server-only client: never forward the caller's Authorization

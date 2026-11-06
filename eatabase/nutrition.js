@@ -215,6 +215,7 @@ export function reconcileGoals(settings) {
   let to = null;
   if (lo > kHi + tol) to = Math.ceil(lo / 10) * 10;          // macros alone need more than the calorie goal allows
   else if (hi < kLo - tol) to = Math.floor(hi / 10) * 10;    // macros can't reach the calorie goal
+  if (to != null) to = Math.min(GOAL_MAX.kcal, to);
   if (to == null || to === k.goal) return result;
   s.nutrients.kcal = { ...k, goal: to };
   return { ...result, settings: s, changed: true, kcal: { from: k.goal, to } };
@@ -520,6 +521,14 @@ export function withAmount(entry, { grams, millilitres, portions }) {
   }
   if (entry.basis === 'portion') return { ...entry, portions, values: multiplyValues(entry.portion, portions) };
   return entry;   // a one-off quicklog has no basis to rescale from
+}
+
+/** Only amount fields change when editing an entry; preserve concurrent metadata edits. */
+export function amountPatch(entry, amount) {
+  const next = withAmount(entry, amount);
+  const keys = entry.basis === 'per100' ? ['grams', 'millilitres', 'values']
+    : entry.basis === 'portion' ? ['portions', 'values'] : [];
+  return Object.fromEntries(keys.map(key => [key, next[key]]));
 }
 
 /** Number display: kcal whole, grams with one decimal under 10 ("4.5 g", "32 g"). */

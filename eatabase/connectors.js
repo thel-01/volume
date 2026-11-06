@@ -140,8 +140,16 @@ async function removeConnection() {
     toast('Connection removed');
   } catch (error) {
     console.error('Could not remove connector:', error);
+    try {
+      grants = await listConnectorGrants(supabase);
+      const others = othersNow();
+      if (view === 'detail' && !grantsOf(selected).length) showView('list');
+      else if (view === 'other' && !others.some(item => item.id === selectedOther)) showView(others.length ? 'others' : 'list');
+      else render();
+    } catch { /* Keep the existing detail if refreshing also fails. */ }
     status('page-status', "Couldn't remove the connection. Please try again.", 'error');
-    $('confirm-remove').disabled = false; $('cancel-remove').disabled = false;
+    if ($('confirm-remove')) $('confirm-remove').disabled = false;
+    if ($('cancel-remove')) $('cancel-remove').disabled = false;
   } finally { removing = false; }
 }
 $('close-info').onclick = closeInfo;

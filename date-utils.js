@@ -61,3 +61,10 @@ export function relativeDayLabel(iso) {
     ? { month: 'short', day: 'numeric' }
     : { month: 'short', day: 'numeric', year: 'numeric' });
 }
+
+/** Compare calendar dates, allowing today's date-only reading before noon. */
+export function isFutureLocalDate(dateStr) {
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return dateStr > today;
+}

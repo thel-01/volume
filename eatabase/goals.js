@@ -46,7 +46,11 @@ function save(control, change, macroChange, rebuild = false) {
         }
         control.disabled = false;
       }
-    } catch(error) { control.disabled = false; toast(error?.message || "Couldn't save settings.",null,false,'error'); }
+    } catch(error) {
+      if (error?.saved) { settings = error.saved; render(); }
+      control.disabled = false;
+      toast(error?.message || "Couldn't save settings.",null,false,'error');
+    }
   }).catch(() => { control.disabled = false; toast("Couldn't save settings.",null,false,'error'); });
 }
 async function load() {

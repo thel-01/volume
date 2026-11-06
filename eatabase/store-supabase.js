@@ -108,7 +108,11 @@ export async function saveSettings(settings) {
     await userId();
     setDayEndHour(dayEndHour);
     checked(await supabase.from('cal_goal_history').upsert({ user_id:id, day:localDay(), nutrients:next.nutrients }, { onConflict:'user_id,day' }));
-  } catch (error) { throw new Error(`Settings saved, but goal history could not be saved. Please retry. ${error.message}`); }
+  } catch (error) {
+    const partial = new Error(`Settings saved, but goal history could not be saved. Please retry. ${error.message}`);
+    partial.saved = clone(next);
+    throw partial;
+  }
   return clone(next);
 }
 async function goalRows() { return (await rows('cal_goal_history', q => q, ['day'])).map(({ day, nutrients }) => ({ day, nutrients })); }

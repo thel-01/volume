@@ -225,10 +225,10 @@ async function callTool(client: Client, userId: string, name: string, value: unk
   let saved: Entry | undefined;
   try {
     const args = object(value ?? {});
-    await takeBudget(userId, name);
     if (name === 'delete_entry') {
       only(args, ['id']);
       if (typeof args.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args.id)) throw new ToolInputError('id must be the entry UUID returned by get_day or log_food.');
+      await takeBudget(userId, name);
       const removed = await client.from('cal_entries').delete().eq('user_id', userId).eq('id', args.id).select(ENTRY_COLUMNS).maybeSingle();
       if (removed.error) throw new DatabaseError();
       if (!removed.data) return result({ id: args.id, deleted: false, message: 'No matching entry exists in your log. It may already have been deleted.' });
@@ -239,11 +239,16 @@ async function callTool(client: Client, userId: string, name: string, value: unk
     if (args.days_back !== undefined && (typeof args.days_back !== 'number' || !Number.isInteger(args.days_back) || args.days_back < 0 || args.days_back > 30)) {
       throw new ToolInputError('days_back must be an integer from 0 to 30.');
     }
-    const date = args.day === undefined ? await trackingDay(client, userId, (args.days_back as number | undefined) ?? 0) : day(args.day);
+    const explicitDate = args.day === undefined ? undefined : day(args.day);
     if (name === 'log_food') {
       if (typeof args.name !== 'string' || !args.name.trim() || Array.from(args.name).length > 160) throw new ToolInputError('name must contain 1–160 characters and describe the food or meal.');
       if (args.meal !== undefined && !['breakfast', 'lunch', 'dinner', 'snack'].includes(args.meal as string)) throw new ToolInputError('meal must be breakfast, lunch, dinner or snack, or omit it.');
-      const values = nutrition(args);
+    }
+    const values = name === 'log_food' ? nutrition(args) : null;
+    // Pure input errors do not consume quota; relative-day reads still do.
+    await takeBudget(userId, name);
+    const date = explicitDate ?? await trackingDay(client, userId, (args.days_back as number | undefined) ?? 0);
+    if (name === 'log_food') {
       // Same snapshot as quicklog.js -> store-supabase.js entryToRow().
       // Explicit null millilitres satisfies the later amount_matches_basis rule.
       const row = {
@@ -265,7 +270,7 @@ async function callTool(client: Client, userId: string, name: string, value: unk
     ]);
     if (settings.error) throw new DatabaseError();
     const nutrients = settings.data?.nutrients as Record<string, { on?: boolean; goal?: number; type?: string }> | undefined;
-    const goals = Object.fromEntries(KEYS.filter(key => nutrients?.[key]?.goal != null).map(key => [key, nutrients![key]]));
+    const goals = Object.fromEntries(KEYS.filter(key => nutrients?.[key]?.on !== false && nutrients?.[key]?.goal != null).map(key => [key, nutrients![key]]));
     return result({ day: date, day_label: dayLabel(date), entries, totals: totals(entries), goals: Object.keys(goals).length ? goals : null,
       meals: settings.data?.meals ?? true, day_end_hour: settings.data?.day_end_hour ?? 0 });
   } catch (error) {

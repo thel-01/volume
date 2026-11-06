@@ -7,13 +7,13 @@ import { openQuicklog } from './quicklog.js';
 import { APP_VERSION } from './version.js';
 
 // Same two actions as Your day's footer: Add food opens the add sheet there; Quick logs right here.
-let homeSettings = null, observedToday = localDay();
+let homeSettings = null, observedToday = localDay(), overviewVersion = 0;
 function renderActions() {
   $('home-actions').innerHTML = '<button type="button" id="home-add">Add food</button><button type="button" id="home-quick" class="secondary">Quick</button>';
   $('home-add').onclick = () => { location.href = './index.html#add'; };
   $('home-quick').onclick = () => openQuicklog({ settings: homeSettings, day: localDay(), onLogged: async row => {
     await loadOverview();
-    toast('Logged', async () => { await store.deleteEntry(row.id); await loadOverview(); toast('Undone'); });
+    toast('Logged', async () => { await store.deleteEntry(row.id); await loadOverview(); });
   } });
   $('home-actions').hidden = false;
 }
@@ -32,12 +32,14 @@ function renderAnalytics(data) {
 }
 
 async function loadOverview() {
+  const version = ++overviewVersion;
   loading('overview-status'); $('analytics-preview').hidden = true;
   try {
     const today = localDay(); observedToday = today;
     const [settings, history, entries, firstDay] = await Promise.all([
       store.getSettings(), store.getGoalHistory(), store.entriesBetween(shiftDay(today, -27), today), store.firstLoggedDay(),
     ]);
+    if (version !== overviewVersion) return;
     const todayEntries = entries.filter(entry => entry.day === today);
     const n = trackedNutrients(settings)[0], t = dayTotals(todayEntries)[n.key], g = settings.nutrients[n.key], st = goalStatus(n.key, t.value, g.goal, g.type);
     const value = t.missing === t.count && t.count ? '—' : `${t.missing ? '≥ ' : ''}${fmt(n.key, t.value)}`;
@@ -48,10 +50,12 @@ async function loadOverview() {
     homeSettings = settings; renderActions();
     // Axis labels use SVG text measurement, so lay them out with the loaded font.
     await document.fonts.ready;
+    if (version !== overviewVersion) return;
     const container = $('analytics-preview'); container.replaceChildren(); container.hidden = false;
     renderAnalytics({ settings, history, entries, firstDay, today });
     status();
   } catch {
+    if (version !== overviewVersion) return;
     $('analytics-preview').hidden = true;
     status("Couldn't load your overview. Please try again.", 'error', loadOverview);
   }

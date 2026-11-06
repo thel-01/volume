@@ -2459,6 +2459,16 @@
         endConfirm.disabled = true;
         endConfirm.textContent = 'Discarding…';
 
+        // Never trust an empty screen as proof that the stored workout is empty.
+        const savedSets = await supabase.from('sets').select('id').eq('session_id', session.id).limit(1);
+        if (savedSets.error || savedSets.data?.length) {
+          endConfirm.disabled = false;
+          endConfirm.textContent = 'Discard workout';
+          show(endStatus, 'error', savedSets.error
+            ? "Couldn't check your saved sets. Reload before discarding this workout."
+            : 'This workout has saved sets. Reload to see them.');
+          return;
+        }
         const { error } = await supabase.from('sessions').delete().eq('id', session.id);
 
         endConfirm.disabled = false;
@@ -2489,6 +2499,8 @@
         }
       }
 
+      entries = keptEntries;
+      renderEntries();
       const comment = sessionCommentInput.value.trim() || null;
       const { error } = await supabase
         .from('sessions')
@@ -2538,9 +2550,7 @@
       ]);
 
       if (seRes.error || setsRes.error) {
-        const err = seRes.error || setsRes.error;
-        flash(`Could not restore the workout in progress: ${err.message}`, 'error', 6000);
-        return;
+        return false;
       }
 
       const rows = seRes.data.filter((row) => row.exercises);
@@ -2559,19 +2569,26 @@
         commentExpanded: !!(row.comment && row.comment.trim()) || !!row.is_extra,
       }));
       if (entries.length > 0) entries[entries.length - 1].expanded = true;
+      return true;
     }
 
     /** Pick up exactly where a phone lock / reload / undo left off. */
     async function resumeSession(row) {
       session = row;
-      const [, lastCat, usage] = await Promise.all([
+      const [restored, lastCat, usage] = await Promise.all([
         restoreSessionEntries(),
         loadLastCategoryExercises(session.category),
         loadRecentUsage(),
       ]);
+      if (!restored) {
+        showView('error');
+        show(topStatus, 'error', "Couldn't load your workout in progress. Reload to try again.");
+        return false;
+      }
       lastCategoryExercises = lastCat;
       recentUsage = usage;
       enterSession();
+      return true;
     }
 
     // ------------------------------------------------------------------
@@ -2648,7 +2665,7 @@
             return;
           }
           sessionStorage.setItem('volume:justUndone', JSON.stringify({ id: row.id, at: Date.now() }));
-          await resumeSession(row);
+          if (!await resumeSession(row)) return 'Workout reopened. Reload to load its sets.';
           return 'Undone. Still open.';
         },
       });
@@ -2694,14 +2711,16 @@
       patternsById = new Map(allPatterns.map((p) => [p.id, p]));
 
       if (openSession.error) {
+        showView('error');
         show(topStatus, 'error', `Could not check for a workout in progress: ${openSession.error.message}`);
+        return;
       }
 
       let resumed = false;
       if (openSession.data) {
         const handled = await closeIfStale(openSession.data);
         if (!handled) {
-          await resumeSession(openSession.data);
+          if (!await resumeSession(openSession.data)) return;
           // The dashboard's start-workout popup leaves this breadcrumb right
           // before handing off here — "picked up in progress" is misleading
           // for a session started a second ago, not one left open earlier.
